@@ -1,13 +1,24 @@
 # Frontend-Status
 
-Status: v0.1.6 (frontend-engineer) — 2026-07-09
+Status: v0.1.7 (frontend-engineer) — 2026-07-09
 Grundlage: `docs/rules-engine.md` (v0.3.1, Entscheidungen 9.10-9.13 + Nachtrag),
 `docs/engine-status.md` (v0.3.1, 118 Engine-/UI-Tests zum Zeitpunkt der
 Übernahme — der v0.1.1-v0.1.5-Text unten beschreibt bewusst unverändert den
 Stand zum jeweiligen Zeitpunkt, s. dortige Abschnitte), `src/model/*`
 (Datenmodell, unverändert konsumiert), `src/engine/*` (`createRulesEngine`),
 `src/cards/starter-set.ts` (113 Karten, u.a. die drei neuen v0.3-Testkarten
-`core.void-covenant`, `core.current-diplomat`, `core.cinderwrack-engine`).
+`core.void-covenant`, `core.current-diplomat`, `core.cinderwrack-engine`),
+**neu seit v0.1.7:** `docs/ai-status.md` (KI-Gegner v1, `src/ai/simpleBot.ts`,
+öffentliche Funktion `chooseAction(engine, pool, state, player)`).
+
+**v0.1.7 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+„Spieler 2 = KI"-Anbindung des in `src/ai/simpleBot.ts` bereitgestellten
+regelbasierten Bots — Umschalter im Deckbau-Screen von Spieler 2, ein
+automatischer Zug-Loop in `store.ts`, der für bot-gesteuerte Spieler
+selbstständig `chooseAction`+`applyAction` aufruft (Priority, Mulligan,
+Combat-Deklaration, Cleanup-Abwurf inklusive), sowie ein „KI"-Badge im
+Spieler-Panel. Damit ist gegen den Bot spielbar, ohne dass das Frontend
+irgendeine Spiellogik dupliziert.
 
 **v0.1.6 auf einen Blick** (Details im gleichnamigen Abschnitt unten): drei
 UI-Ergänzungen für die v0.3-Engine-Erweiterungen — echte Mulligan-UI (löst
@@ -107,17 +118,17 @@ anklickbare Aktionen angezeigt.
 | Datei | Zweck |
 |---|---|
 | `main.ts` | Einstiegspunkt, startet Store + Render-Loop (**seit v0.1.5**: kein automatischer `initGame`-Aufruf mehr, App startet im Deckbau-Screen) |
-| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen |
-| `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine); **seit v0.1.6** neuer `CastSource`-Typ (spell/ability) + `UiMode`-Zweige `modeSelect`/verallgemeinerte `xInput`/`xTarget` (s. eigener Abschnitt unten) |
-| `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen |
+| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests |
+| `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine); **seit v0.1.6** neuer `CastSource`-Typ (spell/ability) + `UiMode`-Zweige `modeSelect`/verallgemeinerte `xInput`/`xTarget` (s. eigener Abschnitt unten); **seit v0.1.7 unverändert** — die KI-Zuordnung lebt bewusst nur in `store.ts` (s. dortige Begründung im Code-Kommentar, analog zur v0.1.5-`AppPhase`-Entscheidung) |
+| `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen; **seit v0.1.7** zusätzlich Basis für „Zufälliges KI-Deck + weiter" im Deckbau-Screen von Spieler 2 |
 | `deckValidation.ts` | **Neu in v0.1.5**: reine UI-Validierung einer Deckliste (min. 40 Karten, max. 4 Kopien pro Nicht-Terrain-id, s. `src/model/cards.ts#Decklist`-Kommentar) — die Engine validiert das selbst nicht |
 | `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten); **seit v0.1.5** zusätzlich `dominantColorKey` (Manafarbe als Schlüssel statt CSS-Klasse, für den Deckbau-Farbfilter) |
 | `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI; **seit v0.1.6** zusätzlich die `CastSource`-Helfer (`sourceName`/`sourceModes`/`sourceHasXCost`/`sourceTargets`/`buildCastAction`/`activateAbilityCandidatesFor`), die castSpell und activateAbility für den gemeinsamen Modus-/X-/Ziel-Flow vereinheitlichen |
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
-| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten |
-| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit) |
-| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn` |
-| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode) |
+| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge) |
+| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option) |
+| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot` |
+| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion) |
 
 ## Was funktioniert
 
@@ -204,12 +215,15 @@ anklickbare Aktionen angezeigt.
   clientseitig vorgefiltert zu werden — folgt explizit der Empfehlung in
   `docs/engine-status.md` („eigene Eingabe-UI bauen und `applyAction`
   validieren lassen").
-- **Kein AI-Gegner, kein Netzwerk** — reines Hotseat-Board. **Seit v0.1.5**
-  gibt es einen echten Deckbau-Screen vor dem Spielstart (s. eigener
-  Abschnitt unten) statt eines fest codierten Demo-Decks; der Deckbau selbst
-  bleibt aber bewusst simpel (kein Sideboard, kein Deck-Speichern/-Laden über
-  eine Partie hinaus außer der reinen In-Memory-Vorbefüllung nach „Neues
-  Spiel", keine Deck-Namen/-Verwaltung mehrerer Decks).
+- **Kein Netzwerk** — weiterhin reines lokales Board (Hotseat ODER gegen den
+  Bot im selben Browser-Tab, s. u.). **Seit v0.1.5** gibt es einen echten
+  Deckbau-Screen vor dem Spielstart (s. eigener Abschnitt unten) statt eines
+  fest codierten Demo-Decks; der Deckbau selbst bleibt aber bewusst simpel
+  (kein Sideboard, kein Deck-Speichern/-Laden über eine Partie hinaus außer
+  der reinen In-Memory-Vorbefüllung nach „Neues Spiel", keine
+  Deck-Namen/-Verwaltung mehrerer Decks). **Seit v0.1.7 gibt es einen
+  AI-Gegner-Anschluss** (s. eigener Abschnitt unten) — der bisherige Satz
+  „kein AI-Gegner" ist damit überholt; weiterhin **kein Netzwerk-Multiplayer**.
 - **Opfer-/Zusatzkosten-Feedback**: `additionalCosts` (tap/sacrifice/
   payLife/discard/removeCounters) werden nicht separat abgefragt — die
   Engine wendet sie beim Ausführen an (bzw. wirft Karten automatisch nach
@@ -865,6 +879,200 @@ Battlefield-Erkennung), `src/ui/store.ts` (`skipMulligans` entfernt),
 `src/ui/__tests__/golden-path.test.ts` (Mulligan-Entscheidung durchgeklickt
 statt implizit übersprungen, nutzt jetzt `testHelpers.ts`).
 
+## „Spieler 2 = KI"-Anbindung (v0.1.7, 2026-07-09)
+
+Grundlage: `docs/ai-status.md` (KI-Gegner v1) — `src/ai/simpleBot.ts` stellt
+`chooseAction(engine, pool, state, player): PlayerAction` bereit, eine reine
+Entscheidungsfunktion, die **ausschließlich** über `getLegalActions`/
+`applyAction` mit der Engine spricht (kein Zugriff auf Engine-Internals) und
+**immer** eine legale Aktion liefert. Auftrag: diese Funktion an die UI
+anbinden, damit man tatsächlich gegen den Bot spielen kann, ohne
+Spiellogik im Frontend zu duplizieren.
+
+### 1. Umschalter im Deckbau-Flow
+
+`src/ui/components/deckBuilder.ts#deckBuilderScreen`: Nur auf dem
+**player2-Screen** (analog zur bestehenden `offerCopyFromPlayer1`-Abkürzung)
+erscheint jetzt ein Block `.deckbuilder-ai-toggle`:
+
+- Eine Checkbox „Spieler 2 von KI steuern lassen" — setzt/löscht nur das Flag
+  (`store.ts#setBotControlled`), **erzwingt nichts**: Spieler 2 kann danach
+  trotzdem ganz normal weiter sein eigenes Deck bauen und über den regulären
+  „Spiel starten"-Button fortfahren (das Flag entscheidet erst beim
+  eigentlichen Spielverlauf, wer automatisch zieht).
+- Ist die Checkbox aktiv, erscheint zusätzlich ein Button „Zufälliges
+  KI-Deck + weiter" (`.deckbuilder-ai-quickstart-btn`) — die im Auftrag
+  gewünschte Abkürzung: füllt die Deckliste zufällig (`buildDemoDeck`, wie
+  „Zufällig füllen"), markiert Spieler 2 als bot-gesteuert und bestätigt
+  **sofort** (`confirmDeck`), überspringt damit effektiv den gesamten
+  manuellen Deckbau-Screen für Spieler 2 und startet direkt die Partie.
+
+**Entscheidung (wie im Auftrag vorgeschlagen):** Der Bot spielt mit JEDEM
+Deck, ein eigener „KI-Decktyp" ist nicht nötig — `buildDemoDeck` reicht als
+Ausgangspunkt völlig aus, exakt der bereits bestehende „Zufällig
+füllen"-Mechanismus (`deck.ts`, unverändert). Der reguläre Deckbau-Screen für
+Spieler 2 bleibt vollständig erreichbar/nutzbar (kein Sonderpfad, der ihn
+versteckt) — wer möchte, kann dem Bot auch ein manuell zusammengestelltes
+Deck geben.
+
+### 2. App-Zustand: `store.ts` statt `types.ts`
+
+`botControlledPlayers: Set<PlayerId>` + `isBotControlled(player)`/
+`setBotControlled(player, controlled)` leben **ausschließlich in `store.ts`**,
+kein neuer Typ in `types.ts`. Begründung (analog zur v0.1.5-Entscheidung, wo
+`AppPhase` ebenfalls „in store.ts mitverwaltet" statt in einem zweiten
+Beobachter-Mechanismus lebt): `store.ts` ist bereits die einzige Stelle mit
+`notify()`/`subscribe()`, ein Set-Zustand ohne eigene Renderlogik braucht
+keinen eigenen Typ-Namen im `UiMode`-Modul. Bewusst als `Set<PlayerId>`
+(generisch, nicht `player2: boolean`) — der Deckbau-Screen bietet die
+Umschaltung zwar nur für Spieler 2 an (Auftrag: „Spieler 2 = KI"), aber
+`store.ts` selbst kennt keine solche Einschränkung: ein künftiger
+„Bot-vs-Bot-Zuschauermodus" (beide Spieler bot-gesteuert) würde ohne weitere
+Store-Änderung funktionieren, der automatische Zug-Loop (s. u.) prüft pro
+Einzelaktion neu, wer gerade dran ist.
+
+### 3. Automatisches Spielen
+
+Kern ist eine Erweiterung von `store.ts`, dokumentiert direkt im Code:
+
+- **`actingPlayer(state)`** (neu, intern): bestimmt, welcher Spieler gerade
+  tatsächlich handeln muss — Priority, eine an ihn gerichtete
+  `PendingDecision`, oder eine fällige Combat-/Cleanup-Turn-Based-Action ohne
+  Priority-Fenster. Das ist **exakt dieselbe Fallunterscheidung**, die
+  `render.ts#autoEnterForcedModes` für die UI-Modus-Wahl trifft und die
+  `src/ai/__tests__/simpleBot.test.ts#actingPlayer` für die
+  Bot-vs-Bot-Simulation verwendet (siehe `docs/ai-status.md`,
+  „Nutzungsvertrag") — bewusst dieselbe Logik dreimal unabhängig
+  implementiert (Engine-Test, jetzt Store) statt geteilten Code zu
+  extrahieren, weil sie in drei unterschiedlichen Kontexten (Testinfrastruktur
+  für Bot-vs-Bot, UI-Modus-Wahl, Store-Automatisierung) lebt und jede Stelle
+  weiterhin nur die öffentliche `RulesEngine`/`GameState`-Schnittstelle
+  liest — keine Extraktion in einen gemeinsamen internen Helfer, um keine
+  neue Kopplung zwischen `src/ai/__tests__` (Testcode) und `src/ui`
+  einzuführen.
+- **`triggerBotLoop()`** wird nach jeder erfolgreichen menschlichen Aktion
+  (Ende von `dispatch()`) UND nach `initGame()` aufgerufen (falls der nach
+  dem Münzwurf feststehende erste Akteur bereits bot-gesteuert ist, z. B.
+  weil Spieler 2 zufällig Startspieler ist und zuerst über seinen eigenen
+  Mulligan entscheiden muss).
+- **`scheduleBotStepIfNeeded()`/`runBotStep()`**: Ist der aktuelle Akteur
+  bot-gesteuert, wird EIN `chooseAction`+`applyAction`-Schritt über
+  `setTimeout(..., botMoveDelayMs)` geplant, ausgeführt, per `notify()`
+  sofort gerendert, und — falls danach WEITERHIN ein bot-gesteuerter Spieler
+  dran ist — der nächste Schritt geplant. Das läuft, bis wieder ein Mensch an
+  der Reihe ist oder das Spiel endet (`actingPlayer` liefert dann
+  `undefined`, weil `state.winner !== undefined`).
+- **Sichtbarkeit während des Bot-Zugs** (Auftrag Punkt 3, „man kann dem Bot
+  beim Spielen zusehen"): `notify()` läuft nach JEDEM einzelnen Bot-Schritt,
+  nicht erst am Ende einer automatischen Kette — kombiniert mit
+  `botMoveDelayMs` (Default 250 ms, `setBotMoveDelayMs()` überschreibbar)
+  ergibt das im Browser eine sichtbare Zug-für-Zug-Animation statt eines
+  einzigen synchronen Sprungs ans Zugende. Ohne die Verzögerung würde ein
+  kompletter Bot-Zug (oft mehrere Aktionen: Terrain, Zauber, Angriff, mehrere
+  `passPriority`) innerhalb eines einzigen JS-Ticks laufen und im Browser nie
+  zwischengerendert werden (der DOM-Rebuild selbst ist synchron, s.
+  `render.ts`-Kommentar „kein Diffing").
+- **Endlosschleifen-Schutz**: `botCycleGuard`/`MAX_BOT_ACTIONS_PER_CYCLE`
+  (1000) — wird bei jedem `triggerBotLoop()`-Aufruf zurückgesetzt und pro
+  automatischem Schritt hochgezählt; ist das Limit erreicht, bricht die
+  Automatik mit einer `console.error`-Meldung ab statt endlos weiterzulaufen
+  (analog zum 2000er-Sicherheitslimit der Bot-vs-Bot-Tests aus
+  `docs/ai-status.md`, hier niedriger angesetzt, weil pro Zyklus nur EIN
+  Spieler automatisch zieht). Zusätzliches Sicherheitsnetz: Liefert
+  `applyAction` für eine Bot-Aktion einen `error` zurück (laut
+  `docs/ai-status.md` „sollte nie passieren"), bricht `runBotStep` sofort ab
+  (kein stiller Wiederholungsversuch derselben Aktion) und meldet den Fehler
+  über `console.error` UND `lastError`.
+- **`isBotThinking()`**: `true`, solange ein automatischer Schritt
+  geplant/aussteht ist — für Tests gedacht (Polling per `vi.waitFor`, s. u.),
+  um zu warten, bis eine automatische Bot-Kette abgeschlossen ist, bevor der
+  nächste menschliche Klick simuliert wird.
+- **`stopBotLoop()`** wird in `backToDeckbuilder()` (Neues Spiel) und am
+  Anfang von `initGame()` aufgerufen — verhindert, dass ein noch geplanter
+  Timer aus der VORHERIGEN Partie gegen den neuen, gerade gesetzten
+  `GameState` feuert.
+
+### 4. Visuelle Kennzeichnung
+
+`components/playerPanel.ts#PlayerPanelOptions` hat eine neue optionale
+`botControlled`-Eigenschaft; ist sie gesetzt, erscheint ein Badge „KI"
+(`.badge-bot`, neue Farbe an `--mana-wild` angelehnt) direkt neben dem
+Spielernamen — derselbe Badge-Mechanismus wie „am Zug"/„Priority"/„muss
+entscheiden"/„verloren". `render.ts#playerArea` reicht dafür
+`isBotControlled(playerId)` durch.
+
+### 5. Persistenz über „Neues Spiel"
+
+**Entscheidung:** Der `botControlledPlayers`-Zustand bleibt über
+„Neues Spiel" (`backToDeckbuilder`) hinweg erhalten — exakt dasselbe Muster
+wie die gesammelten Decklisten (`decklists`, s. v0.1.5-Abschnitt oben). Wer
+einmal „Spieler 2 von KI steuern lassen" aktiviert hat, will das für die
+nächste Testpartie i. d. R. nicht jedes Mal neu anklicken. Nur ein
+kompletter Modul-Neuladen (App-Neustart) setzt es zurück (Startwert: leeres
+`Set`, standardmäßig **niemand** bot-gesteuert — der reine
+Zwei-Menschen-Flow ist damit unverändert der Default und durch diese
+Änderung in keiner Weise beeinträchtigt).
+
+### Modellkonflikt-Check
+
+**Kein echter Modell-/Architektur-Konflikt gefunden.** `chooseAction` verhält
+sich exakt wie in `docs/ai-status.md` beschrieben (reiner
+`getLegalActions`/`applyAction`-Konsument, liefert immer eine legale Aktion)
+— die Store-Integration musste an keiner Stelle von diesem Vertrag abweichen
+oder ihn umgehen.
+
+### Verifikation (v0.1.7)
+
+- `npm run build` (`tsc --noEmit` über Engine + KI + UI) — sauber.
+- `npm test` (`vitest run`) — **136/136 grün** (135 Bestandstests unverändert
+  + 1 neuer, dauerhafter UI-Test `src/ui/__tests__/vs-bot.test.ts`).
+- `npm run build:ui` (Vite-Produktionsbuild) — erfolgreich (122,7 kB JS /
+  8,0 kB CSS, leicht gewachsen durch den neuen Umschalter/Badge).
+- **`src/ui/__tests__/vs-bot.test.ts`** (neu, dauerhaft im Repo): kompletter
+  End-to-End-Durchlauf ab echtem App-Start, ausschließlich über echte
+  `element.dispatchEvent(new Event("click"/"change"))`-Aufrufe für Spieler 1
+  (nie ein direkter `store.dispatch()`-Aufruf für die geprüfte Interaktion,
+  gleiches Muster wie alle bisherigen Golden-Path-Tests) — Deckbau Spieler 1
+  (normal) → Deckbau-Screen Spieler 2: KI-Checkbox aktivieren →
+  „Zufälliges KI-Deck + weiter" (Deckbau-Screen für Spieler 2 wird komplett
+  übersprungen) → Partie läuft: Spieler 1 klickt sich selbst durch (Mulligan
+  behalten, Terrain legen falls möglich, nie angreifen/blocken — bewusst
+  simpel, der Fokus des Tests ist die Bot-Anbindung, nicht Spieler-1-Taktik),
+  während `store.ts` für Spieler 2 automatisch weiterspielt (inkl. dessen
+  eigener Mulligan-/Combat-/Cleanup-Entscheidungen) bis Spielende oder einem
+  großzügigen Iterations-Limit (600). Der Test wartet nach jedem eigenen
+  Klick über `isBotThinking()` (Polling per `vi.waitFor`) darauf, dass eine
+  angestoßene automatische Bot-Kette abgeschlossen ist, bevor er den nächsten
+  Klick auslöst; `store.ts#setBotMoveDelayMs(0)` beschleunigt das für den
+  Test (die Bot-Züge laufen trotzdem über echte `setTimeout()`-Ticks, kein
+  Store-Bypass). Zusätzlich geprüft: das „KI"-Badge erscheint im
+  Spieler-2-Panel und NICHT im Spieler-1-Panel, sowie durchgehend
+  `console.error` niemals aufgerufen (deckt sowohl den in `runBotStep`
+  dokumentierten „sollte nie passieren"-Fehlerzweig als auch uncaught
+  Exceptions ab). Mit dem für alle Golden-Path-Tests verwendeten festen Seed
+  (`20260709`) läuft die simulierte Partie tatsächlich bis zu einem echten
+  Sieger durch (`player2`/Bot gewinnt nach 14 Zügen, 150
+  Spieler-1-Interaktionsschritten, per manueller Zwischenprüfung beim Bauen
+  bestätigt — deterministisch dank festem `Math.random()`-Seed, s.
+  Test-Kommentar) — der Test akzeptiert aber laut Auftrag ausdrücklich auch
+  „Iterations-Limit erreicht" als gültigen Ausgang, um nicht von der exakten
+  Bot-Heuristik/Kartenverteilung abhängig zu sein.
+- Kein Browser-/Computer-Use-Werkzeug in dieser Session verfügbar (wie
+  bereits in v0.1.3–v0.1.6 dokumentiert) — Verifikation lief über echte
+  DOM-Events in `jsdom` (Vitest), dieselbe Kette wie in allen bisherigen
+  Golden-Path-Verifikationen.
+
+**Ergebnis:** Neue Datei: `src/ui/__tests__/vs-bot.test.ts`. Geänderte
+Dateien: `src/ui/store.ts` (KI-Zustand + automatischer Zug-Loop, s. o.),
+`src/ui/components/deckBuilder.ts` (KI-Umschalter + Quickstart-Button,
+`DeckBuilderOptions` erweitert), `src/ui/components/playerPanel.ts`
+(`botControlled`-Option + „KI"-Badge), `src/ui/render.ts` (neue
+`deckBuilderScreen`-/`playerPanel`-Callbacks), `src/ui/style.css`
+(`.deckbuilder-ai-*`, `.badge-bot`), `src/ui/__tests__/testHelpers.ts`
+(neuer `setChecked`-Helfer). `src/ui/types.ts` **unverändert** (s.
+Entscheidung Punkt 2 oben). Keine Änderungen an `src/engine/*`,
+`src/model/*`, `src/ai/*`, `src/cards/*`.
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
@@ -900,3 +1108,21 @@ statt implizit übersprungen, nutzt jetzt `testHelpers.ts`).
    künftig deutlich größeren Kartenpool (weit über 109) könnte das UI träge
    werden (kein Problem beim aktuellen Umfang, gemessen über den
    Produktionsbuild).
+9. ~~**KI-Gegner-Anbindung ("Spieler 2 = KI")**~~ **erledigt in v0.1.7** (s.
+   eigener Abschnitt oben) — Umschalter im Deckbau-Screen, automatischer
+   Zug-Loop in `store.ts`, „KI"-Badge im Spieler-Panel.
+10. **Bot-Schwierigkeitsstufe/-Timing nicht einstellbar im UI**: `docs/ai-
+    status.md` kündigt für einen späteren Schritt mehrere
+    `chooseAction`-Varianten/Schwierigkeitsstufen an — sobald die existieren,
+    bräuchte der Deckbau-Screen einen zweiten Umschalter (z. B.
+    Dropdown/Radio statt der aktuellen einzelnen Checkbox). `botMoveDelayMs`
+    (store.ts, Default 250 ms) ist aktuell ebenfalls nicht über die UI
+    einstellbar (nur über `setBotMoveDelayMs()` aus Code/Tests) — für ein
+    Hobby-/Lernprojekt aktuell bewusst nicht als Nutzer-Einstellung
+    ausgebaut.
+11. **Bot-vs-Bot-Zuschauermodus**: `store.ts#botControlledPlayers` ist
+    bewusst als `Set<PlayerId>` gebaut und würde „beide Spieler sind KI"
+    unterstützen (s. v0.1.7-Abschnitt oben, Punkt 2) — der Deckbau-Screen
+    bietet den Umschalter aber aktuell nur für Spieler 2 an (Auftrag: „Spieler
+    2 = KI"); ein Umschalter auch für Spieler 1 wäre eine kleine, isolierte
+    Ergänzung in `deckBuilder.ts`/`render.ts`.

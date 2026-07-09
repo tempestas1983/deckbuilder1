@@ -1,6 +1,6 @@
 # Engine-Status
 
-Status: v0.3.1 (engine-engineer) — 2026-07-09
+Status: v0.3.2 (engine-engineer) — 2026-07-09
 Grundlage: `docs/rules-engine.md` (Regelwerk v0.3, vier vertagte Punkte aus
 Abschnitt 10 geschlossen: `onDamageReceived`, Mulligan, X auf aktivierten
 Fähigkeiten, Modal-Effekte; v0.3.1-Nachtrag zu Entscheidung 9.13), `src/model/*`
@@ -10,11 +10,45 @@ Aktionen/Stack-Objekten, `PlayerState.mulligans`, `CreateGameConfig.skipMulligan
 Event `mulliganTaken`; v0.3.1: additives `chosenMode?: number` auf
 `PendingDecision "chooseTriggerTargets"`).
 Code: `src/engine/*`. Tests: `src/engine/__tests__/*.test.ts` + `src/ui/__tests__/*.test.ts`
-(Vitest, 118 Tests, alle grün; vorher 85).
++ `src/ai/__tests__/*.test.ts` (Vitest, `npm test`, 135 Tests, alle grün;
+vorher 132 vor dem v0.3.2-Bugfix-Regressionstest).
 
 Dieses Dokument richtet sich an frontend-engineer (worauf aufbauen?), card-designer
 (welche DSL-Primitive funktionieren zuverlässig?) und game-architect (offene
 Klärungspunkte, siehe Abschnitt "Offene Fragen").
+
+## v0.3.2: Bugfix — `getLegalActions` prüfte bei `activateAbility` nicht alle Zusatzkosten
+
+**Gefunden** beim Bot-vs-Bot-Testen des neuen `src/ai/simpleBot.ts` (siehe
+`docs/ai-status.md`): `legal-actions.ts#activateAbilityCandidates` prüfte von
+den vier `AdditionalCost`-Varianten (`tap`/`payLife`/`discardCards`/
+`removeCounters`) nur **`tap`** auf tatsächliche Bezahlbarkeit gegen den
+aktuellen `GameState`. `applyAction` (`actions.ts#validateAction`) validiert
+dagegen alle vier. `getLegalActions` konnte dadurch einen `activateAbility`-
+Kandidaten liefern (beobachtet: eine Fähigkeit mit `removeCounters`-
+Zusatzkosten ohne ausreichend Marken), den `applyAction` anschließend mit
+einem `error` ablehnte ("Nicht genug Marken.") — ein Verstoß gegen den
+impliziten `getLegalActions`-Vertrag, dass enumerierte Kandidaten tatsächlich
+ausführbar sind (und ein Correctness-Bug, kein reiner Enumerations-Grenzfall
+wie die bewusst dokumentierten Nicht-Enumerationen in diesem Dokument). Das
+hätte potenziell auch im echten UI zu einem anklickbaren, aber fehlschlagenden
+Fähigkeiten-Button führen können.
+
+**Fix:** Neue Hilfsfunktion `legal-actions.ts#additionalCostsPayable` prüft
+jetzt alle vier `AdditionalCost`-Varianten identisch zu `actions.ts` (gleiche
+Bedingungen: `payLife` gegen `PlayerState.life`, `discardCards` gegen
+`hand.length`, `removeCounters` gegen `PermanentState.counters[counterType]`,
+`tap` unverändert gegen `tapped`/`summoningSick`). Ersetzt die vorherigen zwei
+Einzel-Checks für `tap` in `activateAbilityCandidates`.
+
+**Regressionstest:** `src/engine/__tests__/legal-actions.test.ts` (neu, 3
+Tests) — je ein Fall pro betroffener Kostenart (`removeCounters`/`payLife`/
+`discardCards`) mit einer neuen Testkarte `UNAFFORDABLE_COSTS_RELIC`
+(`src/engine/__tests__/fixtures.ts`): bestätigt, dass der jeweilige Kandidat
+NICHT erscheint, solange die Kosten nicht bezahlbar sind, UND dass
+`applyAction` ihn konsistent ablehnt; zusätzlich ein Fall, der nach Erfüllen
+der Kosten (Marke hinzugefügt) zeigt, dass der Kandidat dann erscheint UND
+tatsächlich ausführbar ist.
 
 ## v0.3.1: Modellkonflikt zu 9.13 final gelöst - volle `chooseMode` -> `chooseTriggerTargets`-Kette
 

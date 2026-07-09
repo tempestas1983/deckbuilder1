@@ -11,11 +11,14 @@ import { h, text } from "../h";
 export interface PlayerPanelOptions {
   targetable?: boolean;
   onClick?: () => void;
+  /** v0.1.7 ("Spieler 2 = KI"): zeigt ein "KI"-Badge, s. store.ts#isBotControlled. */
+  botControlled?: boolean;
 }
 
 export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPanelOptions = {}): HTMLElement {
   const p = state.players[playerId];
   const badges: HTMLElement[] = [];
+  if (opts.botControlled) badges.push(h("span", { class: "badge badge-bot" }, [text("KI")]));
   if (state.activePlayer === playerId) badges.push(h("span", { class: "badge badge-active" }, [text("am Zug")]));
   if (state.priorityPlayer === playerId) badges.push(h("span", { class: "badge badge-priority" }, [text("Priority")]));
   if (state.pendingDecision?.player === playerId) {

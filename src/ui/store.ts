@@ -9,6 +9,7 @@
 
 import { createRulesEngine } from "../engine";
 import { starterSet } from "../cards/starter-set";
+import { chooseAction } from "../ai/simpleBot";
 import type { CardPool, GameEvent, GameState, PlayerAction, PlayerId, RulesEngine } from "../model";
 import type { AppPhase, UiMode } from "./types";
 
@@ -129,7 +130,167 @@ export function copyDeckFromPlayer1(): void {
  */
 export function backToDeckbuilder(): void {
   appPhase = { kind: "deckbuild", player: "player1" };
+  stopBotLoop();
   notify();
+}
+
+// ---------------------------------------------------------------------------
+// KI-Gegner (v0.1.7): welche Spieler werden von src/ai/simpleBot.ts#chooseAction
+// gesteuert statt vom UI-Nutzer? Generisch als Set<PlayerId> (nicht fest auf
+// player2), auch wenn der aktuelle Deckbau-Screen die Umschaltung nur für
+// player2 anbietet (s. components/deckBuilder.ts) - ein künftiges "beide
+// Spieler sind KI" (Bot-vs-Bot-Zuschauermodus) würde ohne weitere
+// Store-Änderung funktionieren.
+//
+// Bewusst KEIN Teil des GameState (die Engine kennt keine "KI"-Spieler, s.
+// docs/ai-status.md: chooseAction ist ein reiner externer Konsument) und
+// bewusst KEIN eigener Typ in types.ts - analog zur v0.1.5-Entscheidung, den
+// AppPhase-Zustand in store.ts "mitzuverwalten" statt einen zweiten
+// Beobachter-Mechanismus einzuführen (s. docs/frontend-status.md).
+//
+// Persistenz-Entscheidung (Auftrag Punkt 5): bleibt über "Neues Spiel"
+// (backToDeckbuilder) hinweg erhalten, exakt wie die gesammelten Decklisten
+// (decklists oben) - wer einmal "Spieler 2 von KI steuern lassen" aktiviert
+// hat, will das für die naechste Testpartie i.d.R. nicht jedes Mal neu
+// anklicken. Nur ein frischer App-Start (Modul-Neuladen) setzt es zurück.
+// ---------------------------------------------------------------------------
+
+let botControlledPlayers: Set<PlayerId> = new Set();
+
+export function isBotControlled(player: PlayerId): boolean {
+  return botControlledPlayers.has(player);
+}
+
+export function setBotControlled(player: PlayerId, controlled: boolean): void {
+  const next = new Set(botControlledPlayers);
+  if (controlled) next.add(player);
+  else next.delete(player);
+  botControlledPlayers = next;
+  notify();
+}
+
+/**
+ * Bestimmt, welcher Spieler gerade tatsächlich handeln muss (Priority, eine
+ * an ihn gerichtete PendingDecision, oder eine fällige Combat-/Cleanup-
+ * Turn-Based-Action ohne Priority-Fenster) - exakt dieselbe Fallunter-
+ * scheidung, die render.ts#autoEnterForcedModes für die UI-Modus-Wahl trifft
+ * und die src/ai/__tests__/simpleBot.test.ts#actingPlayer für die
+ * Bot-vs-Bot-Simulation verwendet (siehe docs/ai-status.md, "Nutzungsvertrag").
+ * `undefined`, wenn niemand handeln muss (z.B. Spielende).
+ */
+function actingPlayer(s: GameState): PlayerId | undefined {
+  if (s.winner !== undefined) return undefined;
+  if (s.pendingDecision) return s.pendingDecision.player;
+  if (s.priorityPlayer) return s.priorityPlayer;
+  if (s.step === "declareAttackers") return s.activePlayer;
+  if (s.step === "declareBlockers") return otherPlayerId(s.activePlayer);
+  if (s.step === "cleanup" && s.players[s.activePlayer].hand.length > 7) return s.activePlayer;
+  return undefined;
+}
+
+function otherPlayerId(p: PlayerId): PlayerId {
+  return p === "player1" ? "player2" : "player1";
+}
+
+/**
+ * Verzögerung zwischen zwei automatischen KI-Zügen (Millisekunden). Bewusst
+ * > 0 im normalen Betrieb, damit man dem Bot beim Spielen "zusehen" kann
+ * (jeder Schritt löst einen eigenen notify()/render()-Aufruf aus, s.u.) -
+ * ohne Verzögerung würde ein kompletter Bot-Zug (mehrere Aktionen) innerhalb
+ * eines einzigen JS-Ticks laufen und im Browser nie sichtbar zwischengerendert
+ * werden. `setBotMoveDelayMs` ist für Tests gedacht (dort auf 0 gesetzt, s.
+ * src/ui/__tests__), damit Testläufe nicht auf echte Wartezeiten angewiesen
+ * sind.
+ */
+let botMoveDelayMs = 250;
+
+export function setBotMoveDelayMs(ms: number): void {
+  botMoveDelayMs = Math.max(0, ms);
+}
+
+let botTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** true, solange ein automatischer KI-Zug geplant/aussteht ist - für Tests, um auf "Bot ist fertig" zu warten. */
+export function isBotThinking(): boolean {
+  return botTimer !== undefined;
+}
+
+function stopBotLoop(): void {
+  if (botTimer !== undefined) {
+    clearTimeout(botTimer);
+    botTimer = undefined;
+  }
+}
+
+/**
+ * Sicherheitslimit pro "Zyklus" (ab einer menschlichen dispatch()-Aktion bzw.
+ * ab initGame() gezählt, s. triggerBotLoop) - analog zum 2000er-Aktionslimit
+ * der Bot-vs-Bot-Tests (src/ai/__tests__/simpleBot.test.ts), hier niedriger
+ * angesetzt, weil pro Zyklus nur EIN Spieler automatisch zieht (der andere
+ * ist ja der Mensch, der gerade erst gehandelt hat). Verhindert eine
+ * Endlosschleife, falls chooseAction/getLegalActions/applyAction jemals in
+ * einen Zustand geraten sollten, der nie wieder beim Menschen landet.
+ */
+const MAX_BOT_ACTIONS_PER_CYCLE = 1000;
+let botCycleGuard = 0;
+
+/** Wird nach jeder erfolgreichen menschlichen Aktion (dispatch) und nach initGame() aufgerufen. */
+function triggerBotLoop(): void {
+  botCycleGuard = 0;
+  scheduleBotStepIfNeeded();
+}
+
+function scheduleBotStepIfNeeded(): void {
+  if (botTimer !== undefined) return; // schon ein Schritt geplant
+  const actor = actingPlayer(state);
+  if (!actor || !isBotControlled(actor)) return;
+  if (botCycleGuard >= MAX_BOT_ACTIONS_PER_CYCLE) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `KI-Sicherheitslimit erreicht (${MAX_BOT_ACTIONS_PER_CYCLE} automatische Aktionen ohne menschliche ` +
+        "Zwischenaktion) - automatisches Spielen angehalten. Das ist ein Hinweis auf einen Bug, kein normaler Spielverlauf.",
+    );
+    return;
+  }
+  botTimer = setTimeout(runBotStep, botMoveDelayMs);
+}
+
+/**
+ * Führt EINEN automatischen KI-Zug aus (chooseAction + applyAction, siehe
+ * src/ai/simpleBot.ts) und plant danach - falls weiterhin ein bot-
+ * gesteuerter Spieler am Zug ist - den nächsten Schritt. `notify()` läuft
+ * nach JEDEM einzelnen Schritt (nicht erst am Ende), damit render() den
+ * Spielstand nach jedem Bot-Zug aktualisiert (Auftrag Punkt 3: "man kann dem
+ * Bot beim Spielen zusehen").
+ */
+function runBotStep(): void {
+  botTimer = undefined;
+  const actor = actingPlayer(state);
+  if (!actor || !isBotControlled(actor)) return;
+  botCycleGuard++;
+
+  const action = chooseAction(engine, pool, state, actor);
+  const result = engine.applyAction(state, action);
+  if (result.error) {
+    // Laut docs/ai-status.md sollte chooseAction NIE eine illegale Aktion
+    // liefern - dieser Zweig ist ein reines Sicherheitsnetz (kein stiller
+    // Endlosversuch derselben Aktion, kein Absturz), kein erwarteter Pfad.
+    lastError = result.error;
+    // eslint-disable-next-line no-console
+    console.error(`KI-Aktion wurde von der Engine abgelehnt (sollte laut Bot-Vertrag nicht vorkommen): ${result.error}`);
+    notify();
+    return;
+  }
+  lastError = undefined;
+  state = result.state;
+  uiMode = { kind: "idle" };
+  for (const e of result.events) {
+    const t = describeEvent(e);
+    if (t) log.push(t);
+  }
+  if (log.length > 300) log = log.slice(-300);
+  notify();
+  scheduleBotStepIfNeeded();
 }
 
 function describeEvent(e: GameEvent): string | undefined {
@@ -192,6 +353,11 @@ export function initGame(
   deckP2: Record<string, number>,
   seed: number = Math.floor(Math.random() * 1_000_000),
 ): void {
+  // Eine evtl. noch geplante KI-Aktion der VORHERIGEN Partie darf nicht mehr
+  // gegen den neuen State feuern (s. runBotStep, das direkt auf dem
+  // modul-scoped `state` arbeitet) - erst stoppen, dann den neuen State
+  // setzen, danach ggf. frisch planen (unten).
+  stopBotLoop();
   const { state: s, events } = engine.createGame({
     decks: { player1: deckP1, player2: deckP2 },
     seed,
@@ -210,6 +376,11 @@ export function initGame(
     if (t) log.push(t);
   }
   notify();
+  // v0.1.7: Ist der (nach dem Münzwurf feststehende) erste Akteur bereits
+  // bot-gesteuert - z.B. player2 ist KI und beginnt mit der ersten Mulligan-
+  // Entscheidung oder direkt mit Priority -, spielt der Bot ab hier
+  // automatisch weiter, bis wieder ein Mensch an der Reihe ist.
+  triggerBotLoop();
 }
 
 /** Legale Aktions-Kandidaten für player im aktuellen State (delegiert an die Engine). */
@@ -217,6 +388,14 @@ export function legalActions(player: import("../model").PlayerId): PlayerAction[
   return engine.getLegalActions(state, player);
 }
 
+/**
+ * Wendet eine MENSCHLICHE Aktion an (über die UI ausgelöst). Für automatische
+ * KI-Züge wird bewusst NICHT diese Funktion verwendet, sondern die
+ * strukturell identische, aber eigene `runBotStep` (oben) - dispatch() bleibt
+ * damit "menschlicher Nutzer hat geklickt"-spezifisch (z.B. setzt es uiMode
+ * zurück, was für automatische Bot-Züge irrelevant, aber auch unschädlich
+ * wäre; der Haupt-Unterschied ist `triggerBotLoop()` am Ende, s.u.).
+ */
 export function dispatch(action: PlayerAction): void {
   const result = engine.applyAction(state, action);
   if (result.error) {
@@ -233,4 +412,9 @@ export function dispatch(action: PlayerAction): void {
   }
   if (log.length > 300) log = log.slice(-300);
   notify();
+  // v0.1.7: Nach jeder menschlichen Aktion prüfen, ob jetzt ein bot-
+  // gesteuerter Spieler handeln muss - falls ja, automatisch weiterspielen
+  // (siehe triggerBotLoop/runBotStep oben), bis wieder ein Mensch dran ist
+  // oder das Spiel endet.
+  triggerBotLoop();
 }

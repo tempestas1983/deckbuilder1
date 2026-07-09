@@ -24,8 +24,10 @@ import {
   getPool,
   getState,
   getUiMode,
+  isBotControlled,
   legalActions,
   resetUiMode,
+  setBotControlled,
   setDecklist,
   setUiMode,
 } from "./store";
@@ -163,6 +165,24 @@ function renderDeckBuilder(player: PlayerId): HTMLElement {
       // ohne diese Sperre aufgerufen wird (z.B. künftige Tastatursteuerung).
       if (!validateDecklist(pool, decklist).valid) return;
       confirmDeck(player);
+    },
+    // v0.1.7 ("Spieler 2 = KI"): Umschalter setzt nur das Flag
+    // (store.ts#setBotControlled) - der Nutzer kann trotzdem ganz normal
+    // weiter sein eigenes Deck bauen und über "Spiel starten" fortfahren
+    // (das Flag entscheidet nur, wer die Züge später automatisch spielt, s.
+    // store.ts#dispatch/initGame). "Zufälliges KI-Deck + weiter" ist die im
+    // Auftrag gewünschte Abkürzung: füllt zufällig (buildDemoDeck, wie
+    // "Zufällig füllen"), markiert bot-gesteuert und bestätigt SOFORT -
+    // überspringt damit effektiv den manuellen Deckbau-Screen für player2.
+    botControlled: isBotControlled(player),
+    onToggleBotControl: () => setBotControlled(player, !isBotControlled(player)),
+    onAiQuickstart: () => {
+      const randomDeck = buildDemoDeck(pool);
+      setBotControlled(player, true);
+      setDecklist(player, randomDeck);
+      if (validateDecklist(pool, randomDeck).valid) {
+        confirmDeck(player);
+      }
     },
   });
 }
@@ -449,6 +469,7 @@ function playerArea(
 
   return h("div", { class: "player-area" }, [
     playerPanel(state, playerId, {
+      botControlled: isBotControlled(playerId),
       targetable: !!playerCandidate || xTargetsPlayer,
       onClick: playerCandidate
         ? () => dispatch(playerCandidate)

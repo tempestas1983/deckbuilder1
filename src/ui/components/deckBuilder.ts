@@ -74,6 +74,18 @@ export interface DeckBuilderOptions {
   onRandomFill: () => void;
   onCopyFromPlayer1: () => void;
   onConfirm: () => void;
+  /**
+   * v0.1.7 ("Spieler 2 = KI"): nur für player2 relevant (s. `offerCopyFromPlayer1`-
+   * Muster) - ob dieser Spieler aktuell als bot-gesteuert markiert ist
+   * (store.ts#isBotControlled) sowie die zugehörigen Callbacks. player1 kann
+   * nicht als KI markiert werden (der Umschalter erscheint nur für player2,
+   * s. deckBuilderScreen unten) - reine UI-Entscheidung, store.ts unterstützt
+   * grundsätzlich jeden PlayerId.
+   */
+  botControlled: boolean;
+  onToggleBotControl: () => void;
+  /** "Zufälliges KI-Deck + weiter": füllt zufällig, markiert bot-gesteuert und bestätigt sofort (überspringt den manuellen Deckbau-Screen für diesen Spieler). */
+  onAiQuickstart: () => void;
 }
 
 export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
@@ -125,8 +137,36 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
 
   const confirmLabel = player === "player2" ? "Spiel starten" : "Weiter (Spieler 2 baut Deck)";
 
+  // v0.1.7: Der KI-Umschalter erscheint bewusst nur auf dem player2-Screen
+  // (analog zu offerCopyFromPlayer1) - der Auftrag verlangt "Spieler 2 = KI",
+  // nicht Spieler 1. store.ts#isBotControlled/setBotControlled unterstützen
+  // grundsätzlich jeden PlayerId (Set<PlayerId>), diese Einschränkung ist rein
+  // hier in der UI.
+  const aiToggle =
+    player === "player2"
+      ? h("div", { class: "deckbuilder-ai-toggle" }, [
+          h("label", { class: "deckbuilder-ai-toggle-label" }, [
+            h("input", {
+              type: "checkbox",
+              class: "deckbuilder-ai-checkbox",
+              checked: opts.botControlled,
+              onchange: opts.onToggleBotControl,
+            }),
+            text(" Spieler 2 von KI steuern lassen"),
+          ]),
+          opts.botControlled
+            ? h(
+                "button",
+                { class: "btn deckbuilder-ai-quickstart-btn", onclick: opts.onAiQuickstart },
+                [text("Zufälliges KI-Deck + weiter")],
+              )
+            : undefined,
+        ])
+      : undefined;
+
   return h("div", { class: "deckbuilder-screen" }, [
     h("h2", { class: "deckbuilder-title" }, [text(`Deckbau: ${player}`)]),
+    aiToggle,
     h("div", { class: "deckbuilder-controls" }, [
       searchInput,
       typeSelect,

@@ -38,7 +38,17 @@
  *   einen Kandidaten pro `selectableModes`-Eintrag.
  */
 
-import type { CardPool, ChosenTarget, GameState, PendingDecision, PlayerAction, PlayerId } from "../model";
+import type {
+  Ability,
+  CardDefinition,
+  CardInstance,
+  CardPool,
+  ChosenTarget,
+  GameState,
+  PendingDecision,
+  PlayerAction,
+  PlayerId,
+} from "../model";
 import { getDefinition, getDefinitionForInstance } from "./card-defs";
 import { canPayCost } from "./mana";
 import { computeSpellCostDelta } from "./stats";
@@ -109,6 +119,44 @@ function playTerrainCandidates(state: GameState, pool: CardPool, player: PlayerI
   return result;
 }
 
+/**
+ * Bezahlbarkeit ALLER `AdditionalCost`-Varianten einer aktivierten Fähigkeit
+ * gegen den aktuellen Zustand ("tap"/"payLife"/"discardCards"/
+ * "removeCounters") — muss exakt dieselben Prüfungen wie die
+ * `activateAbility`-Validierung in `actions.ts#validateAction` abdecken.
+ *
+ * Bugfix (gefunden beim Bot-vs-Bot-Testen, siehe docs/ai-status.md /
+ * docs/engine-status.md): Vor diesem Fix prüfte diese Funktion nur "tap" -
+ * `getLegalActions` konnte dadurch einen `activateAbility`-Kandidaten
+ * liefern (z.B. mit `removeCounters`-Zusatzkosten), den `applyAction`
+ * anschließend als illegal ablehnte ("Nicht genug Marken."). Das verletzt
+ * den `getLegalActions`-Vertrag ("garantiert enumeriert werden ... mit 0
+ * oder 1 Zielslot" impliziert: enumerierte Kandidaten sind tatsächlich
+ * ausführbar) und hätte auch im echten UI zu einem anklickbaren, aber
+ * fehlschlagenden Fähigkeiten-Button führen können.
+ */
+function additionalCostsPayable(
+  state: GameState,
+  player: PlayerId,
+  card: CardInstance,
+  def: CardDefinition,
+  ability: Extract<Ability, { kind: "activated" }>,
+): boolean {
+  for (const cost of ability.additionalCosts ?? []) {
+    if (cost.kind === "tap") {
+      if (card.permanentState!.tapped) return false;
+      if (card.permanentState!.summoningSick && def.type === "unit") return false;
+    } else if (cost.kind === "payLife") {
+      if (state.players[player].life < cost.amount) return false;
+    } else if (cost.kind === "discardCards") {
+      if (state.players[player].hand.length < cost.count) return false;
+    } else if (cost.kind === "removeCounters") {
+      if ((card.permanentState!.counters[cost.counterType] ?? 0) < cost.count) return false;
+    }
+  }
+  return true;
+}
+
 function activateAbilityCandidates(state: GameState, pool: CardPool, player: PlayerId): PlayerAction[] {
   const result: PlayerAction[] = [];
   for (const sourceInstanceId of state.players[player].battlefield) {
@@ -119,14 +167,7 @@ function activateAbilityCandidates(state: GameState, pool: CardPool, player: Pla
     abilities.forEach((ability, abilityIndex) => {
       if (ability.kind !== "activated") return;
       if (!canActivateAbilityNow(state, player, ability)) return;
-      if (ability.additionalCosts?.some((c) => c.kind === "tap") && card.permanentState!.tapped) return;
-      if (
-        ability.additionalCosts?.some((c) => c.kind === "tap") &&
-        card.permanentState!.summoningSick &&
-        def.type === "unit"
-      ) {
-        return;
-      }
+      if (!additionalCostsPayable(state, player, card, def, ability)) return;
       // v0.3 (rules-engine.md 4 + 9.12): X-Kosten werden wie bei Spells nicht
       // enumeriert (canPayCost mit chosenX=undefined lehnt X-Kosten ohnehin
       // ab - expliziter früher Return für Lesbarkeit, gleiche Linie wie

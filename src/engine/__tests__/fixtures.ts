@@ -48,6 +48,12 @@ export const MODAL_CHARM_SPELL = "test.tactician-charm"; // {generic:1}, fast, 2
 export const MODAL_ABILITY_RELIC = "test.trickster-idol"; // {generic:1} Relic, aktivierte Fähigkeit {generic:1} mit 2 Modi: (a) 1 Schaden an Ziel (b) gewinne 1 Leben
 export const MODAL_TRIGGER_UNIT = "test.omen-oracle"; // 1/1 für {generic:1}, ETB modal: (a) zerstöre gegnerische Unit deiner Wahl (b) ziehe 1 Karte (kein Ziel) - für chooseMode-Decision inkl. Auto-Pick-Fall
 
+// Regressionstest-Karte für den getLegalActions-Bugfix (legal-actions.ts#additionalCostsPayable,
+// docs/engine-status.md): drei aktivierte Fähigkeiten mit je einer der drei
+// AdditionalCost-Varianten, die vor dem Fix NICHT auf Bezahlbarkeit geprüft
+// wurden (removeCounters/payLife/discardCards - "tap" war immer schon geprüft).
+export const UNAFFORDABLE_COSTS_RELIC = "test.overcosted-trinket";
+
 export function buildTestPool(): CardPool {
   return {
     [FLAME_TERRAIN]: {
@@ -510,6 +516,33 @@ export function buildTestPool(): CardPool {
             },
           ],
           text: "ETB - Wähle eines: zerstöre eine gegnerische Unit deiner Wahl; oder ziehe 1 Karte.",
+        },
+      ],
+    },
+    [UNAFFORDABLE_COSTS_RELIC]: {
+      id: UNAFFORDABLE_COSTS_RELIC,
+      name: "Testüberteuertes Trinket",
+      type: "relic",
+      set: "test",
+      cost: { generic: 1 },
+      abilities: [
+        {
+          kind: "activated",
+          additionalCosts: [{ kind: "removeCounters", counterType: "charge", count: 1 }],
+          effects: [{ kind: "gainLife", who: "controller", amount: 1 }],
+          text: "Entferne eine Ladungsmarke: gewinne 1 Leben. (Regressionstest removeCounters, abilityIndex 0)",
+        },
+        {
+          kind: "activated",
+          additionalCosts: [{ kind: "payLife", amount: 25 }],
+          effects: [{ kind: "gainLife", who: "controller", amount: 1 }],
+          text: "Bezahle 25 Leben: gewinne 1 Leben. (Regressionstest payLife, absichtlich nie bezahlbar bei Startleben 20, abilityIndex 1)",
+        },
+        {
+          kind: "activated",
+          additionalCosts: [{ kind: "discardCards", count: 10 }],
+          effects: [{ kind: "gainLife", who: "controller", amount: 1 }],
+          text: "Wirf 10 Karten ab: gewinne 1 Leben. (Regressionstest discardCards, abilityIndex 2)",
         },
       ],
     },

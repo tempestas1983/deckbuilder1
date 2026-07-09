@@ -254,6 +254,11 @@ body {
   color: var(--bad);
 }
 
+.badge-bot {
+  border-color: var(--mana-wild);
+  color: var(--mana-wild);
+}
+
 .player-panel-life,
 .player-panel-mana,
 .player-panel-zones {
@@ -484,6 +489,32 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+/* KI-Umschalter (v0.1.7, "Spieler 2 = KI") -------------------------------- */
+
+.deckbuilder-ai-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--mana-wild);
+  background: var(--panel-2);
+}
+
+.deckbuilder-ai-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.deckbuilder-ai-quickstart-btn {
+  border-color: var(--mana-wild);
+  color: var(--mana-wild);
 }
 
 .deckbuilder-search-input {

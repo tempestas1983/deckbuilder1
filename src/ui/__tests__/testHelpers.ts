@@ -25,6 +25,20 @@ export function click(el: Element | null | undefined): void {
   el.dispatchEvent(new Event("click", { bubbles: true }));
 }
 
+/**
+ * Setzt den `checked`-Zustand einer Checkbox EXPLIZIT (statt sich auf jsdoms
+ * eingebautes "Klick-Aktivierungsverhalten" für <input type="checkbox"> zu
+ * verlassen, das nicht in jeder jsdom-Version/Konfiguration identisch mit
+ * echten Browsern feuert) und stößt danach ein echtes "change"-Event an -
+ * genau das Event, an das die Checkbox-Handler in diesem Projekt gebunden
+ * sind (`onchange`, s. components/deckBuilder.ts#aiToggle).
+ */
+export function setChecked(el: HTMLInputElement | null | undefined, checked: boolean): void {
+  if (!el) throw new Error("setChecked(): Element nicht gefunden.");
+  el.checked = checked;
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 export function queryOne<T extends Element = Element>(root: ParentNode, selector: string): T {
   const el = root.querySelector<T>(selector);
   if (!el) throw new Error(`Element nicht gefunden: ${selector}`);
