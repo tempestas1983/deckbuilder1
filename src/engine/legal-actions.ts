@@ -1,0 +1,202 @@
+/**
+ * getLegalActions: Enumeration spielbarer Aktionen für einen Spieler im
+ * aktuellen State. v0.2-Abdeckung reicht für die geforderten "einfachen
+ * Fälle" (Karte spielen bei Priority+Mana, Priority passen) sowie
+ * grundlegende Combat-Deklarationen und PendingDecision-Kandidaten.
+ *
+ * Vertragspräzisierung (rules-engine.md 9.6, RulesEngine-Interface-Kommentar):
+ * diese Liste ist bewusst NICHT erschöpfend - `applyAction` bleibt die
+ * Legalitäts-Wahrheit. BEWUSST NICHT vollständig (siehe docs/engine-status.md):
+ * - Karten/Fähigkeiten mit MEHR ALS EINEM Zielslot werden nicht kombinatorisch
+ *   enumeriert (nur 0 oder 1 Slot). TODO für game-architect/Erweiterung.
+ * - X-Kosten-Karten werden nicht enumeriert (welches X soll geraten werden?
+ *   rules-engine.md 4: "getLegalActions enumeriert X-Werte nicht"). Frontend
+ *   muss dafür eine eigene Eingabe bauen und `applyAction` direkt mit
+ *   gewähltem `chosenX` aufrufen (Legalität wird dort geprüft).
+ * - declareAttackers/declareBlockers: nur Einzel-Kandidaten (kein Angreifer /
+ *   genau ein Angreifer bzw. kein Block / genau ein Block) werden enumeriert,
+ *   keine kombinatorische Teilmengenbildung (kombinatorisch bei > ein paar
+ *   Units schnell riesig). Bei aktiver `guardian`-Pflicht (rules-engine.md 6)
+ *   werden NUR Einzel-Blocks enumeriert, die die Pflicht erfüllen (bzw. gar
+ *   keine, wenn mehr als eine guardian-Unit gleichzeitig blocken muss - das
+ *   ist kombinatorisch und wird bewusst nicht angeboten). Frontend kann
+ *   dennoch JEDE legale Kombination per applyAction einreichen.
+ * - discardToHandSize: wird NICHT enumeriert (kombinatorisch, spielerabhängige
+ *   Wahl). Frontend erkennt die Pflicht daran, dass state.step === "cleanup",
+ *   state.priorityPlayer === undefined (und state.pendingDecision ===
+ *   undefined) und hand.length > 7 ist, und muss selbst eine
+ *   cardInstanceIds-Liste der richtigen Länge zusammenstellen.
+ * - resolveDecision (chooseTriggerTargets): nur bei genau einem Zielslot
+ *   enumeriert (gleiche Begründung wie oben).
+ */
+
+import type { CardPool, ChosenTarget, GameState, PendingDecision, PlayerAction, PlayerId } from "../model";
+import { getDefinition, getDefinitionForInstance } from "./card-defs";
+import { canPayCost } from "./mana";
+import { canActivateAbilityNow, canCastNow, canPlayTerrainNow, hasPriority } from "./legality";
+import { enumerateLegalTargets } from "./targets";
+import { guardianUnitsRequiringBlock, isLegalAttacker, isLegalBlock } from "./combat";
+import { otherPlayer } from "./util";
+
+function castSpellCandidates(state: GameState, pool: CardPool, player: PlayerId): PlayerAction[] {
+  const result: PlayerAction[] = [];
+  for (const cardInstanceId of state.players[player].hand) {
+    const card = state.cards[cardInstanceId];
+    if (!card) continue;
+    const def = getDefinition(pool, card.definitionId);
+    if (def.type === "terrain") continue; // separat über playTerrain
+    if (!canCastNow(state, player, def)) continue;
+    if (def.cost.x) continue; // TODO: X-Kosten werden nicht enumeriert, siehe Datei-Kommentar.
+
+    const targetSpecs =
+      def.type === "spell" ? def.targets : def.type === "enchantment" && def.enchantKind === "aura" ? [def.auraTarget!] : undefined;
+
+    if (!targetSpecs || targetSpecs.length === 0) {
+      if (canPayCost(state.players[player].manaPool, def.cost, undefined)) {
+        result.push({ kind: "castSpell", player, cardInstanceId, chosenTargets: [] });
+      }
+      continue;
+    }
+    if (targetSpecs.length === 1) {
+      if (!canPayCost(state.players[player].manaPool, def.cost, undefined)) continue;
+      const options = enumerateLegalTargets(state, pool, targetSpecs[0]!, player);
+      for (const target of options) {
+        result.push({ kind: "castSpell", player, cardInstanceId, chosenTargets: [target] });
+      }
+    }
+    // targetSpecs.length > 1: nicht enumeriert, siehe Datei-Kommentar.
+  }
+  return result;
+}
+
+function playTerrainCandidates(state: GameState, pool: CardPool, player: PlayerId): PlayerAction[] {
+  const result: PlayerAction[] = [];
+  if (!canPlayTerrainNow(state, player)) return result;
+  for (const cardInstanceId of state.players[player].hand) {
+    const card = state.cards[cardInstanceId];
+    if (!card) continue;
+    const def = getDefinition(pool, card.definitionId);
+    if (def.type === "terrain") {
+      result.push({ kind: "playTerrain", player, cardInstanceId });
+    }
+  }
+  return result;
+}
+
+function activateAbilityCandidates(state: GameState, pool: CardPool, player: PlayerId): PlayerAction[] {
+  const result: PlayerAction[] = [];
+  for (const sourceInstanceId of state.players[player].battlefield) {
+    const card = state.cards[sourceInstanceId];
+    if (!card?.permanentState) continue;
+    const def = getDefinition(pool, card.definitionId);
+    const abilities = "abilities" in def ? def.abilities ?? [] : [];
+    abilities.forEach((ability, abilityIndex) => {
+      if (ability.kind !== "activated") return;
+      if (!canActivateAbilityNow(state, player, ability)) return;
+      if (ability.additionalCosts?.some((c) => c.kind === "tap") && card.permanentState!.tapped) return;
+      if (
+        ability.additionalCosts?.some((c) => c.kind === "tap") &&
+        card.permanentState!.summoningSick &&
+        def.type === "unit"
+      ) {
+        return;
+      }
+      if (!canPayCost(state.players[player].manaPool, ability.manaCost ?? {}, undefined)) return;
+
+      const targetSpecs = ability.targets;
+      if (!targetSpecs || targetSpecs.length === 0) {
+        result.push({ kind: "activateAbility", player, sourceInstanceId, abilityIndex, chosenTargets: [] });
+        return;
+      }
+      if (targetSpecs.length === 1) {
+        const options = enumerateLegalTargets(state, pool, targetSpecs[0]!, player);
+        for (const target of options) {
+          result.push({ kind: "activateAbility", player, sourceInstanceId, abilityIndex, chosenTargets: [target] });
+        }
+      }
+      // targetSpecs.length > 1: nicht enumeriert, siehe Datei-Kommentar.
+    });
+  }
+  return result;
+}
+
+function combatCandidates(state: GameState, pool: CardPool, player: PlayerId): PlayerAction[] {
+  const result: PlayerAction[] = [];
+  if (state.priorityPlayer !== undefined || state.pendingDecision !== undefined) return result;
+
+  if (state.step === "declareAttackers" && state.activePlayer === player) {
+    result.push({ kind: "declareAttackers", player, attackers: [] });
+    for (const instanceId of state.players[player].battlefield) {
+      if (isLegalAttacker(state, pool, player, instanceId)) {
+        result.push({ kind: "declareAttackers", player, attackers: [instanceId] });
+      }
+    }
+  }
+  if (state.step === "declareBlockers" && otherPlayer(state, state.activePlayer) === player) {
+    const requiredGuardians = guardianUnitsRequiringBlock(state, pool, player);
+    if (requiredGuardians.length === 0) {
+      result.push({ kind: "declareBlockers", player, blocks: [] });
+    }
+    for (const blocker of state.players[player].battlefield) {
+      // Bei > 1 gleichzeitig zu erfüllender guardian-Pflicht ist ein
+      // Einzel-Block-Kandidat nie ausreichend legal -> keine Enumeration
+      // (siehe Datei-Kommentar oben; applyAction validiert trotzdem jede
+      // vollständige, die Pflicht erfüllende Kombination korrekt).
+      if (requiredGuardians.length > 1 || (requiredGuardians.length === 1 && !requiredGuardians.includes(blocker))) {
+        continue;
+      }
+      for (const attacker of state.players[state.activePlayer].battlefield) {
+        if (isLegalBlock(state, pool, player, blocker, attacker)) {
+          result.push({ kind: "declareBlockers", player, blocks: [{ blocker, attacker }] });
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function resolveDecisionCandidates(
+  state: GameState,
+  pool: CardPool,
+  decision: PendingDecision,
+  player: PlayerId,
+): PlayerAction[] {
+  if (decision.player !== player) return [];
+  if (decision.kind !== "chooseTriggerTargets") {
+    // chooseManaColor/chooseDiscard/orderScry: v0.2 setzt diese noch nie (siehe
+    // triggers.ts/effects.ts-Kommentare) - kein Kandidat nötig, aktuell unerreichbar.
+    return [];
+  }
+  const def = getDefinitionForInstance(pool, state, decision.sourceInstanceId);
+  const abilities = "abilities" in def ? def.abilities ?? [] : [];
+  const ability = abilities[decision.abilityIndex];
+  if (!ability || ability.kind !== "triggered") return [];
+  const specs = ability.targets ?? [];
+  if (specs.length !== 1) return []; // nicht erschöpfend, siehe Datei-Kommentar oben
+
+  const options = enumerateLegalTargets(state, pool, specs[0]!, decision.player);
+  return options.map((target): PlayerAction => ({
+    kind: "resolveDecision",
+    player,
+    choice: { kind: "chooseTriggerTargets", chosenTargets: [target] as ChosenTarget[] },
+  }));
+}
+
+export function getLegalActions(state: GameState, player: PlayerId, pool: CardPool): PlayerAction[] {
+  if (state.winner !== undefined) return [];
+
+  if (state.pendingDecision) {
+    return [...resolveDecisionCandidates(state, pool, state.pendingDecision, player), { kind: "concede", player }];
+  }
+
+  const result: PlayerAction[] = [];
+  if (hasPriority(state, player)) {
+    result.push({ kind: "passPriority", player });
+    result.push(...castSpellCandidates(state, pool, player));
+    result.push(...playTerrainCandidates(state, pool, player));
+    result.push(...activateAbilityCandidates(state, pool, player));
+  }
+  result.push(...combatCandidates(state, pool, player));
+  result.push({ kind: "concede", player });
+  return result;
+}
