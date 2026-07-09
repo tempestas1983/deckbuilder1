@@ -4,7 +4,7 @@ MTG-artiger Deckbuilder als Hobby-/Lernprojekt. Vier Agent-Rollen:
 **game-architect** (Regelwerk + Datenmodell), **engine-engineer** (Spiellogik),
 **card-designer** (Kartenpool + Balancing), **frontend-engineer** (UI).
 
-## Aktueller Stand (2026-07-08, Regelwerk/Modell v0.2.1)
+## Aktueller Stand (2026-07-09, Regelwerk/Modell v0.2.1)
 
 | Artefakt | Pfad | Status |
 |---|---|---|
@@ -13,10 +13,11 @@ MTG-artiger Deckbuilder als Hobby-/Lernprojekt. Vier Agent-Rollen:
 | Kartendefinitionen (6 Kartentypen, Kosten, Decks) | `src/model/cards.ts` | Typen fertig (v0.2: Aura-attachedTo geklärt) |
 | Spielzustand, Stack, Aktionen, Events, Engine-Interface | `src/model/game-state.ts` | Typen fertig (v0.2: PendingDecision/resolveDecision, CreateGameConfig ohne pool, Factory-Vertrag; v0.2.1: resumePriorityTo) |
 | Zentrale Exports | `src/model/index.ts` | fertig |
-| Engine-Implementierung (Kern: Phasen/Priority/Stack/SBA/Trigger/Decisions/Combat inkl. guardian, X) | `src/engine/*`, Status: `docs/engine-status.md` | v0.2 fertig (47 Tests grün); v0.2.1-Fix `resumePriorityTo` offen (siehe unten) |
-| Kartenpool / Starter-Set (25 Karten, Validierungspaket) | `src/cards/starter-set.ts`, `docs/cards/starter-set.md` | v0.1 fertig; voller core-Pool offen |
-| UI | — | offen (frontend-engineer) |
-| Projekt-Setup (package.json, tsconfig, Testrunner) | `package.json`, `tsconfig.json` (Vitest) | fertig |
+| Engine-Implementierung (Kern: Phasen/Priority/Stack/SBA/Trigger/Decisions/Combat inkl. guardian, X) | `src/engine/*`, Status: `docs/engine-status.md` | **v0.2.1 fertig** (48 Tests grün) — `resumePriorityTo` umgesetzt und regressionsgetestet |
+| Kartenpool / Starter-Set (27 Karten, Validierungspaket) | `src/cards/starter-set.ts`, `docs/cards/starter-set.md` | v0.2 fertig (inkl. X-Kosten-Karte, static-Testkarte); voller core-Pool (40–60 Karten) offen |
+| UI (Spielbrett, Vite + TypeScript) | `src/ui/*`, Status: `docs/frontend-status.md` | **v0.1.1 fertig** — Golden Path im Browser verifiziert (Untap/Upkeep/Draw → Main → Terrain/Karte spielen), inkl. Pass-Priority-Fix |
+| Projekt-Setup (package.json, tsconfig, Vitest, Vite) | `package.json`, `tsconfig.json`, `vite.config.ts` | fertig |
+| Git-Repo | https://github.com/tempestas1983/deckbuilder1 | Initial-Commit auf `main` gepusht |
 
 Tech-Stack-Annahme: TypeScript überall; Engine als reines, UI-freies Paket
 (pure Funktionen, seedbarer RNG), damit das spätere TS/JS-Frontend (Framework-Wahl
@@ -76,52 +77,41 @@ const tidalRebuke: SpellCard = {
 };
 ```
 
-## Nächste Schritte (nach Architect-Entscheidungen v0.2)
+## Nächste Schritte
 
-Alle offenen Fragen aus `docs/engine-status.md` und `docs/cards/starter-set.md`
-sind entschieden — Details in `docs/rules-engine.md` (v0.2-Changelog im Kopf,
-Abschnitte 1a, 4, 5, 6, 9.6, 9.7, 10).
+Engine (v0.2.1), Starter-Kartenset (v0.2, 27 Karten) und erstes Spielbrett-UI
+(v0.1.1) sind alle fertig und end-to-end verifiziert (Engine: 48 Vitest-Tests;
+UI: manueller Klick-Durchlauf durch Untap/Upkeep/Draw/Main + Terrain spielen im
+Browser). Details je Bereich in `docs/engine-status.md`,
+`docs/cards/starter-set.md`, `docs/frontend-status.md`.
+
+Offene Punkte für die nächste Iteration (keiner davon blockiert das Spielen):
 
 ### engine-engineer
-Die v0.2-Anpassungen (Factory, Münzwurf, Pending Decisions/`chooseTriggerTargets`,
-guardian, X-Kosten) sind **umgesetzt** (47 Tests grün, siehe `docs/engine-status.md`).
-Verbleibend:
-1. **v0.2.1:** Priority-Wiederaufnahme nach Decision-Pause über das neue Feld
-   `GameState.resumePriorityTo` (rules-engine.md 9.7, letzter Absatz) — ersetzt
-   den Fallback „nach Decision immer activePlayer" in `turn.ts#openPriorityWindow`.
-   Testfall: nicht-aktiver Spieler castet einen Instant mit mehrdeutigem Trigger;
-   nach `resolveDecision` muss ER Priority erhalten, nicht der aktive Spieler.
-2. StaticAbility-Test nachziehen, sobald der card-designer eine Testkarte liefert.
-3. Danach nach Bedarf: Migration von `chooseManaColor`/`chooseDiscard`/`orderScry`
-   auf den Decision-Kanal (rules-engine.md 9.7), gesteuert vom Kartenpool-Ausbau.
+1. StaticAbility-Test ergänzen (`core.iron-standard` existiert jetzt im
+   Starter-Set als Testkarte, siehe `docs/engine-status.md` Lücke 7).
+2. Migration von `chooseManaColor`/`chooseDiscard`/`orderScry` auf den
+   Pending-Decision-Kanal (rules-engine.md 9.7), sobald Kartenpool das braucht.
+3. Mana-Fähigkeiten mit X-Kosten (rules-engine.md 10, bestätigter offener Punkt).
 
 ### card-designer
-1. Blocker aufgehoben: `guardian` ist final (rules-engine.md 6, inkl.
-   Balancing-Einordnung) und X-Kosten sind geklärt (rules-engine.md 4; nur auf
-   Spells) — ein X-Spell und weitere guardian-Karten sind jetzt designbar.
-   Bestätigt: Effekte ohne `targets`-Array regulär; eine Aura = ein
-   Anlege-Objekt; „Relics möglichst farblos" als Design-Linie.
-2. Vollen core-Pool ausbauen (40–60 Karten) in `src/cards/starter-set.ts` oder
-   `src/cards/core.ts`; dabei bitte eine Karte mit `StaticAbility` früh liefern
-   (Engine braucht sie als Testkarte) und die bisher ungenutzten Primitive abdecken.
-   Vorsicht bei scry-/Farbwahl-/Discard-Kosten-Karten: Auto-Defaults gelten, bis
-   die Engine sie auf den Decision-Kanal migriert (rules-engine.md 9.7).
-3. Mechanik-Wünsche außerhalb der DSL weiterhin über game-architect.
+1. Vollen core-Pool ausbauen (40–60 Karten) in `src/cards/starter-set.ts` oder
+   `src/cards/core.ts`; die bisher ungenutzten Primitive (`scry`,
+   `createToken`, `grantKeyword`, `costChange`) abdecken.
+2. Karten mit >1 Zielslot sind bisher ungetestet (weder Engine noch UI) —
+   beim Design berücksichtigen, dass das noch Ausbauarbeit auf beiden Seiten
+   nach sich zieht.
 
 ### frontend-engineer
-1. Engine-API ist nutzbar (Grenzen: `docs/engine-status.md`, Abschnitt „Für
-   frontend-engineer"). Zusätzlich einplanen: `pendingDecision`-Anzeige
-   (Dialog/Panel, solange gesetzt; Antwort via `resolveDecision`) — kommt mit
-   der v0.2-Engine-Anpassung.
-2. Pflicht-Anzeigen (rules-engine.md Abschnitt 3): wer hat Priority,
-   Stack-Inhalt von unten nach oben, Pass-Button; Zonen Hand/Battlefield/Graveyard,
-   Leben, Manapool, aktueller Step.
-3. Keine Regellogik im Frontend — Legalität kommt aus `getLegalActions`
-   (Achtung: bewusst nicht erschöpfend, siehe Interface-Kommentar; für
-   Mehrfach-Ziele/X eigene Eingabe-UI bauen und `applyAction` validieren lassen).
+1. UI-Tests dauerhaft ins Repo (Vitest+jsdom) statt nur manueller Verifikation.
+2. `concede`-Button ergänzen.
+3. `computeEffectiveStats`/`computeEffectiveKeywords` offiziell in den
+   `RulesEngine`-Vertrag heben (aktuell bewusster Re-Use einer als „nicht
+   stabil" markierten Engine-API, siehe `docs/frontend-status.md` Grenzfall).
+4. Mehrfach-Zielslot-Unterstützung in der `xTarget`-UI, sobald Karten das brauchen.
 
 ### game-architect (Folgearbeit)
 - Verbleibende offene Punkte: rules-engine.md Abschnitt 10 („Weiterhin offen").
 - Nächste erwartbare Anfragen: Modal-Effekte, X auf aktivierten Fähigkeiten,
-  Spielerwahl bei Trigger-Reihenfolge (alle als Kandidaten für den
-  Pending-Decision-Kanal vorgemerkt).
+  Spielerwahl bei Trigger-Reihenfolge, `computeEffectiveStats`-Vertragsfrage
+  vom frontend-engineer (siehe oben).
