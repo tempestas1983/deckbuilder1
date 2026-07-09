@@ -47,6 +47,17 @@ export type UiMode =
       attackers: Array<{ attacker: InstanceId; blockers: InstanceId[] }>;
     };
 
+/**
+ * App-Ebene-Zustand, AUSSERHALB des GameState: steuert, ob gerade der
+ * Deckbau-Screen (pro Spieler, sequenziell) oder das eigentliche Spielbrett
+ * angezeigt wird. Kein Teil der Engine/des GameState - reiner UI-Ablauf, wie
+ * `UiMode` oben, nur eine Ebene höher (vor dem ersten `initGame`-Aufruf gibt
+ * es noch gar keinen `GameState`).
+ */
+export type AppPhase =
+  | { kind: "deckbuild"; player: PlayerId }
+  | { kind: "playing" };
+
 export function targetKeyOf(target: ChosenTarget): string {
   switch (target.kind) {
     case "permanent":

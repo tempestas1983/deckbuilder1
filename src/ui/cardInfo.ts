@@ -61,6 +61,21 @@ export function dominantColorClass(cost: ManaCost): string {
   return "mana-colorless";
 }
 
+/**
+ * Wie `dominantColorClass`, aber liefert den ManaColor-Schlüssel statt der
+ * CSS-Klasse (für Deckbau-Filter, nicht fürs Kartenbild) - und akzeptiert
+ * gleich die ganze CardDefinition, da Terrains (kein `cost`-Feld) hier
+ * ebenfalls behandelt werden müssen (immer "colorless").
+ */
+export function dominantColorKey(def: CardDefinition): ManaColor | "colorless" {
+  const cost = "cost" in def ? def.cost : undefined;
+  if (!cost) return "colorless";
+  for (const c of COLORS) {
+    if ((cost[c] ?? 0) > 0) return c;
+  }
+  return "colorless";
+}
+
 export function formatManaCost(cost: ManaCost | undefined): string {
   if (!cost) return "—";
   const bits: string[] = [];

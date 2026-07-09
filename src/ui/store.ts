@@ -9,9 +9,8 @@
 
 import { createRulesEngine } from "../engine";
 import { starterSet } from "../cards/starter-set";
-import type { CardPool, GameEvent, GameState, PlayerAction, RulesEngine } from "../model";
-import { buildDemoDeck } from "./deck";
-import type { UiMode } from "./types";
+import type { CardPool, GameEvent, GameState, PlayerAction, PlayerId, RulesEngine } from "../model";
+import type { AppPhase, UiMode } from "./types";
 
 const pool: CardPool = starterSet;
 const engine: RulesEngine = createRulesEngine(pool);
@@ -20,6 +19,23 @@ let state: GameState;
 let log: string[] = [];
 let lastError: string | undefined;
 let uiMode: UiMode = { kind: "idle" };
+
+/**
+ * App-Ebene-Zustand (siehe types.ts#AppPhase): startet immer im Deckbau für
+ * player1, kein Teil des GameState, keine automatische Demo-Partie mehr
+ * beim App-Start (das war v0.1-v0.1.4-Verhalten, s. docs/frontend-status.md
+ * "Nächste Schritte" Punkt 6, jetzt durch den Deckbau-Screen ersetzt).
+ */
+let appPhase: AppPhase = { kind: "deckbuild", player: "player1" };
+
+/**
+ * Zuletzt gesammelte Decklisten pro Spieler. Bleiben bewusst über
+ * "Neues Spiel" (zurück zum Deckbau, s. backToDeckbuilder) hinweg erhalten,
+ * damit der Deckbau-Screen beim erneuten Öffnen als Vorbefüllung dient
+ * (bessere UX für wiederholte Testpartien) - kein Hard-Requirement, aber
+ * explizit erwünscht laut Auftrag.
+ */
+let decklists: Record<PlayerId, Record<string, number>> = { player1: {}, player2: {} };
 
 const listeners = new Set<() => void>();
 
@@ -61,6 +77,59 @@ export function setUiMode(mode: UiMode): void {
 
 export function resetUiMode(): void {
   setUiMode({ kind: "idle" });
+}
+
+// ---------------------------------------------------------------------------
+// App-Ebene: Deckbau- vs. Spielphase (siehe types.ts#AppPhase)
+// ---------------------------------------------------------------------------
+
+export function getAppPhase(): AppPhase {
+  return appPhase;
+}
+
+/** Aktuell gesammelte Deckliste eines Spielers (Vorbefüllung für den Deckbau-Screen). */
+export function getDecklist(player: PlayerId): Record<string, number> {
+  return decklists[player];
+}
+
+/** Ersetzt die Deckliste eines Spielers (z.B. nach +/- Klick oder "Zufällig füllen"). */
+export function setDecklist(player: PlayerId, list: Record<string, number>): void {
+  decklists = { ...decklists, [player]: list };
+  notify();
+}
+
+/**
+ * Sequenzieller Deckbau-Ablauf (Auftrag: "Spieler 1 baut zuerst, dann
+ * Spieler 2, danach Spiel starten"): Nach player1 geht es weiter zu
+ * player2; nach player2 wird direkt die Partie mit beiden gesammelten
+ * Decklisten gestartet. Ruft KEINE Engine-Validierung auf - das Gate
+ * (min. 40 Karten etc., siehe deckValidation.ts) ist reine UI-Logik, die der
+ * Aufrufer (render.ts, "Weiter"/"Spiel starten"-Button) bereits vor dem
+ * Enablen des Buttons geprüft hat.
+ */
+export function confirmDeck(player: PlayerId): void {
+  if (player === "player1") {
+    appPhase = { kind: "deckbuild", player: "player2" };
+    notify();
+    return;
+  }
+  appPhase = { kind: "playing" };
+  initGame(decklists.player1, decklists.player2);
+}
+
+/** Deckbau-Abkürzung: player2 übernimmt exakt die Deckliste von player1. */
+export function copyDeckFromPlayer1(): void {
+  setDecklist("player2", { ...decklists.player1 });
+}
+
+/**
+ * "Neues Spiel" im laufenden Spiel: zurück zum Deckbau-Screen (player1
+ * zuerst) statt wie in v0.1-v0.1.4 einfach die Seite neu zu laden - die
+ * zuletzt benutzten Decklisten bleiben als Vorbefüllung erhalten (s.o.).
+ */
+export function backToDeckbuilder(): void {
+  appPhase = { kind: "deckbuild", player: "player1" };
+  notify();
 }
 
 function describeEvent(e: GameEvent): string | undefined {
@@ -110,10 +179,21 @@ function describeEvent(e: GameEvent): string | undefined {
   }
 }
 
-export function initGame(seed: number = Math.floor(Math.random() * 1_000_000)): void {
-  const deck = buildDemoDeck(pool);
+/**
+ * Startet die eigentliche Partie aus zwei fertigen Decklisten (aus dem
+ * Deckbau-Screen, s. `confirmDeck` oben). Ersetzt die frühere Signatur ohne
+ * Parameter, die intern immer `buildDemoDeck` für beide Spieler aufrief
+ * (v0.1-v0.1.4) - `buildDemoDeck` (deck.ts) existiert weiterhin, wird jetzt
+ * aber vom Deckbau-Screen selbst aufgerufen ("Zufällig füllen"-Button),
+ * nicht mehr automatisch hier.
+ */
+export function initGame(
+  deckP1: Record<string, number>,
+  deckP2: Record<string, number>,
+  seed: number = Math.floor(Math.random() * 1_000_000),
+): void {
   const { state: s, events } = engine.createGame({
-    decks: { player1: deck, player2: deck },
+    decks: { player1: deckP1, player2: deckP2 },
     seed,
   });
   state = s;

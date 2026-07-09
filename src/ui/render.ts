@@ -13,7 +13,12 @@
 
 import type { GameState, PlayerAction, PlayerId } from "../model";
 import {
+  backToDeckbuilder,
+  confirmDeck,
+  copyDeckFromPlayer1,
   dispatch,
+  getAppPhase,
+  getDecklist,
   getLastError,
   getLog,
   getPool,
@@ -21,11 +26,14 @@ import {
   getUiMode,
   legalActions,
   resetUiMode,
+  setDecklist,
   setUiMode,
 } from "./store";
 import { cardDef } from "./cardInfo";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
+import { deckBuilderScreen } from "./components/deckBuilder";
+import { buildDemoDeck } from "./deck";
 import { handCard, handCardDiscardToggle } from "./components/handCard";
 import { playerPanel } from "./components/playerPanel";
 import { stackPanel } from "./components/stackPanel";
@@ -44,6 +52,7 @@ import {
   xTargetShapeAllowsPlayer,
   xTargetShapeAllowsStackObject,
 } from "./actionUtil";
+import { validateDecklist } from "./deckValidation";
 import { targetKeyOf, type UiMode } from "./types";
 
 const PLAYER_IDS: PlayerId[] = ["player1", "player2"];
@@ -111,7 +120,46 @@ function autoEnterForcedModes(state: GameState): void {
   }
 }
 
+/**
+ * App-Einstiegspunkt fürs Rendering: verzweigt zwischen dem Deckbau-Screen
+ * (AppPhase "deckbuild", vor dem ersten `initGame`) und dem eigentlichen
+ * Spielbrett (AppPhase "playing"). Siehe types.ts#AppPhase - reiner
+ * App-Ebene-UI-Zustand, kein Teil des GameState.
+ */
 export function render(root: HTMLElement): void {
+  const phase = getAppPhase();
+  root.innerHTML = "";
+  if (phase.kind === "deckbuild") {
+    root.append(renderDeckBuilder(phase.player));
+    return;
+  }
+  renderGameBoard(root);
+}
+
+function renderDeckBuilder(player: PlayerId): HTMLElement {
+  const pool = getPool();
+  const decklist = getDecklist(player);
+
+  return deckBuilderScreen({
+    pool,
+    player,
+    decklist,
+    offerCopyFromPlayer1: player === "player2",
+    onChange: (next) => setDecklist(player, next),
+    onRandomFill: () => setDecklist(player, buildDemoDeck(pool)),
+    onCopyFromPlayer1: () => copyDeckFromPlayer1(),
+    onConfirm: () => {
+      // Defensive Doppelprüfung - der Button ist im Deckbau-Screen bereits
+      // per `disabled` gesperrt, solange die Deckliste ungültig ist
+      // (deckValidation.ts); hier zusätzlich geprüft, falls render() jemals
+      // ohne diese Sperre aufgerufen wird (z.B. künftige Tastatursteuerung).
+      if (!validateDecklist(pool, decklist).valid) return;
+      confirmDeck(player);
+    },
+  });
+}
+
+function renderGameBoard(root: HTMLElement): void {
   const state = getState();
   autoEnterForcedModes(state);
   const pool = getPool();
@@ -128,7 +176,6 @@ export function render(root: HTMLElement): void {
     logPanel(getLog()),
   ];
 
-  root.innerHTML = "";
   root.append(...children.filter((c): c is HTMLElement => !!c));
 }
 
@@ -165,7 +212,7 @@ function statusBar(state: GameState): HTMLElement {
           [text(`Priorität passen (${priorityPlayer})`)],
         )
       : undefined,
-    h("button", { class: "btn btn-cancel", onclick: () => location.reload() }, [text("Neues Spiel")]),
+    h("button", { class: "btn btn-cancel", onclick: () => backToDeckbuilder() }, [text("Neues Spiel")]),
   ]);
 }
 

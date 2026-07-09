@@ -454,3 +454,116 @@ body {
   border-bottom: 1px solid #2a2d35;
   padding-bottom: 2px;
 }
+
+/* Deckbau-Screen (v0.1.5) --------------------------------------------- */
+
+.deckbuilder-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.deckbuilder-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.deckbuilder-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.deckbuilder-search-input {
+  flex: 1 1 200px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.deckbuilder-type-filter,
+.deckbuilder-color-filter {
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.deckbuilder-status {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.deckbuilder-status.valid {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.deckbuilder-status.invalid {
+  border-color: #e0b95a;
+  color: #e0b95a;
+}
+
+.deckbuilder-pool {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--panel);
+}
+
+.deck-pool-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.deck-pool-row:nth-child(odd) {
+  background: var(--panel-2);
+}
+
+.deck-pool-row-name {
+  flex: 2;
+  font-weight: 600;
+}
+
+.deck-pool-row-type,
+.deck-pool-row-cost {
+  flex: 1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.deck-pool-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 70px;
+  justify-content: flex-end;
+}
+
+.deck-pool-row-count {
+  min-width: 18px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.deckbuilder-footer {
+  display: flex;
+  justify-content: flex-end;
+}

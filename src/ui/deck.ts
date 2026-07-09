@@ -32,12 +32,16 @@
  * Bewusst NICHT deterministisch/geseedet: Die Zusammensetzung des
  * Demo-Decks ist reine Vorbereitung vor `engine.createGame` (das seinen
  * eigenen, deterministischen Seed fuer Mischen/Ziehen bekommt, siehe
- * store.ts#initGame) - eine bei jedem "Neues Spiel" leicht variierende
+ * store.ts#initGame) - eine bei jedem Aufruf leicht variierende
  * Deckzusammenstellung ist fuer die Demo eher ein Feature (mehr
- * Karten-Abwechslung) als ein Problem. Ein echter Deckbuilder mit fester,
- * vom Spieler gewaehlter Deckliste bleibt ausserhalb des Aufgabenbereichs
- * dieses Schritts (frontend-engineer baut hier nur das Spielbrett, kein
- * Deckbau-UI).
+ * Karten-Abwechslung) als ein Problem.
+ *
+ * v0.1.5: Es gibt jetzt einen echten Deckbau-Screen (siehe
+ * components/deckBuilder.ts) - diese Funktion wird nicht mehr automatisch
+ * beim App-Start fuer beide Spieler aufgerufen, sondern dient dort als
+ * "Zufaellig fuellen"-Button (ein Ausgangspunkt, den der Spieler danach per
+ * +/- Buttons weiter anpassen kann). Bewusst NICHT geloescht - genau dafuer
+ * war sie laut "Naechste Schritte" Punkt 6 (v0.1.4-Stand) vorgesehen.
  */
 
 import type { CardPool } from "../model";

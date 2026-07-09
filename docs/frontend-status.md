@@ -1,18 +1,21 @@
 # Frontend-Status
 
-Status: v0.1.4 (frontend-engineer) — 2026-07-09
+Status: v0.1.5 (frontend-engineer) — 2026-07-09
 Grundlage: `docs/rules-engine.md` (v0.2.3), `docs/engine-status.md` (v0.2.4 zum
 Zeitpunkt dieses Sweeps — der v0.1.1-v0.1.3-Text unten beschreibt bewusst
 unverändert den Stand zum jeweiligen Zeitpunkt, s. dortige Abschnitte),
 `src/model/*` (Datenmodell, unverändert konsumiert), `src/engine/*`
-(`createRulesEngine`, 83 Tests grün nach dem v0.2.4-`costChange`-Lückenschluss;
-Stand zum Zeitpunkt der v0.1.1-v0.1.3-Abschnitte war 77 Tests nach dem
-v0.2.3-Kampf-Keyword-Paket `trample`/`firstStrike`/`deathtouch` +
-`orderBlockers`), `src/cards/starter-set.ts` (**für v0.1.4 relevant:
-inzwischen auf 109 Karten gewachsen — 104 Nicht-Terrain + 5 Terrains, inkl.
-echter Karten mit allen neun Keywords —, s. neuer Abschnitt unten; zum
-Zeitpunkt der v0.1.1-v0.1.3-Abschnitte hatte der Pool noch 27 Karten ohne
-`trample`/`firstStrike`/`deathtouch`/`vigilant`, s. dortige Verifikationstexte).
+(`createRulesEngine`, 83 Engine-Tests grün, unverändert seit v0.2.4-
+`costChange`-Lückenschluss; Stand zum Zeitpunkt der v0.1.1-v0.1.3-Abschnitte
+war 77 Tests nach dem v0.2.3-Kampf-Keyword-Paket `trample`/`firstStrike`/
+`deathtouch` + `orderBlockers`), `src/cards/starter-set.ts` (109 Karten — 104
+Nicht-Terrain + 5 Terrains, unverändert seit v0.1.4).
+
+**v0.1.5 auf einen Blick** (Details in den gleichnamigen Abschnitten unten):
+permanente Vitest+jsdom-UI-Tests (`src/ui/__tests__/`, `jsdom` jetzt
+Dev-Dependency) + ein echter Deckbau-Screen VOR dem Spielstart (löst die
+automatische Demo-Partie aus `buildDemoDeck` ab, die es seit v0.1 gab) — damit
+sind „Nächste Schritte" Punkt 1 und Punkt 6 aus dem v0.1.4-Stand erledigt.
 
 Dieses Dokument beschreibt das erste funktionsfähige Spielbrett-UI: was
 gebaut wurde, wie man es startet, welche bewussten Vereinfachungen es gibt
@@ -65,48 +68,52 @@ npm run dev        # Vite-Dev-Server (Hot Reload), http://localhost:5173
 npm run build:ui    # Produktions-Build nach dist-ui/
 npm run preview     # Vorschau des Produktions-Builds
 npm run build       # unverändert: tsc --noEmit (Engine + jetzt auch UI-Code)
-npm test            # unverändert: Vitest (83 Engine-Tests, Stand v0.2.4, UI ungetestet, s.u.)
+npm test            # Vitest (83 Engine-Tests + jetzt 2 dauerhafte UI-Tests, s. v0.1.5-Abschnitt)
 ```
 
 `tsconfig.json` wurde um `"DOM"`/`"DOM.Iterable"` in `lib` erweitert (damit
 `tsc --noEmit` auch den UI-Code type-checkt); das ändert nichts an der
 Engine-Kompilierung, fügt nur zusätzliche globale Typen hinzu.
-`package.json` hat drei neue Skripte (`dev`, `build:ui`, `preview`) und
-`vite` als neue Dev-Dependency; bestehende Skripte/Dependencies sind
-unverändert.
+`package.json` hat drei neue Skripte (`dev`, `build:ui`, `preview`), `vite`
+als Dev-Dependency (seit v0.1) und **seit v0.1.5** zusätzlich `jsdom` als
+Dev-Dependency (für die dauerhaften UI-Tests, s.u.); bestehende
+Skripte/Dependencies sind ansonsten unverändert.
 
-Beim Start wird automatisch eine Demo-Partie erzeugt: beide Spieler erhalten
-ein identisches Demo-Deck, das aus dem `starterSet` gezogen wird
-(`src/ui/deck.ts#buildDemoDeck`). **Seit v0.1.4** (s. eigener Abschnitt
-unten): alle 5 Terrains weiterhin fest 4×, dazu eine zufällige Stichprobe
-von bis zu 40 verschiedenen Nicht-Terrain-Karten (je 1×) statt „alle
-Nicht-Terrain-Karten 1×" — bei den inzwischen 109 Pool-Karten ergibt „alle"
-ein unhandliches ~124-Karten-Deck, die Stichprobe deckelt auf ~60 Karten.
-Das ist **kein Deckbuilder** — nur Dateninitialisierung für die
-Prototyp-Partie; ein echtes Deckbau-UI ist nicht Teil dieses Schritts.
-Über den Button „Neues Spiel" (lädt die Seite neu) startet eine neue Partie
-mit neuem Zufalls-Seed.
+**Seit v0.1.5** (s. eigener Abschnitt unten, löst den v0.1-v0.1.4-Text in
+diesem Absatz ab): Beim App-Start erscheint zuerst ein **Deckbau-Screen**
+(kein automatischer Partiestart mehr) — Spieler 1 baut sein Deck, dann
+Spieler 2 (mit einer „Gleiches Deck wie Spieler 1 übernehmen"-Abkürzung),
+danach „Spiel starten". `buildDemoDeck` (`src/ui/deck.ts`, unverändert seit
+v0.1.4: alle 5 Terrains fest 4×, dazu eine zufällige Stichprobe von bis zu 40
+verschiedenen Nicht-Terrain-Karten je 1×) existiert weiterhin, wird aber
+nicht mehr automatisch für beide Spieler aufgerufen, sondern steht im
+Deckbau-Screen als „Zufällig füllen"-Button zur Verfügung. Über den Button
+„Neues Spiel" im laufenden Spiel geht es zurück zum Deckbau-Screen (nicht
+mehr `location.reload()`) — die zuletzt benutzten Decklisten bleiben dabei
+als Vorbefüllung erhalten.
 
-Es gibt aktuell **keine Deck-/Spielerauswahl** und **keine KI** — das Board
-ist als Hotseat gedacht: beide Spielerbereiche sind immer sichtbar, aber nur
-der Spieler, der laut `GameState` gerade an der Reihe ist (Priority,
-PendingDecision, Combat-Deklaration, Cleanup-Abwurf), bekommt anklickbare
-Aktionen angezeigt.
+Es gibt aktuell **keine Spielerauswahl über Deckbau hinaus** und **keine
+KI** — das Board ist als Hotseat gedacht: beide Spielerbereiche sind immer
+sichtbar, aber nur der Spieler, der laut `GameState` gerade an der Reihe ist
+(Priority, PendingDecision, Combat-Deklaration, Cleanup-Abwurf), bekommt
+anklickbare Aktionen angezeigt.
 
 ## Struktur (`src/ui/`)
 
 | Datei | Zweck |
 |---|---|
-| `main.ts` | Einstiegspunkt, startet Store + Render-Loop |
-| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung |
-| `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`) |
-| `deck.ts` | Demo-Deckliste aus dem `CardPool` (reine Daten, kein Deckbau-UI) |
-| `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten) |
+| `main.ts` | Einstiegspunkt, startet Store + Render-Loop (**seit v0.1.5**: kein automatischer `initGame`-Aufruf mehr, App startet im Deckbau-Screen) |
+| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen |
+| `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine) |
+| `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen |
+| `deckValidation.ts` | **Neu in v0.1.5**: reine UI-Validierung einer Deckliste (min. 40 Karten, max. 4 Kopien pro Nicht-Terrain-id, s. `src/model/cards.ts#Decklist`-Kommentar) — die Engine validiert das selbst nicht |
+| `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten); **seit v0.1.5** zusätzlich `dominantColorKey` (Manafarbe als Schlüssel statt CSS-Klasse, für den Deckbau-Farbfilter) |
 | `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI |
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
-| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`) |
-| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner) |
+| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`) |
+| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen) |
 | `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe |
+| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten) |
 
 ## Was funktioniert
 
@@ -193,8 +200,12 @@ Aktionen angezeigt.
   clientseitig vorgefiltert zu werden — folgt explizit der Empfehlung in
   `docs/engine-status.md` („eigene Eingabe-UI bauen und `applyAction`
   validieren lassen").
-- **Kein AI-Gegner, kein Netzwerk, kein Deckbuilder-UI** — reines
-  Hotseat-Board für eine lokale Demo-Partie mit fest codiertem Demo-Deck.
+- **Kein AI-Gegner, kein Netzwerk** — reines Hotseat-Board. **Seit v0.1.5**
+  gibt es einen echten Deckbau-Screen vor dem Spielstart (s. eigener
+  Abschnitt unten) statt eines fest codierten Demo-Decks; der Deckbau selbst
+  bleibt aber bewusst simpel (kein Sideboard, kein Deck-Speichern/-Laden über
+  eine Partie hinaus außer der reinen In-Memory-Vorbefüllung nach „Neues
+  Spiel", keine Deck-Namen/-Verwaltung mehrerer Decks).
 - **Opfer-/Zusatzkosten-Feedback**: `additionalCosts` (tap/sacrifice/
   payLife/discard/removeCounters) werden nicht separat abgefragt — die
   Engine wendet sie beim Ausführen an (bzw. wirft Karten automatisch nach
@@ -508,12 +519,177 @@ Pool-Karten (40 verschiedene Nicht-Terrain-Karten × 1 + 5 Terrains × 4),
 mit automatischem Rückfall auf den vollen Pool (und damit unverändertem
 Verhalten), sobald der Nicht-Terrain-Pool kleiner als 40 Karten ist.
 
+## Permanente UI-Regressionstests + Deckbau-UI (v0.1.5, 2026-07-09)
+
+Zwei Aufträge, die direkt aus „Nächste Schritte" (v0.1.4-Stand) Punkt 1 und
+Punkt 6 stammen.
+
+### Auftrag 1: Permanente UI-Regressionstests
+
+Bisher gab es laut diesem Dokument nur Wegwerf-jsdom-Tests, die nach jeder
+Verifikationsrunde wieder gelöscht wurden (s. v0.1.1-v0.1.4-Abschnitte oben,
+jeweils „temporär ... nach Verifikation gelöscht"). Das ändert sich jetzt:
+
+- `jsdom` ist per `npm install -D jsdom` als Dev-Dependency ergänzt
+  (`package.json`).
+- **Gewählter Weg für jsdom-Environment**: Datei-lokal per
+  `// @vitest-environment jsdom`-Kommentar (statt global in `vite.config.ts`).
+  Begründung: `vite.config.ts` hatte bisher gar keinen `test`-Block; ein
+  globales `environment: "jsdom"` würde unnötig auch die 83 Engine-Tests
+  unter jsdom laufen lassen (die reine Objektberechnung sind, kein DOM
+  brauchen und mit `node`-Environment schneller/einfacher bleiben). Der
+  Datei-lokale Kommentar ist außerdem exakt das Muster, das in v0.1.4 schon
+  für die (damals noch temporären) Boot-/Klick-Smoke-Tests benutzt wurde —
+  konsistent mit dem bisherigen Vorgehen dieses Projekts.
+- **Neu, dauerhaft im Repo**: `src/ui/__tests__/golden-path.test.ts`, zwei
+  Tests:
+  1. „Deckbau-Validierung: 'Weiter' ist erst nach einem gültigen Deck
+     aktiv" — prüft, dass der Confirm-Button bei leerem Deck gesperrt ist
+     und nach „Zufällig füllen" aktiv wird.
+  2. „Kompletter Flow: Deckbau (beide Spieler) → Spielstart → Priorität
+     passen → Terrain spielen" — bildet den vom Auftrag verlangten Golden
+     Path nach: `render(root)` **ab echtem App-Start** (kein direkter
+     `store.initGame()`-Aufruf mehr möglich/nötig, s. Auftrag 2 unten),
+     danach ausschließlich echte `element.dispatchEvent(new
+     Event("click"))`-Aufrufe auf das von `render()` erzeugte DOM: Deckbau
+     Spieler 1 („Zufällig füllen" → „Weiter") → Deckbau Spieler 2
+     („Gleiches Deck übernehmen" → „Spiel starten") → Upkeep → Draw → Main1
+     ausschließlich über den „Priorität passen"-Button → ein Terrain aus der
+     Hand spielen (Battlefield wächst um genau 1, per echtem
+     `store.getState()`-Read verifiziert, nicht geraten). Ein
+     `console.error`-Spy läuft über den kompletten Testkörper und wird am
+     Ende auf „nie aufgerufen" geprüft (deckt sowohl uncaught Exceptions in
+     Event-Handlern ab, die laut DOM-Spec über die globale
+     Fehlerberichterstattung statt direkt an `dispatchEvent()` zurückgegeben
+     werden, als auch tatsächliche `console.error`-Aufrufe im Code).
+  - **Determinismus**: `Math.random()` wird per `vi.spyOn` auf einen festen
+    seedbaren Ersatz-Generator umgebogen. Grund: `buildDemoDeck` (Fisher-
+    Yates-Sampling) und der von `store.ts#initGame` per `Math.random()`
+    gezogene Engine-Seed sind beide nicht-deterministisch; ohne festen Seed
+    wäre der „Terrain aus der Hand spielen"-Schritt mit einer kleinen, aber
+    nicht-null Wahrscheinlichkeit flaky (Starthand ohne Terrain bei einer
+    Terrain-Dichte von 20/60 im Demo-Deck). Die Engine-eigene RNG
+    (`src/engine/rng.ts`) ist davon unberührt, da sie einen eigenen
+    geseedeten `mulberry32`-State im `GameState` führt, unabhängig von
+    `Math.random()`.
+  - **Test-Isolation**: `vi.resetModules()` + dynamischer `await
+    import("../store")`/`import("../render")` pro Test, da `store.ts`
+    modul-scoped Singleton-Zustand hält (Engine-Instanz, `GameState`,
+    `AppPhase`, Decklisten) — ohne Reset würden sich die beiden Tests
+    gegenseitig beeinflussen.
+- `npm test` läuft weiterhin über `vitest run` (kein neues Skript nötig) und
+  deckt jetzt Engine- UND UI-Tests in einem Lauf ab: **85/85 grün** (83
+  Engine-Tests unverändert + 2 neue dauerhafte UI-Tests).
+- Zusätzlich (nur zur Verifikation dieses Schritts selbst, wieder gelöscht,
+  gleiches Muster wie in v0.1.1-v0.1.4): zwei temporäre Testdateien, die (a)
+  einen kompletten Mehrzug-Durchlauf inkl. „Neues Spiel" → zurück zum
+  Deckbau-Screen mit erhaltener Vorbefüllung, und (b) die Deckbau-Filter
+  (Typ-Select, Namenssuche inkl. Fokuserhalt beim Tippen) sowie die +/-
+  Zähler sauber durchgeklickt haben — beide grün, danach entfernt.
+
+### Auftrag 2: Deckbau-UI
+
+`src/ui/deck.ts#buildDemoDeck` baute bisher bei jedem App-Start automatisch
+ein zufälliges ~60-Karten-Demo-Deck für beide Spieler — kein echter
+Deckbau. Jetzt gibt es einen echten Deckbau-Screen VOR dem Spielstart:
+
+- **Neuer App-Ebene-Zustand** `AppPhase` (`src/ui/types.ts`): `{ kind:
+  "deckbuild"; player }` vs. `{ kind: "playing" }` — analog zu `UiMode`, aber
+  eine Ebene höher (existiert schon, bevor überhaupt ein `GameState`
+  existiert) und explizit **kein Teil der Engine/des GameState**. Verwaltet
+  in `store.ts` über dieselbe `notify()`/`subscribe()`-Mechanik wie der Rest
+  des Stores (`getAppPhase`, `setDecklist`, `confirmDeck`,
+  `copyDeckFromPlayer1`, `backToDeckbuilder`).
+- **Sequenzieller Flow**: App startet in `{ kind: "deckbuild", player:
+  "player1" }`. `confirmDeck("player1")` schaltet auf `player: "player2"`
+  um; `confirmDeck("player2")` schaltet auf `{ kind: "playing" }` und ruft
+  intern `initGame(decklists.player1, decklists.player2)` auf.
+  `copyDeckFromPlayer1()` ist die im Auftrag verlangte Abkürzung („Gleiches
+  Deck wie Spieler 1 übernehmen") für Spieler 2.
+- **`store.ts#initGame`** hat jetzt die Signatur
+  `initGame(deckP1, deckP2, seed?)` statt intern immer `buildDemoDeck` für
+  beide Spieler zu rufen — `buildDemoDeck` (`deck.ts`) bleibt unverändert
+  bestehen (nicht gelöscht, wie im Auftrag gefordert) und wird jetzt vom
+  Deckbau-Screen selbst als „Zufällig füllen"-Button aufgerufen.
+- **Deckbau-Screen** (`src/ui/components/deckBuilder.ts#deckBuilderScreen`):
+  zeigt alle 109 Karten aus `getPool()` (sortiert nach Name) mit +/-
+  Kopienwahl pro Zeile, laufender Gesamtzahl/Validierungsstatus, einer
+  Namenssuche und Typ-/Farb-Filtern.
+  - **Validierung** (`src/ui/deckValidation.ts#validateDecklist`, neue reine
+    UI-Logik-Datei — die Engine validiert Decklisten nicht selbst,
+    `engine.createGame` nimmt schlicht `Record<string, number>` entgegen):
+    setzt exakt den Kommentar bei `Decklist` (`src/model/cards.ts`) um —
+    min. 40 Karten gesamt, max. 4 Kopien pro Nicht-Terrain-id (Terrains
+    unbegrenzt). Der „Weiter"/„Spiel starten"-Button ist per `disabled`
+    gesperrt, solange das nicht erfüllt ist; der Status wird als Klartext
+    angezeigt (z. B. „38/40 Karten - noch 2 Karte(n) nötig" bzw. „N Karten -
+    zu viele Kopien: ...").
+  - **Filter/Suche laufen bewusst NICHT über den globalen Store**: Ein
+    `notify()`/kompletter Rerender bei jedem Tastendruck im Suchfeld würde
+    das komplette DOM (inkl. Eingabefeld) neu aufbauen und den
+    Eingabefokus verlieren (bekannte Konsequenz des „kompletter Rebuild pro
+    Zustandsänderung"-Rendermusters dieses Projekts). Stattdessen hält
+    `deckBuilder.ts` den Filterzustand modul-scoped (`searchText`,
+    `typeFilter`, `colorFilter`) und blendet Zeilen direkt per
+    `row.style.display` ein/aus, sowohl beim initialen Aufbau als auch live
+    beim Tippen/Auswählen — kein Store-Involvement, keine Spiellogik, reine
+    Darstellungsfilterung. Ein `+`/`-`-Klick geht weiterhin über den Store
+    (`onChange` → `setDecklist` → `notify` → Voll-Rerender), da die
+    Gesamtzahl/Validierung an mehreren Stellen im DOM synchron bleiben muss;
+    der Filterzustand überlebt das dank der Modul-Scope-Variablen trotzdem.
+  - `dominantColorKey` (neu in `cardInfo.ts`) liefert den Manafarbe-Schlüssel
+    einer `CardDefinition` (inkl. Terrains, die kein `cost`-Feld haben →
+    immer „farblos") für den Farbfilter.
+- **`main.ts`** ruft `initGame()` nicht mehr automatisch auf, sondern nur
+  noch `subscribe(() => render(root))` + einmal `render(root)` (zeigt initial
+  den Deckbau-Screen).
+- **„Neues Spiel"** im laufenden Spiel (`render.ts#statusBar`) ruft jetzt
+  `backToDeckbuilder()` statt `location.reload()` — führt zurück zum
+  Deckbau-Screen (Spieler 1 zuerst); die zuletzt gesammelten Decklisten
+  bleiben in `store.ts` erhalten und dienen beim erneuten Öffnen als
+  Vorbefüllung (kein Hard-Requirement laut Auftrag, aber wie gewünscht für
+  bessere Wiederhol-Test-UX umgesetzt).
+- `style.css` um einen eigenen Abschnitt für den Deckbau-Screen ergänzt
+  (`.deckbuilder-*`, `.deck-pool-*`), keine neue CSS-Systematik.
+
+**Kein echter Modell-/Architektur-Konflikt aufgetreten.** Einzige
+Design-Entscheidung, die über die im Auftrag vorgegebenen Leitplanken
+hinausging: wo genau der `AppPhase`-Zustand lebt (eigene Datei vs. `store.ts`
+mitverwaltet) — hier für „mitverwaltet in `store.ts`" entschieden, da
+`store.ts` bereits die einzige Stelle mit `notify()`/`subscribe()` ist und
+ein zweiter, unabhängiger Beobachter-Mechanismus nur für die App-Phase reine
+zusätzliche Komplexität ohne Nutzen gewesen wäre.
+
+### Verifikation (v0.1.5)
+
+- `npm run build` (`tsc --noEmit` über Engine + UI) — sauber.
+- `npm test` (`vitest run`) — **85/85 grün** (83 Engine-Tests unverändert +
+  2 neue, dauerhafte UI-Tests aus Auftrag 1).
+- `npm run build:ui` (Vite-Produktionsbuild) — erfolgreich (102 kB JS / 7,5 kB
+  CSS, leicht gewachsen durch den neuen Deckbau-Screen, weiterhin klein).
+- Manueller Durchlauf des kompletten neuen Flows: über den in Auftrag 1
+  beschriebenen dauerhaften Test (`golden-path.test.ts`, echte Klicks) sowie
+  zwei zusätzliche, temporäre Vertiefungstests (s.o.: Mehrzug-Durchlauf +
+  „Neues Spiel" + erneuter Deckbau; Filter/Suche/+/--Zähler) — kein
+  Browser-Test im eigentlichen Sinn (keine Browser-/Computer-Use-Werkzeuge in
+  dieser Session verfügbar), aber dieselbe echte Store→Render→DOM-Klick-Kette
+  wie in allen bisherigen Golden-Path-Verifikationen (v0.1.1-v0.1.4).
+
+**Ergebnis:** Neue Dateien: `src/ui/components/deckBuilder.ts`,
+`src/ui/deckValidation.ts`, `src/ui/__tests__/golden-path.test.ts`. Geänderte
+Dateien: `src/ui/store.ts` (`AppPhase`-Verwaltung, `initGame`-Signatur),
+`src/ui/types.ts` (`AppPhase`), `src/ui/render.ts` (Verzweigung
+Deckbau/Spielbrett, „Neues Spiel"-Button), `src/ui/main.ts` (kein
+automatischer `initGame`-Aufruf mehr), `src/ui/cardInfo.ts`
+(`dominantColorKey`), `src/ui/deck.ts` (nur Kommentar aktualisiert, Logik
+unverändert), `src/ui/style.css` (Deckbau-Layout), `package.json`/
+`package-lock.json` (`jsdom`-Dev-Dependency).
+
 ## Nächste Schritte (Vorschläge)
 
-1. **UI-Automatisierung**: Ein paar echte Vitest+jsdom-Tests für
-   `store.ts`/`render.ts` dauerhaft ins Repo aufnehmen (inkl. `jsdom` als
-   Dev-Dependency), damit UI-Regressionen auffallen — aktuell nur manuell
-   verifiziert.
+1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
+   oben) — `src/ui/__tests__/` mit `jsdom` als Dev-Dependency, dauerhaft im
+   Repo.
 2. **`concede`-Button** ergänzen (trivial, aber für Testpartien nützlich).
 3. **Karten mit >1 Zielslot / X auf aktivierten Fähigkeiten**: Sobald der
    Card-Designer/Game-Architect solche Karten/Fähigkeiten einführt, braucht
@@ -530,8 +706,15 @@ Verhalten), sobald der Nicht-Terrain-Pool kleiner als 40 Karten ist.
    nur `chooseTriggerTargets` ab, die anderen drei brauchen eigene
    Eingabe-Widgets, da ihre `DecisionChoice`-Form keine `ChosenTarget`-Liste
    ist.
-6. **Deckbau-UI** (Decklist-Auswahl statt fest codiertem Demo-Deck) — klar
-   außerhalb dieses Schritts, aber die nötige Feuerprobe.
+6. ~~**Deckbau-UI**~~ **erledigt in v0.1.5** (s. eigener Abschnitt oben) —
+   bewusst simpel gehalten (kein Sideboard, kein Deck-Speichern über eine
+   Session hinaus, keine Mehrfach-Deck-Verwaltung); wäre bei Bedarf
+   erweiterbar.
 7. **Bessere Zugänglichkeit/Ergonomie**: aktuell keine Tastatursteuerung,
    keine Bestätigungsdialoge für irreversible Aktionen (z. B. Opfern),
    kein „Undo" (entspricht dem Engine-Modell, das keine Rücknahme kennt).
+8. **Deckbau-Screen für sehr kleine Bildschirme/viele Karten**: aktuell nur
+   ein scrollbarer `max-height`-Container ohne Virtualisierung — bei einem
+   künftig deutlich größeren Kartenpool (weit über 109) könnte das UI träge
+   werden (kein Problem beim aktuellen Umfang, gemessen über den
+   Produktionsbuild).
