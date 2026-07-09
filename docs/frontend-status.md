@@ -1,15 +1,19 @@
 # Frontend-Status
 
-Status: v0.1.5 (frontend-engineer) — 2026-07-09
-Grundlage: `docs/rules-engine.md` (v0.2.3), `docs/engine-status.md` (v0.2.4 zum
-Zeitpunkt dieses Sweeps — der v0.1.1-v0.1.3-Text unten beschreibt bewusst
-unverändert den Stand zum jeweiligen Zeitpunkt, s. dortige Abschnitte),
-`src/model/*` (Datenmodell, unverändert konsumiert), `src/engine/*`
-(`createRulesEngine`, 83 Engine-Tests grün, unverändert seit v0.2.4-
-`costChange`-Lückenschluss; Stand zum Zeitpunkt der v0.1.1-v0.1.3-Abschnitte
-war 77 Tests nach dem v0.2.3-Kampf-Keyword-Paket `trample`/`firstStrike`/
-`deathtouch` + `orderBlockers`), `src/cards/starter-set.ts` (109 Karten — 104
-Nicht-Terrain + 5 Terrains, unverändert seit v0.1.4).
+Status: v0.1.6 (frontend-engineer) — 2026-07-09
+Grundlage: `docs/rules-engine.md` (v0.3.1, Entscheidungen 9.10-9.13 + Nachtrag),
+`docs/engine-status.md` (v0.3.1, 118 Engine-/UI-Tests zum Zeitpunkt der
+Übernahme — der v0.1.1-v0.1.5-Text unten beschreibt bewusst unverändert den
+Stand zum jeweiligen Zeitpunkt, s. dortige Abschnitte), `src/model/*`
+(Datenmodell, unverändert konsumiert), `src/engine/*` (`createRulesEngine`),
+`src/cards/starter-set.ts` (113 Karten, u.a. die drei neuen v0.3-Testkarten
+`core.void-covenant`, `core.current-diplomat`, `core.cinderwrack-engine`).
+
+**v0.1.6 auf einen Blick** (Details im gleichnamigen Abschnitt unten): drei
+UI-Ergänzungen für die v0.3-Engine-Erweiterungen — echte Mulligan-UI (löst
+die `skipMulligans: true`-Notlösung in `store.ts` ab), Modus-Wahl-UI für
+modale Spells/Fähigkeiten/Trigger, und die Verallgemeinerung des
+X-Kosten-UI-Mechanismus (bisher nur `castSpell`) auf `activateAbility`.
 
 **v0.1.5 auf einen Blick** (Details in den gleichnamigen Abschnitten unten):
 permanente Vitest+jsdom-UI-Tests (`src/ui/__tests__/`, `jsdom` jetzt
@@ -104,16 +108,16 @@ anklickbare Aktionen angezeigt.
 |---|---|
 | `main.ts` | Einstiegspunkt, startet Store + Render-Loop (**seit v0.1.5**: kein automatischer `initGame`-Aufruf mehr, App startet im Deckbau-Screen) |
 | `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen |
-| `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine) |
+| `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine); **seit v0.1.6** neuer `CastSource`-Typ (spell/ability) + `UiMode`-Zweige `modeSelect`/verallgemeinerte `xInput`/`xTarget` (s. eigener Abschnitt unten) |
 | `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen |
 | `deckValidation.ts` | **Neu in v0.1.5**: reine UI-Validierung einer Deckliste (min. 40 Karten, max. 4 Kopien pro Nicht-Terrain-id, s. `src/model/cards.ts#Decklist`-Kommentar) — die Engine validiert das selbst nicht |
 | `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten); **seit v0.1.5** zusätzlich `dominantColorKey` (Manafarbe als Schlüssel statt CSS-Klasse, für den Deckbau-Farbfilter) |
-| `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI |
+| `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI; **seit v0.1.6** zusätzlich die `CastSource`-Helfer (`sourceName`/`sourceModes`/`sourceHasXCost`/`sourceTargets`/`buildCastAction`/`activateAbilityCandidatesFor`), die castSpell und activateAbility für den gemeinsamen Modus-/X-/Ziel-Flow vereinheitlichen |
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
-| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`) |
-| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen) |
-| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe |
-| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten) |
+| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten |
+| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit) |
+| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn` |
+| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode) |
 
 ## Was funktioniert
 
@@ -685,16 +689,194 @@ automatischer `initGame`-Aufruf mehr), `src/ui/cardInfo.ts`
 unverändert), `src/ui/style.css` (Deckbau-Layout), `package.json`/
 `package-lock.json` (`jsdom`-Dev-Dependency).
 
+## Mulligan-UI, Modal-Effekte, X-Kosten auf aktivierten Fähigkeiten (v0.1.6, 2026-07-09)
+
+Reaktion auf drei v0.3-Engine-Erweiterungen (`docs/rules-engine.md` v0.3.1,
+Entscheidungen 9.10-9.13; `docs/engine-status.md` v0.3.1, 118 Tests), die
+bisher keine UI hatten. Drei Teilaufträge, alle umgesetzt:
+
+### 1. Echte Mulligan-UI (Entscheidung 9.11)
+
+`createGame` endet seit v0.3 standardmäßig (`skipMulligans: false`) mit einer
+offenen `pendingDecision = { kind: "mulligan", player, timesMulliganed }` VOR
+dem ersten Priority-Fenster (Paris-Variante, streng sequentiell: erst der
+Startspieler komplett, dann der andere). `src/ui/store.ts#initGame` hatte das
+bisher mit einem `skipMulligans: true`-Notfix umgangen (v0.3-Kommentar des
+engine-engineers, „kein Ersatz für echte Mulligan-UI").
+
+- **`render.ts#actionBanner`**: neuer, eigener Zweig für
+  `pendingDecision.kind === "mulligan"` — analog zum bestehenden
+  `orderBlockers`-Zweig (eigener Banner-Typ statt des generischen
+  `chooseTriggerTargets`-Fallbacks, weil die Antwort kein anklickbares
+  Board-Ziel ist, sondern eine reine Ja/Nein-Entscheidung).
+- **Neue Komponente `mulliganPanel`** (`components/actionPanels.ts`): zeigt
+  Spieler + aktuelle/neue Handgröße, zwei Buttons „Starthand behalten" /
+  „Mulligan (neu mischen)" — dispatchen direkt `resolveDecision` mit
+  `{ kind: "mulligan", takeMulligan: false/true }`. Kein eigener `UiMode`
+  nötig (anders als `orderBlockers`), da die Decision keinen lokal
+  sortierbaren Zwischenzustand braucht.
+- **`store.ts#initGame`**: `skipMulligans: true` entfernt — die Engine läuft
+  jetzt mit ihrem dokumentierten Default (`false`), die Mulligan-Phase ist
+  seither ein regulärer Teil jeder Partie im UI.
+
+### 2. Modal-Effekte „wähle eines —" (Entscheidung 9.13)
+
+Zwei Fälle laut Regelwerk, beide umgesetzt:
+
+- **Atomarer Fall (Spells/aktivierte Fähigkeiten):** `chosenMode` ist Teil
+  der `castSpell`/`activateAbility`-Aktion (keine PendingDecision). Neuer
+  `UiMode`-Zweig `modeSelect` (`types.ts`) + Komponente `modeSelectPanel`
+  (`actionPanels.ts`, ein Button pro Modus mit `mode.text` als Label,
+  Fallback „Modus N"). Reihenfolge Modus → X → Ziele (rules-engine.md 4):
+  Nach der Moduswahl entscheidet `render.ts`, ob als nächstes X (falls die
+  Karte/Fähigkeit X-Kosten hat), Zielwahl (falls der gewählte Modus
+  `targets` hat) oder der direkte `dispatch` folgt. Für Handkarten neuer
+  Button „Modus wählen" in `handCard.ts` (`offerModeFlow`/`onStartModeFlow`,
+  hat Vorrang vor dem bestehenden „X wählen & spielen"-Button, da Modus vor
+  X kommt); für Battlefield-Fähigkeiten ein neuer Zweig in
+  `render.ts#battlefieldZone` — wichtig: `getLegalActions` liefert für
+  modale Fähigkeiten laut Vertrag EINEN Kandidaten OHNE `chosenMode`, der
+  bisherige „ein Zielslot → direkt dispatchen"-Automatismus hätte diesen
+  Kandidaten fälschlich ohne Moduswahl abgeschickt (Engine hätte abgelehnt)
+  — jetzt wird ein solcher Kandidat erkannt (`ability.modes` am
+  referenzierten `abilityIndex`) und startet stattdessen `modeSelect`.
+- **Trigger-Fall:** neuer `pendingDecision`-Zweig `chooseMode` in
+  `render.ts#actionBanner` (analog zum bestehenden `chooseTriggerTargets`-
+  Pfad) + neue Komponente `chooseModeDecisionPanel` — zeigt nur die laut
+  `selectableModes` aktuell wählbaren Modi, dispatcht `resolveDecision` mit
+  `{ kind: "chooseMode", modeIndex }`. Folgt danach `chooseTriggerTargets`
+  (Ketten-Decision bei mehrdeutigen Zielen des gewählten Modus, v0.3.1-
+  Nachtrag zu 9.13), greift dafür unverändert der bestehende generische
+  `chooseTriggerTargets`-Pfad (Board-Klicks über `getLegalActions`-
+  Kandidaten) — keine weitere Anpassung nötig, da `chosenMode` dort
+  serverseitig in der Decision persistiert wird.
+
+Getestet mit `core.void-covenant` (modaler `spell`, 3 Modi, einer mit
+Zielslot `unitOrPlayer`) über einen echten Klick-Durchlauf (Deckbau → Modus
+wählen → Ziel wählen → Stack zeigt `chosenMode`/`chosenTargets` → Resolution
+fügt 2 Schaden zu), s. `src/ui/__tests__/modal-effects.test.ts`. Der
+Trigger-Fall (`core.current-diplomat`, modaler ETB-Trigger) ist über den
+Code-Pfad umgesetzt (analog zum bewährten `chooseTriggerTargets`-Muster,
+gegen `docs/rules-engine.md`/`docs/engine-status.md` durchgeprüft), aber
+mangels Zeitbudget in dieser Session **nicht** durch einen eigenen
+dauerhaften Klick-Test abgedeckt — auf dem "Nächste Schritte"-Radar unten.
+
+### 3. X-Kosten auf aktivierten Fähigkeiten (Entscheidung 9.12)
+
+Der bisherige `xInput`/`xTarget`-UI-Mechanismus deckte laut
+`docs/frontend-status.md` (v0.1.5) nur `castSpell` ab. Verallgemeinert:
+
+- **`types.ts`**: neuer Typ `CastSource` (`{ kind: "spell"; cardInstanceId }
+  | { kind: "ability"; sourceInstanceId; abilityIndex }`), `UiMode`-Zweige
+  `xInput`/`xTarget` tragen jetzt `source: CastSource` statt eines festen
+  `cardInstanceId` (plus optionales `chosenMode` für die Modal-Verzahnung
+  aus Teil 2). `xTarget.chosenX` ist jetzt optional (reine Modal-Zielwahl
+  ohne X nutzt denselben `UiMode`).
+- **`actionUtil.ts`**: neue `CastSource`-Helfer (`sourceName`, `sourceModes`,
+  `sourceHasXCost`, `sourceTargets`, `buildCastAction`,
+  `activateAbilityCandidatesFor`) — lesen Kartendefinition/Fähigkeit rein
+  aus (kein Regel-Code) und bauen die finale `castSpell`-/
+  `activateAbility`-Aktion, statt dass `render.ts` das für beide Fälle
+  separat verdrahten müsste.
+- **`render.ts#battlefieldZone`**: neue Erkennung für X-Kosten-Fähigkeiten
+  über die Kartendefinition selbst (`manaCost.x` am `ActivatedAbility`,
+  `!isManaAbility`) — `getLegalActions` liefert dafür laut Vertrag GAR
+  KEINEN Kandidaten (`activateAbilityCandidatesFor` würde sie also nie
+  finden), exakt das gleiche bewusst grobe Muster wie die bestehende
+  X-Kosten-Klickbarkeit für Handkarten-Spells (Fehlklick zeigt den
+  `error`-String der Engine, keine clientseitige Legalitätsprüfung).
+
+Getestet mit `core.cinderwrack-engine` (Relikt, `{X}, tap: X Schaden`) über
+einen echten Klick-Durchlauf (Deckbau → Relikt casten → Fähigkeit antippen →
+X eingeben → Ziel wählen → Stack zeigt `chosenX`/`chosenTargets`), s.
+`src/ui/__tests__/x-cost-ability.test.ts`. X wurde dort bewusst auf `0`
+gesetzt (das Casten des Relikts selbst verbraucht bereits alle vier
+vorbereiteten Terrains) — der Test prüft damit den UI-Mechanismus
+(Eingabe → Zielwahl → Stack-Objekt), nicht die Schadenshöhe.
+
+### Kleine Nebenänderung: `data-player`-Attribut auf `playerPanel`
+
+`components/playerPanel.ts` trägt jetzt `data-player="<playerId>"` (analog
+zum bestehenden `data-card-id` in `deckBuilder.ts`) — rein für Testbarkeit
+(Spieler-Panel im DOM gezielt anwählen), keine Verhaltensänderung.
+
+### Neue Testinfrastruktur: `src/ui/__tests__/testHelpers.ts`
+
+Gemeinsame Klick-/Deck-/Autopilot-Helfer für alle drei neuen Testdateien
+(kein Produktionscode): `click`/`queryOne`/`queryAll`/`buttonWithText`/
+`makeSeededRandom` (aus `golden-path.test.ts` extrahiert, dort jetzt auch
+genutzt), `buildDeckByClicking` (Deck über echte +/- Klicks im Deckbau-
+Screen statt `setDecklist`), `keepAllMulligans`, sowie
+`autoAdvanceToReadyMain1` — ein generischer Klick-„Autopilot" für
+kreaturlose Testvorbereitung (Priority passen, Terrain im eigenen Main1
+spielen, „keine Angreifer"/„keine Blocker", Cleanup-Abwurf), der so lange
+Züge simuliert, bis ein Spieler eine gewünschte Terrainzahl kontrolliert
+UND die zu testende Karte in der Hand hat — nötig, weil Terrains nur 1×/Zug
+spielbar sind und die Testkarten mehrere Mana brauchen (3 bzw. 4 Terrains,
+also mehrere eigene Züge). Bewusst **kein** neuer Debug-Setter in
+`store.ts` (Produktionscode) — anders als die temporären Verifikationen aus
+v0.1.2/v0.1.3 laufen auch Deckbau und Mana-Vorbereitung über echte,
+öffentliche Store-Funktionen/Klicks (`setDecklist`/`+`-Buttons,
+Terrain-Tap-Fähigkeit), nicht über interne Engine-Zonen-Helfer.
+
+**Wichtige Testfallen (für künftige Sessions/Testdateien in diesem
+Repo dokumentiert):** `render()` baut das DOM bei jeder Store-Änderung
+komplett neu auf (kein Diffing) — ein einmal gequerter Button-Knoten wird
+nach dem ersten Klick „stale" (sein `onclick`-Closure kapselt den Zustand
+VOR diesem Klick). Mehrere Klicks auf denselben, außerhalb einer Schleife
+gecachten Button-Verweis kumulieren sich NICHT (z. B. mehrfaches Anklicken
+eines „+"-Buttons oder eines Discard-Toggles) — jeder Klick muss den Button
+frisch selektieren. Zwei Bugs dieser Art traten beim Schreiben von
+`autoAdvanceToReadyMain1`/`buildDeckByClicking` auf und sind behoben.
+
+### Modellkonflikt-Check
+
+**Kein echter Modell-/Architektur-Konflikt gefunden.** Der einzige
+Interpretationsspielraum (welche `UiMode`-Struktur für den kombinierten
+Modus-/X-/Ziel-Flow) war eine reine UI-Design-Entscheidung (generischer
+`CastSource`-Typ statt getrennter Modi pro Fall) und keine Rückfrage an
+Game-Architect/Engine-Engineer wert.
+
+### Verifikation (v0.1.6)
+
+- `npm run build` (`tsc --noEmit` über Engine + UI) — sauber.
+- `npm test` (`vitest run`) — **121/121 grün** (118 Bestandstests
+  unverändert + 3 neue, dauerhafte UI-Tests: `mulligan.test.ts`,
+  `modal-effects.test.ts`, `x-cost-ability.test.ts`).
+- `npm run build:ui` (Vite-Produktionsbuild) — erfolgreich (113,6 kB JS /
+  7,6 kB CSS, leicht gewachsen durch die neuen Panels).
+- Kein Browser-/Computer-Use-Werkzeug in dieser Session verfügbar (wie
+  bereits in v0.1.3-v0.1.5 dokumentiert) — Verifikation lief über echte
+  `element.dispatchEvent(new Event("click"))`-Aufrufe auf das von `render()`
+  erzeugte DOM in `jsdom` (Vitest), dieselbe Kette wie in allen bisherigen
+  Golden-Path-Verifikationen.
+
+**Ergebnis:** Neue Dateien: `src/ui/__tests__/testHelpers.ts`,
+`src/ui/__tests__/mulligan.test.ts`, `src/ui/__tests__/modal-effects.test.ts`,
+`src/ui/__tests__/x-cost-ability.test.ts`. Geänderte Dateien:
+`src/ui/types.ts` (`CastSource`, `modeSelect`-Zweig, verallgemeinertes
+`xInput`/`xTarget`), `src/ui/actionUtil.ts` (`CastSource`-Helfer),
+`src/ui/render.ts` (neue `pendingDecision`-/`UiMode`-Zweige, neue
+Battlefield-Erkennung), `src/ui/store.ts` (`skipMulligans` entfernt),
+`src/ui/components/actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`,
+`chooseModeDecisionPanel`), `src/ui/components/handCard.ts`
+(`offerModeFlow`/`onStartModeFlow`), `src/ui/components/playerPanel.ts`
+(`data-player`), `src/ui/style.css` (`.mode-select-*`),
+`src/ui/__tests__/golden-path.test.ts` (Mulligan-Entscheidung durchgeklickt
+statt implizit übersprungen, nutzt jetzt `testHelpers.ts`).
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
    oben) — `src/ui/__tests__/` mit `jsdom` als Dev-Dependency, dauerhaft im
    Repo.
 2. **`concede`-Button** ergänzen (trivial, aber für Testpartien nützlich).
-3. **Karten mit >1 Zielslot / X auf aktivierten Fähigkeiten**: Sobald der
-   Card-Designer/Game-Architect solche Karten/Fähigkeiten einführt, braucht
-   die `xTarget`-UI eine Mehrfach-Slot-Erweiterung (Grundgerüst ist im
-   `UiMode`-Typ vorbereitet, aber nur für einen Slot implementiert).
+3. **Dauerhafter Klick-Test für den modalen Trigger-Fall**
+   (`core.current-diplomat`, `chooseMode`-PendingDecision inkl. Auto-Pick
+   und der Ketten-Decision zu `chooseTriggerTargets`) — v0.1.6 deckt den
+   Code-Pfad ab, aber (noch) keinen eigenen Test (s. v0.1.6-Abschnitt oben).
+   **Karten mit >1 Zielslot**: weiterhin ungetestet/nicht implementiert
+   (Grundgerüst im `UiMode`-Typ vorbereitet, aber nur für einen Slot).
 4. **`computeEffectiveStats`/`computeEffectiveKeywords`** offiziell in den
    `RulesEngine`-Vertrag heben (oder alternative, offizielle
    "Anzeige-Projektion" definieren) — siehe Grenzfall oben.

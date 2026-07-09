@@ -6,6 +6,7 @@
  * ausgelöst.
  */
 
+import type { EffectMode } from "../../model";
 import { h, text } from "../h";
 
 export function targetingBanner(title: string, onCancel?: () => void): HTMLElement {
@@ -129,6 +130,76 @@ export function orderBlockersPanel(
     ]),
     h("div", { class: "order-blockers-attacker-list" }, attackerBlocks),
     h("button", { class: "btn btn-play", onclick: onConfirm }, [text("Reihenfolge bestätigen")]),
+  ]);
+}
+
+/**
+ * pendingDecision.kind === "mulligan" (rules-engine.md 1b, Entscheidung
+ * 9.11, Paris-Variante): einfaches Ja/Nein-Banner - keine Ziel-/Kartenwahl
+ * nötig. `timesMulliganed` bestimmt die aktuelle bzw. eine bei Mulligan neue
+ * Handgröße (7 - timesMulliganed bzw. eine weniger).
+ */
+export function mulliganPanel(
+  player: string,
+  timesMulliganed: number,
+  onKeep: () => void,
+  onMulligan: () => void,
+): HTMLElement {
+  const handSize = 7 - timesMulliganed;
+  return h("div", { class: "action-banner mulligan-panel" }, [
+    h("span", {}, [
+      text(
+        `${player}: Starthand mit ${handSize} Karte(n) behalten, oder mulliganen (neu mischen, ${handSize - 1} Karte(n) ziehen)?`,
+      ),
+    ]),
+    h("button", { class: "btn btn-play", onclick: onKeep }, [text("Starthand behalten")]),
+    h("button", { class: "btn btn-cancel", onclick: onMulligan }, [text("Mulligan (neu mischen)")]),
+  ]);
+}
+
+/**
+ * Modus-Wahl für einen modalen Spell/eine modale aktivierte Fähigkeit (v0.3,
+ * rules-engine.md 4 + 9.13): `chosenMode` ist Teil der castSpell-/
+ * activateAbility-Aktion (atomar) - dieses Panel sammelt nur die
+ * Nutzereingabe, bevor render.ts daraus ggf. X-/Zielwahl anschließt oder
+ * direkt dispatcht. `mode.text` als Label, Fallback "Modus N" falls die
+ * Karte keinen anzeigetext hat.
+ */
+export function modeSelectPanel(
+  sourceName: string,
+  modes: EffectMode[],
+  onChoose: (modeIndex: number) => void,
+  onCancel: () => void,
+): HTMLElement {
+  const buttons = modes.map((m, i) =>
+    h("button", { class: "btn btn-play mode-select-btn", onclick: () => onChoose(i) }, [text(m.text ?? `Modus ${i + 1}`)]),
+  );
+  return h("div", { class: "action-banner mode-select-panel" }, [
+    h("span", {}, [text(`Modus für „${sourceName}“ wählen - wähle eins:`)]),
+    h("div", { class: "mode-select-list" }, buttons),
+    h("button", { class: "btn btn-cancel", onclick: onCancel }, [text("Abbrechen")]),
+  ]);
+}
+
+/**
+ * pendingDecision.kind === "chooseMode" (v0.3, nur für getriggerte
+ * Fähigkeiten, rules-engine.md 4 + 9.13): analog zu modeSelectPanel, aber
+ * nur die laut `selectableModes` aktuell wählbaren Modi werden angeboten und
+ * die Antwort geht als resolveDecision raus - kein Abbrechen möglich (die
+ * Decision ist verpflichtend, wie orderBlockers/mulligan).
+ */
+export function chooseModeDecisionPanel(
+  sourceName: string,
+  modes: EffectMode[],
+  selectableModes: number[],
+  onChoose: (modeIndex: number) => void,
+): HTMLElement {
+  const buttons = selectableModes.map((i) =>
+    h("button", { class: "btn btn-play mode-select-btn", onclick: () => onChoose(i) }, [text(modes[i]?.text ?? `Modus ${i + 1}`)]),
+  );
+  return h("div", { class: "action-banner mode-select-panel" }, [
+    h("span", {}, [text(`Getriggerte Fähigkeit von „${sourceName}“: Modus wählen -`)]),
+    h("div", { class: "mode-select-list" }, buttons),
   ]);
 }
 

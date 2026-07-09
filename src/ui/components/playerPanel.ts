@@ -33,7 +33,11 @@ export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPa
 
   return h(
     "div",
-    { class: classes.join(" "), onclick: opts.onClick as ((ev: Event) => void) | undefined },
+    {
+      class: classes.join(" "),
+      "data-player": playerId,
+      onclick: opts.onClick as ((ev: Event) => void) | undefined,
+    },
     [
       h("div", { class: "player-panel-head" }, [
         h("span", { class: "player-panel-name" }, [text(playerId)]),

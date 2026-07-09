@@ -8,7 +8,7 @@ describe("Zug-/Step-Automatik", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 13, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 13, startingPlayer: "player1" });
 
     expect(state.turnNumber).toBe(1);
     expect(state.activePlayer).toBe("player1");
@@ -50,7 +50,7 @@ describe("Zug-/Step-Automatik", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 13, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 13, startingPlayer: "player1" });
     expect(state.step).toBe("upkeep");
 
     state.players.player1.manaPool.flame = 3; // Testvorbedingung direkt gesetzt

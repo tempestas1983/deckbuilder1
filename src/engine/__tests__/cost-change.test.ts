@@ -33,7 +33,7 @@ describe("costChange Static-Modifier", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     putOnBattlefield(state, COST_REDUCER_RELIC, "player1");
@@ -55,7 +55,7 @@ describe("costChange Static-Modifier", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const spell = giveCardInHand(state, pool, CHEAP_VANILLA_SPELL, "player1");
@@ -74,7 +74,7 @@ describe("costChange Static-Modifier", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     // player2 kontrolliert den Zollposten -> verteuert player1s Sprüche.
@@ -105,7 +105,7 @@ describe("costChange Static-Modifier", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     putOnBattlefield(state, COST_TAX_RELIC, "player2");
@@ -132,7 +132,7 @@ describe("costChange Static-Modifier", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     putOnBattlefield(state, COST_REDUCER_RELIC, "player1");
@@ -154,7 +154,7 @@ describe("costChange Static-Modifier", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     putOnBattlefield(state, COST_REDUCER_RELIC, "player1");

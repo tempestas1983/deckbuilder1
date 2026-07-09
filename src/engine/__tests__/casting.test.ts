@@ -8,7 +8,7 @@ describe("Casten und Resolven (einfacher Fall)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const terrain = putOnBattlefield(state, FLAME_TERRAIN, "player1");
@@ -58,7 +58,7 @@ describe("Casten und Resolven (einfacher Fall)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    const created = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    const created = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     const state = advanceToStep(engine, created.state, "main1");
 
     const whelp = giveCardInHand(state, pool, EMBER_WHELP, "player1");
@@ -81,7 +81,7 @@ describe("Casten und Resolven (einfacher Fall)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 3, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 3, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const bear = giveCardInHand(state, pool, BEAR, "player1");

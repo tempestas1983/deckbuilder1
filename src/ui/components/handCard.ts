@@ -14,9 +14,18 @@ export interface HandCardOptions {
   playTerrainCandidate?: PlayerAction;
   /** true = Karte hat X-Kosten und Spieler hat gerade Priority -> eigene Eingabe-UI anbieten. */
   offerXFlow: boolean;
+  /**
+   * v0.3 (Modal-Spells, rules-engine.md 4 + 9.13): true = Karte deklariert
+   * `modes` -> Modus-Wahl VOR X/Zielen anbieten statt der normalen
+   * Cast-Buttons (getLegalActions liefert für modale Karten nur einen
+   * Kandidaten ohne chosenMode/chosenTargets, den ein direkter "Spielen"-Klick
+   * nicht gültig ausfüllen könnte).
+   */
+  offerModeFlow: boolean;
   onCastDirect: (action: PlayerAction) => void;
   onStartTargeting: (candidates: PlayerAction[], title: string) => void;
   onStartXFlow: (cardInstanceId: InstanceId) => void;
+  onStartModeFlow: (cardInstanceId: InstanceId) => void;
   onPlayTerrain: (action: PlayerAction) => void;
 }
 
@@ -49,7 +58,11 @@ export function handCard(
       h("button", { class: "btn btn-play", onclick: () => opts.onPlayTerrain(candidate) }, [text("Terrain legen")]),
     );
   }
-  if (opts.offerXFlow) {
+  if (opts.offerModeFlow) {
+    actions.push(
+      h("button", { class: "btn btn-play", onclick: () => opts.onStartModeFlow(cardInstanceId) }, [text("Modus wählen")]),
+    );
+  } else if (opts.offerXFlow) {
     actions.push(
       h("button", { class: "btn btn-play", onclick: () => opts.onStartXFlow(cardInstanceId) }, [text("X wählen & spielen")]),
     );

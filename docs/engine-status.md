@@ -1,12 +1,241 @@
 # Engine-Status
 
-Status: v0.2.4 (engine-engineer) — 2026-07-09
-Grundlage: `docs/rules-engine.md` (Regelwerk v0.2.3, Kampf-Keyword-Paket §6d/9.9, Revision §9.8), `src/model/*` (Datenmodell unverändert konsumiert - `Keyword`/`PendingDecision`/`PermanentState` bereits vom Architect erweitert).
-Code: `src/engine/*`. Tests: `src/engine/__tests__/*.test.ts` (Vitest, 83 Tests, alle grün).
+Status: v0.3.1 (engine-engineer) — 2026-07-09
+Grundlage: `docs/rules-engine.md` (Regelwerk v0.3, vier vertagte Punkte aus
+Abschnitt 10 geschlossen: `onDamageReceived`, Mulligan, X auf aktivierten
+Fähigkeiten, Modal-Effekte; v0.3.1-Nachtrag zu Entscheidung 9.13), `src/model/*`
+(Datenmodell vom Architect bereits erweitert - `EffectMode`/`modes`,
+`PendingDecision` `mulligan`/`chooseMode`, `chosenX`/`chosenMode` an
+Aktionen/Stack-Objekten, `PlayerState.mulligans`, `CreateGameConfig.skipMulligans`,
+Event `mulliganTaken`; v0.3.1: additives `chosenMode?: number` auf
+`PendingDecision "chooseTriggerTargets"`).
+Code: `src/engine/*`. Tests: `src/engine/__tests__/*.test.ts` + `src/ui/__tests__/*.test.ts`
+(Vitest, 118 Tests, alle grün; vorher 85).
 
 Dieses Dokument richtet sich an frontend-engineer (worauf aufbauen?), card-designer
 (welche DSL-Primitive funktionieren zuverlässig?) und game-architect (offene
 Klärungspunkte, siehe Abschnitt "Offene Fragen").
+
+## v0.3.1: Modellkonflikt zu 9.13 final gelöst - volle `chooseMode` -> `chooseTriggerTargets`-Kette
+
+Reaktion auf den Nachtrag zu Entscheidung 9.13 in `docs/rules-engine.md`: Der
+in v0.3 gemeldete Modellkonflikt (modaler Trigger, dessen gewählter Modus
+selbst mehrdeutige Ziele hat - die Ketten-Decision `chooseMode` ->
+`chooseTriggerTargets` konnte den bereits gewählten Modus nicht über den
+zweiten `resolveDecision`-Roundtrip hinweg persistieren) ist final gelöst.
+Der Architect hat `PendingDecision "chooseTriggerTargets"` um ein additives,
+optionales Feld `chosenMode?: number` ergänzt (`src/model/game-state.ts`) -
+bewusst KEIN Gegenstück an `DecisionChoice "chooseTriggerTargets"` (die
+Engine liest den Modus aus `state.pendingDecision`, nicht aus der
+Spieler-Antwort).
+
+**Umgesetzt (Interims-Fallback vollständig entfernt):**
+
+- `triggers.ts#stackModalTriggerWithMode`: liefert jetzt `"stacked" |
+  "fizzled" | "awaitingDecision"` statt nur `"stacked" | "fizzled"`. Ist die
+  Zielwahl für den (bereits feststehenden) Modus selbst mehrdeutig, wird
+  `pendingDecision = { kind: "chooseTriggerTargets", ..., chosenMode:
+  modeIndex }` gesetzt statt automatisch das erste legale Ziel zu wählen -
+  identisch zum nicht-modalen Pfad, nur mit gesetztem `chosenMode`.
+- `triggers.ts#resolveChosenModeForTrigger` gibt das Ergebnis von
+  `stackModalTriggerWithMode` durch, damit `actions.ts` weiß, ob die
+  `chooseMode`-Pause direkt beendet ist oder in die Ketten-Decision übergeht.
+- `actions.ts#perform` (resolveDecision `chooseMode`): überschreibt
+  `state.pendingDecision` NICHT mehr blind - bei `outcome ===
+  "awaitingDecision"` bleibt die frisch gesetzte `chooseTriggerTargets`-
+  Decision (inkl. `chosenMode`) stehen, `resumePriorityTo` bleibt unverändert
+  (die Pause geht weiter, 9.7).
+- `actions.ts#perform` (resolveDecision `chooseTriggerTargets`): übernimmt
+  `decision.chosenMode` unverändert in `pushResolvedTriggerToStack` -> landet
+  als `StackObject.chosenMode`.
+- `actions.ts#validateResolveDecision` (`chooseTriggerTargets`) und
+  `legal-actions.ts#resolveDecisionCandidates` (`chooseTriggerTargets`):
+  lesen die Zielslots jetzt aus `ability.modes[decision.chosenMode].targets`
+  statt aus `ability.targets`, wenn `decision.chosenMode` gesetzt ist (bei
+  nicht-modalen Triggern unverändert `ability.targets`).
+
+Neuer Test in `modal-effects.test.ts` ("volle Kette: chooseMode ->
+chooseTriggerTargets ..."): zwei gegnerische Units machen sowohl die
+Moduswahl (2 wählbare Modi) ALS AUCH die Zielwahl des gewählten Modus (2
+legale Ziele) mehrdeutig - deckt beide Roundtrips ab, inkl.
+`getLegalActions`-Kandidaten bei der zweiten Decision und dem final korrekt
+gestackten `StackObject.chosenMode`/`chosenTargets` (nur das explizit
+gewählte Ziel wird betroffen, nicht das andere).
+
+**Offene Frage #1 aus v0.3 ("Offene Fragen an game-architect") ist damit
+gelöst** und aus der Liste unten entfernt.
+
+## v0.3: `onDamageReceived`, Mulligan, X auf aktivierten Fähigkeiten, Modal-Effekte
+
+Reaktion auf das v0.3-Update von `docs/rules-engine.md` (vier bewusst
+vertagte Punkte aus Abschnitt 10 geschlossen, Entscheidungen 9.10-9.13).
+Alle vier Punkte implementiert:
+
+### 1. `onDamageReceived` verdrahtet (Entscheidung 9.10)
+
+Neuer zentraler Helfer **`damage.ts#applyDamageToPermanent`** (markiert
+Schaden, setzt ggf. `deathtouchDamage`, emittiert `damageDealt`, feuert den
+Trigger - amount <= 0 ist ein No-Op, §6c) - genutzt sowohl von
+`combat.ts#dealCombatDamageRound` (ersetzt die bisherige Inline-Logik in der
+Apply-Schleife) als auch von `effects.ts` (ersetzt das bisherige lokale
+`dealDamageToPermanent`). Neue Feuerfunktion **`triggers.ts#fireOnDamageReceivedTrigger`**
+(separat von `fireSelfCombatTrigger`, weil `eventSubject` hier die
+SCHADENSQUELLE ist, nicht `self` - Vergeltungs-Designs über
+`EffectRecipient "eventSubject"`). Granularität: einmal pro Schadensereignis
+(ein Eintrag in `combat.ts`s `permanentDamageInstances`-Liste bzw. ein
+`dealDamage`-Effekt-Aufruf), bei Mehrfachblock/firstStrike also mehrfach pro
+Kampf. Letaler Schaden feuert trotzdem (Trigger liegt schon in der
+Pending-Queue, bevor SBAs die Quelle entfernen) - getestet inkl. des Falls,
+dass die TRIGGER-QUELLE selbst (nicht die Schadensquelle) an genau diesem
+Schaden stirbt.
+
+Nebenbei behobene Inkonsistenz beim Vereinheitlichen: Das bisherige
+`effects.ts#dealDamageToPermanent` markierte/emittierte auch bei `amount <= 0`
+(anders als `combat.ts`) - der neue gemeinsame Helfer filtert das jetzt auch
+für Effekt-Schaden einheitlich heraus (konsistent mit §6c und der v0.3-Doku
+"Schaden <= 0 feuert nicht, konsistent mit 6c"); kein Bestandstest verließ
+sich auf das alte Verhalten (Regressionstest in `on-damage-received.test.ts`
+deckt X=0-Effektschaden ab).
+
+Defensiver Zusatzfix (9.10 Punkt 4, "Token-Quelle bereits gelöscht"):
+`triggers.ts#stackOrDeferTrigger` und `stack.ts#resolveAbilityObject` prüften
+bisher NICHT, ob die Quell-Karteninstanz noch existiert, bevor sie
+`getDefinition(pool, ...)` aufrufen - für einen Trigger, dessen Quelle
+zwischenzeitlich als Token per SBA 7 endgültig gelöscht wurde, hätte das eine
+Exception geworfen statt (wie in 9.10 Punkt 4 gefordert) den Trigger
+"verpuffen" zu lassen. Beide Stellen haben jetzt einen frühen
+`state.cards[...]`-Guard, der stattdessen `"fizzled"` zurückgibt bzw. ein
+`stackObjectFizzled`-Event emittiert.
+
+Neue Testdatei `on-damage-received.test.ts` (5 Tests): Kampfschaden feuert und
+trifft die Schadensquelle zurück, Effekt-Schaden feuert ebenso (inkl.
+No-Op-Vergeltung, weil die Quelle - ein bereits resolvter Spell - kein
+Permanent mehr ist), Schaden <= 0 feuert nicht (X=0), Mehrfachblock erzeugt
+ZWEI getrennte Trigger (einen pro Schadensquelle), letaler Schaden feuert
+trotzdem und resolvt nach dem Tod der Trigger-Quelle normal. Neue Testfixture
+`ENRAGE_UNIT` (2/6, "wenn Schaden erhalten: 1 Schaden an die Schadensquelle").
+
+### 2. Mulligan (Paris-Variante, Entscheidung 9.11)
+
+Neues Modul **`mulligan.ts`**: `buildInitialMulliganDecision` (von
+`create-game.ts` genutzt) und `resolveMulliganDecision` (von
+`actions.ts#perform` bei `resolveDecision` mit `kind: "mulligan"` aufgerufen).
+`createGame` setzt jetzt standardmäßig `pendingDecision = { kind: "mulligan",
+player: activePlayer, timesMulliganed: 0 }` statt direkt `beginStep("untap")`
+aufzurufen - **Ausnahme `CreateGameConfig.skipMulligans: true`** (Tests/Komfort,
+Default `false`). Ablauf: `takeMulligan: true` mischt die komplette Hand
+zurück in die Library (RNG-Verbrauch), zieht `7 - mulligans` Karten, zählt
+`PlayerState.mulligans` hoch und emittiert `mulliganTaken`; bei Handgröße 0
+keine weitere Decision (automatisches Behalten). `takeMulligan: false` oder
+Handgröße 0 beendet die Phase für diesen Spieler - ist das der Startspieler
+(`=== state.activePlayer`, der während der ganzen Phase unverändert bleibt),
+kommt der andere Spieler dran; sonst beginnt Zug 1 mit `beginStep("untap")`.
+Liegt komplett außerhalb einer Priority-Vergabe (`resumePriorityTo`
+unberührt); `getLegalActions`/`legal-actions.ts` enumeriert bei `mulligan`
+beide Antworten vollständig. `actions.ts#validateResolveDecision` akzeptiert
+`mulligan` immer (beide Antworten sind laut 9.11 immer legal).
+
+**Breaking Change für Bestandstests behoben:** Alle 77 `createGame(`-Aufrufe
+in den 14 bestehenden Testdateien (`src/engine/__tests__/*.test.ts`) wurden
+per gebündeltem Suchen/Ersetzen (`createGame({ decks,` ->
+`createGame({ decks, skipMulligans: true,`) auf den neuen Default umgestellt
+(alle 77 Aufrufstellen folgten demselben literalen Muster, eine zentrale
+Test-Helper-Kapselung war daher nicht nötig). Zusätzlich: `src/ui/store.ts#initGame`
+(frontend-engineer-Code) rief `engine.createGame` ohne `skipMulligans` auf und
+landete dadurch neu in der Mulligan-Decision statt am ersten Priority-Fenster -
+der bestehende UI-Test `golden-path.test.ts` schlug dadurch fehl. Minimale,
+mechanische Anpassung (`skipMulligans: true` ergänzt, mit TODO-Kommentar) statt
+einer echten Mulligan-UI, damit die bestehende Test-Suite grün bleibt -
+**echte Mulligan-UI ist ein offener Punkt für frontend-engineer** (Abschnitt
+"Offene Fragen" unten).
+
+Neue Testdatei `mulligan.test.ts` (11 Tests): Default-Decision nach
+`createGame`, `skipMulligans` überspringt die Phase, `getLegalActions`
+liefert beide Antworten (nur für den betroffenen Spieler), Fremdauflösung
+abgelehnt, Behalten übergibt an den anderen Spieler, Mulliganen mischt/zieht
+eine Karte weniger und zählt hoch, `mulliganTaken`-Event, wiederholtes
+Mulliganen (7→6→5), Handgröße 0 nach 7 Mulligans behält automatisch, strenge
+Sequenzialität (Startspieler komplett zuerst), `declareAttackers`/`passPriority`
+sind während der Phase illegal.
+
+### 3. X-Kosten auf aktivierten Fähigkeiten (Entscheidung 9.12)
+
+Exaktes Spell-Muster übernommen: `chosenX` an `activateAbility` (Aktion) und
+am `activatedAbility`-Stack-Objekt (Modell bereits erweitert). Geändert:
+`actions.ts#validate` (X-Validierung analog `castSpell`, PLUS das Verbot für
+Mana-Fähigkeiten: `isManaAbility && (manaCost?.x || chosenX !== undefined)`
+wird abgelehnt), `actions.ts#perform` (`payCost(..., action.chosenX)`,
+`pushActivatedAbilityToStack(..., chosenX, chosenMode)`), `stack.ts`
+(`pushActivatedAbilityToStack`-Signatur erweitert, `resolveAbilityObject`
+liest `chosenX` jetzt aus dem Stack-Objekt und reicht es an `executeEffects`
+durch - **das fehlte bisher komplett**, `Amount { kind: "x" }` an aktivierten
+Fähigkeiten hätte sonst immer 0 gelesen), `legal-actions.ts`
+(`activateAbilityCandidates` überspringt X-Kosten-Fähigkeiten explizit, analog
+`castSpellCandidates` - `canPayCost` hätte sie zwar implizit ohnehin
+ausgefiltert, der explizite Skip macht die Absicht lesbar).
+
+Neue Tests in `x-cost.test.ts` (neuer describe-Block, 6 Tests statt neuer
+Datei - dieselbe Mechanik, dieselbe bestehende Datei): Aktivierung mit
+`chosenX` bezahlt und skaliert, X=0 erlaubt, fehlendes `chosenX` abgelehnt, zu
+wenig Mana abgelehnt, `getLegalActions` enumeriert nicht, Mana-Fähigkeiten mit
+X-Kosten werden abgelehnt (mit UND ohne `chosenX` in der Aktion - das
+Kartendaten-Verbot allein reicht schon). Neue Testfixtures: `X_ABILITY_RELIC`
+({X}: X Schaden an Ziel), `ILLEGAL_MANA_X_RELIC` (Mana-Fähigkeit MIT
+X-Kosten, NUR für den Ablehnungstest - laut 9.12 eine illegale Kartendefinition).
+
+### 4. Modal-Effekte "wähle eines -" (Entscheidung 9.13)
+
+Neues Modul **`modal.ts`** (`selectableModeIndices`: welche Modi haben für
+JEDEN ihrer Zielslots mindestens ein legales Ziel). Verdrahtet an drei
+Stellen:
+
+- **Spells** (`actions.ts#validate`/`perform` `castSpell`, `stack.ts#pushSpellToStack`/`resolveSpell`):
+  `chosenMode` Teil der Aktion, Reihenfolge Modus -> X -> Ziele. Bei
+  Resolution werden ausschließlich `modes[chosenMode].effects` ausgeführt.
+- **Aktivierte Fähigkeiten** (`actions.ts` `activateAbility`,
+  `stack.ts#pushActivatedAbilityToStack`/`resolveAbilityObject`): identisch,
+  plus Verbot `isManaAbility && modes`.
+- **Getriggerte Fähigkeiten** (`triggers.ts`): NEU `stackOrDeferModalTrigger`
+  (kein wählbarer Modus -> Trigger verpufft; genau ein wählbarer Modus ->
+  Auto-Pick via `stackModalTriggerWithMode`; mehrere wählbare Modi ->
+  `PendingDecision "chooseMode"`, `selectableModes` im Decision-Objekt) und
+  `resolveChosenModeForTrigger` (von `actions.ts#perform` bei
+  `resolveDecision "chooseMode"` aufgerufen). `chooseMode` liegt WIE
+  `chooseTriggerTargets` INNERHALB einer Priority-Vergabe (`resumePriorityTo`-
+  Mechanismus greift unverändert, 9.13 Punkt 2).
+
+`legal-actions.ts`: modale Spells/Fähigkeiten liefern GENAU EINEN Kandidaten
+ohne `chosenMode`/`chosenTargets` (anders als X-Kosten: nicht komplett
+ausgelassen), sofern mindestens ein Modus wählbar ist; `resolveDecisionCandidates`
+liefert bei `chooseMode` einen Kandidaten pro `selectableModes`-Eintrag.
+
+**Modellkonflikt bei der Ketten-Decision `chooseMode` -> `chooseTriggerTargets`
+(9.13 Punkt 2, für den Fall "gewählter Modus hat selbst mehrdeutige Ziele"):**
+war zum Zeitpunkt dieses Schritts gemeldet und über einen dokumentierten
+Interims-Auto-Pick überbrückt - **final gelöst in v0.3.1** (additives
+`chosenMode?: number` an `PendingDecision "chooseTriggerTargets"`, siehe
+Abschnitt oben). Der Interims-Fallback existiert nicht mehr.
+
+Neue Testdatei `modal-effects.test.ts` (11 Tests): Spells (Modus mit Ziel,
+Modus ohne Ziel, fehlendes `chosenMode` abgelehnt, nicht wählbarer Modus
+abgelehnt, `getLegalActions` liefert genau einen Kandidaten), aktivierte
+Fähigkeiten (`chosenMode` atomar, fehlendes `chosenMode` abgelehnt), getriggerte
+Fähigkeiten (Auto-Pick bei einem wählbaren Modus, `chooseMode`-Decision bei
+mehreren wählbaren Modi inkl. `getLegalActions`-Kandidaten, ungültiger
+`modeIndex` abgelehnt, seit v0.3.1 die volle Kette `chooseMode` ->
+`chooseTriggerTargets` mit persistiertem `chosenMode`). Neue Testfixtures:
+`MODAL_CHARM_SPELL` (2 Modi: Ziel + kein Ziel), `MODAL_ABILITY_RELIC`
+(2 Modi), `MODAL_TRIGGER_UNIT` (ETB, 2 Modi - für Auto-Pick, `chooseMode`-
+Decision UND die volle Kette, je nachdem wie viele gegnerische Units
+existieren).
+
+**Datenmodell-Änderungen:** keine über die vom Architect bereits
+vorgenommenen hinaus - die Engine konsumiert `EffectMode`/`modes`,
+`PendingDecision`/`DecisionChoice` `mulligan`/`chooseMode`,
+`chosenX`/`chosenMode` an Aktionen/Stack-Objekten, `PlayerState.mulligans`,
+`CreateGameConfig.skipMulligans` unverändert wie spezifiziert. Der v0.3.1-
+Nachtrag (`chosenMode?: number` an `PendingDecision "chooseTriggerTargets"`)
+kam ebenfalls vom Architect, nicht als eigenmächtige Engine-Änderung.
 
 ## v0.2.4: `costChange`-Static-Modifier implementiert (Lückenschluss vor Phase-B-Kartenpool)
 
@@ -374,6 +603,13 @@ des Hybrid-Modells aus rules-engine.md 9.1.
   einfache Combat-Kandidaten (guardian-gefiltert), resolveDecision-
   Kandidaten bei pendingDecision, concede immer. Vertrag laut
   RulesEngine-Interface-Kommentar bewusst nicht erschöpfend.
+- **v0.3 (siehe Abschnitt oben für Details):** `onDamageReceived` verdrahtet
+  (Kampf- UND Effekt-Schaden, `damage.ts`), Mulligan-Phase (Paris-Variante,
+  `mulligan.ts`, `CreateGameConfig.skipMulligans`), X-Kosten auf aktivierten
+  Fähigkeiten (`chosenX` an `activateAbility`/Stack-Objekt, Verbot für
+  Mana-Fähigkeiten), Modal-Effekte "wähle eines -" (`modal.ts`, Spells/
+  aktivierte Fähigkeiten atomar, getriggerte Fähigkeiten über
+  `PendingDecision "chooseMode"` inkl. Auto-Pick).
 
 ## Bewusste v0.2-Lücken / TODOs im Code (Suche nach "TODO" in src/engine/)
 
@@ -396,9 +632,9 @@ des Hybrid-Modells aus rules-engine.md 9.1.
    rules-engine.md 2) - kein vollständiges Re-Loop mit erneutem
    Handkarten-Check. Der Extra-Fenster-Pfad berücksichtigt jetzt auch
    `pendingDecision` (pausiert korrekt statt fälschlich Priority zu vergeben).
-5. **Mana-Fähigkeiten mit X-Kosten** weiterhin nicht unterstützt
-   (`activateAbility` hat kein `chosenX`-Feld - bestätigter offener Punkt,
-   rules-engine.md 10).
+5. ~~Mana-Fähigkeiten mit X-Kosten / X-Kosten auf aktivierten Fähigkeiten
+   allgemein~~ - **behoben in v0.3** (`chosenX` an `activateAbility`/
+   Stack-Objekt, Verbot für Mana-Fähigkeiten), siehe Abschnitt oben.
 6. **SBA 5 (Auren)**: prüft nur "Ziel existiert noch auf dem Battlefield",
    kein erneuter Filter-Abgleich (in v0.2 ohnehin nicht nötig, kein
    Typwechsel möglich).
@@ -427,11 +663,17 @@ des Hybrid-Modells aus rules-engine.md 9.1.
    `chooseDiscard`/`orderScry` bleiben laut Vorgabe vorerst Auto-Default.
    Reihenfolge/Priorisierung für die Migration liegt beim Architect
    (abhängig vom Kartenpool-Bedarf, siehe rules-engine.md 10).
-2. **Mehr als 2 Spieler / Mulligan / Kontrollwechsel / Kopier-Effekte /
-   Keyword-Entzug / Modal-Effekte / Double Strike / Priority-Fenster
-   zwischen den Schadensrunden / trample-Über-Zuteilung**: weiterhin wie in
-   rules-engine.md 10 gelistet, keine Engine-Arbeit in diesem Schritt.
-3. **`StaticAbility.scope` bei `modifier.kind === "costChange"` (v0.2.4,
+2. **Echte Mulligan-UI fehlt noch (frontend-engineer, nicht game-architect,
+   aber hier vermerkt):** `src/ui/store.ts#initGame` ruft `createGame` mit
+   `skipMulligans: true` auf (mechanische Anpassung an den neuen v0.3-Default,
+   siehe Abschnitt oben) - ein echter Mulligan-Dialog (Decision `mulligan`
+   anzeigen, Antwort einholen) existiert im Frontend noch nicht.
+3. **Mehr als 2 Spieler / Kontrollwechsel / Kopier-Effekte / Keyword-Entzug /
+   Double Strike / Priority-Fenster zwischen den Schadensrunden /
+   trample-Über-Zuteilung / "wähle zwei" bei Modal-Effekten / London-Mulligan**:
+   weiterhin wie in rules-engine.md 10 gelistet, keine Engine-Arbeit in
+   diesem Schritt.
+4. **`StaticAbility.scope` bei `modifier.kind === "costChange"` (v0.2.4,
    neu):** `scope` ist laut Typ für jede `StaticAbility` Pflichtfeld, hat für
    `costChange` aber keinen erkennbaren Gegenstand - `appliesTo` legt bereits
    vollständig fest, wessen Spells betroffen sind, und ein gecasteter Spell
@@ -448,38 +690,64 @@ des Hybrid-Modells aus rules-engine.md 9.1.
 (Frühere Fragen zu Factory-Vertrag, Trigger-Zielwahl, Startspieler-Bestimmung,
 `guardian`, Priority-Empfänger nach Pending-Decision-Pause und dem
 Kampf-Keyword-Paket [trample/firstStrike/deathtouch/orderBlockers] sind mit
-v0.2/v0.2.1/v0.2.3 beantwortet/umgesetzt und daher aus dieser Liste entfernt.)
+v0.2/v0.2.1/v0.2.3 beantwortet/umgesetzt und daher aus dieser Liste entfernt.
+Ebenso "Mana-Fähigkeiten mit X-Kosten" [jetzt allgemein X auf aktivierten
+Fähigkeiten, v0.3 Punkt 3 oben] und der `chooseMode` -> `chooseTriggerTargets`-
+Modellkonflikt [final gelöst in v0.3.1, additives `chosenMode` an
+`PendingDecision "chooseTriggerTargets"`, siehe Abschnitt oben].)
 
 ## Für frontend-engineer: worauf lässt sich aufbauen?
 
-- `createRulesEngine(pool)` + `createGame({ decks, seed, startingPlayer? })` /
-  `applyAction` / `getLegalActions` sind stabil nutzbar für: Zonen anzeigen,
-  Stack anzeigen, Priority-Anzeige, Land/Terrain spielen, Kreaturen/Sprüche
-  mit 0 oder 1 Zielslot casten (auch mit X-Kosten - Frontend fragt X selbst
-  ab und übergibt `chosenX`), Mana-Fähigkeiten aktivieren, Kampf inkl.
+- `createRulesEngine(pool)` + `createGame({ decks, seed, startingPlayer?,
+  skipMulligans? })` / `applyAction` / `getLegalActions` sind stabil nutzbar
+  für: Zonen anzeigen, Stack anzeigen, Priority-Anzeige, Land/Terrain spielen,
+  Kreaturen/Sprüche mit 0 oder 1 Zielslot casten (auch mit X-Kosten - Frontend
+  fragt X selbst ab und übergibt `chosenX`; seit v0.3 auch bei
+  `activateAbility`), Mana-Fähigkeiten aktivieren, Kampf inkl.
   guardian-Pflicht (bei Verstoß liefert `applyAction` einen `error`-String
   mit "guardian" darin), Handkarten-Abwurf im Cleanup, Aufgeben.
+- **NEU (v0.3) - Mulligan-Pflicht:** `createGame` OHNE `skipMulligans: true`
+  endet jetzt mit `state.pendingDecision = { kind: "mulligan", ... }` STATT am
+  ersten Priority-Fenster - bis dahin läuft das Spiel noch gar nicht (kein
+  Step, keine Priority). Frontend MUSS diese Decision bedienen (Dialog
+  "Starthand behalten oder mulliganen?"), bevor irgendetwas anderes möglich
+  ist. **`src/ui/store.ts#initGame` setzt aktuell `skipMulligans: true`**
+  (Platzhalter, kein echter Mulligan-Dialog) - das ist ein offener
+  Frontend-Punkt, kein Bug.
+- **NEU (v0.3) - Modal-Effekte:** Karten/Fähigkeiten mit `modes` brauchen
+  `chosenMode` in der `castSpell`/`activateAbility`-Aktion (Reihenfolge:
+  Modus -> X -> Ziele, wie beim bisherigen Cast-Ablauf). `getLegalActions`
+  liefert dafür GENAU EINEN Kandidaten ohne `chosenMode`/`chosenTargets` -
+  das Frontend muss Modus (und danach Ziele) selbst abfragen, bevor es
+  `applyAction` aufruft. Bei getriggerten Fähigkeiten kann stattdessen
+  `state.pendingDecision.kind === "chooseMode"` auftreten (siehe unten).
 - **PendingDecision-UI.** Ist `state.pendingDecision` gesetzt, MUSS das
   Frontend einen Auswahl-Dialog für `state.pendingDecision.player` zeigen und
   `resolveDecision` mit der Wahl schicken - alle anderen Aktionen sind in
   diesem Zustand illegal (auch für den anderen Spieler, außer `concede`).
   Real erreichbar sind `kind: "chooseTriggerTargets"` (`getLegalActions`
   liefert bei 1 Zielslot alle legalen Einzelziele als fertige
-  `resolveDecision`-Kandidaten) und seit v0.2.3 `kind: "orderBlockers"`
+  `resolveDecision`-Kandidaten), seit v0.2.3 `kind: "orderBlockers"`
   (feuert unmittelbar nach `declareBlockers`, falls mindestens ein Angreifer
   >= 2 Blocker hat; NUR der angreifende Spieler antwortet, mit je einer
   Permutation der Blocker pro gelistetem Angreifer; `getLegalActions` liefert
   hier genau einen Kandidaten - die Deklarationsreihenfolge -, keine
   vollständige Permutations-Enumeration, das Frontend braucht also eine
-  eigene Drag&Drop-/Sortier-UI für echte Spielerwahl).
+  eigene Drag&Drop-/Sortier-UI für echte Spielerwahl), seit v0.3
+  `kind: "mulligan"` (siehe oben, `getLegalActions` liefert BEIDE Antworten
+  vollständig) und `kind: "chooseMode"` (nur für getriggerte Fähigkeiten mit
+  >= 2 wählbaren Modi; `getLegalActions` liefert einen Kandidaten pro
+  `selectableModes`-Eintrag).
 - NICHT verlassen auf `getLegalActions` für: Karten/Fähigkeiten/Decisions mit
   mehr als einem Zielslot, X-Kosten-Enumeration, Cleanup-Abwurf-Kombinationen,
-  kombinatorische Attacker-/Blocker-Teilmengen - hierfür eigene Eingabe-UI
-  bauen und direkt `applyAction` aufrufen (Legalität wird dort geprüft).
+  kombinatorische Attacker-/Blocker-Teilmengen, Modus-x-Ziel-Kombinationen
+  modaler Karten - hierfür eigene Eingabe-UI bauen und direkt `applyAction`
+  aufrufen (Legalität wird dort geprüft).
 
 ## Tests
 
-`src/engine/__tests__/*.test.ts` (Vitest, `npm test`, 83 Tests):
+`src/engine/__tests__/*.test.ts` + `src/ui/__tests__/*.test.ts` (Vitest,
+`npm test`, 118 Tests):
 
 - `create-game.test.ts` - Determinismus, Starthand, Draw-Step-Skip,
   Münzwurf/`startingPlayer`-Override.
@@ -515,7 +783,9 @@ v0.2/v0.2.1/v0.2.3 beantwortet/umgesetzt und daher aus dieser Liste entfernt.)
   `resumePriorityTo` (nicht-aktiver Spieler bekommt nach `resolveDecision`
   korrekt wieder Priority statt `activePlayer`).
 - `x-cost.test.ts` - X-Kosten casten/bezahlen, X=0, fehlendes/zu teures X,
-  Nicht-Enumeration in `getLegalActions`.
+  Nicht-Enumeration in `getLegalActions`; seit v0.3 zusätzlicher
+  describe-Block "X-Kosten auf aktivierten Fähigkeiten" (6 Tests, gleiche
+  Mechanik wie bei Spells, plus Verbot für Mana-Fähigkeiten).
 - `turn-structure.test.ts` - voller Zug-Durchlauf, Manapool-Leerung.
 - `triggers-and-misc.test.ts` - Death-Trigger, Terrain-Limit,
   getLegalActions-Grundfall, Cleanup-Abwurf, Concede.
@@ -526,7 +796,27 @@ v0.2/v0.2.1/v0.2.3 beantwortet/umgesetzt und daher aus dieser Liste entfernt.)
   Kostensenkung, Kontrolltest ohne Senkung, gegnerische Kostenerhöhung (inkl.
   Nachweis "Controller zahlt für eigene Spells nicht selbst mehr"), additive
   Stapelung mehrerer Quellen mit Kappung bei 0, `getLegalActions`-Sichtbarkeit.
+- `on-damage-received.test.ts` (v0.3, 5 Tests) - Kampf- und Effekt-Schaden
+  feuern den Trigger, Schaden <= 0 feuert nicht, Mehrfachblock erzeugt einen
+  Trigger PRO Schadensquelle, letaler Schaden feuert trotzdem und resolvt
+  nach dem Tod der Trigger-Quelle normal.
+- `mulligan.test.ts` (v0.3, 11 Tests) - Default-Decision nach `createGame`,
+  `skipMulligans`, `getLegalActions`-Kandidaten, Fremdauflösung abgelehnt,
+  Behalten/Mulliganen (inkl. wiederholtem Mulliganen und automatischem
+  Behalten bei Handgröße 0), strenge Sequenzialität, illegale Aktionen
+  während der Phase.
+- `modal-effects.test.ts` (v0.3/v0.3.1, 11 Tests) - modale Spells (Modus
+  mit/ohne Ziel, fehlendes/nicht wählbares `chosenMode`, `getLegalActions`),
+  modale aktivierte Fähigkeiten (`chosenMode` atomar), modale getriggerte
+  Fähigkeiten (Auto-Pick bei einem wählbaren Modus, `chooseMode`-Decision bei
+  mehreren, ungültiger `modeIndex`, seit v0.3.1 die volle Kette `chooseMode`
+  -> `chooseTriggerTargets` mit persistiertem `chosenMode`).
 
 `src/engine/__tests__/fixtures.ts` und `test-helpers.ts` sind NUR für Tests
 gedacht (Mini-Kartenpool, Direkt-Manipulationshilfen wie `putOnBattlefield`) -
 kein Ersatz für den "core"-Kartenpool des card-designers.
+
+`src/ui/__tests__/golden-path.test.ts` (frontend-engineer, 2 Tests) läuft
+über die volle `src/ui/store.ts`-Schicht und ist damit indirekt auch ein
+End-to-End-Test der Engine-API - seit v0.3 mit `skipMulligans: true` in
+`initGame` (s.o.), sonst unverändert.

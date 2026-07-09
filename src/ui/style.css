@@ -147,6 +147,17 @@ body {
   padding: 1px 6px;
 }
 
+.mode-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.mode-select-btn {
+  text-align: left;
+}
+
 .order-blockers-attacker-list {
   display: flex;
   flex-direction: column;

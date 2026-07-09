@@ -8,7 +8,7 @@ describe("State-Based Actions", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 5, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 5, startingPlayer: "player1" });
 
     const bear = putOnBattlefield(state, BEAR, "player2"); // 2/2
     const bolt = giveCardInHand(state, pool, BOLT, "player1"); // 3 Schaden
@@ -39,7 +39,7 @@ describe("State-Based Actions", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    const { state } = engine.createGame({ decks, seed: 5, startingPlayer: "player1" });
+    const { state } = engine.createGame({ decks, skipMulligans: true, seed: 5, startingPlayer: "player1" });
 
     const bear = putOnBattlefield(state, BEAR, "player1"); // 2/2
     state.cards[bear]!.permanentState!.counters.minus1minus1 = 2; // -> 0/0
@@ -56,7 +56,7 @@ describe("State-Based Actions", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    const { state } = engine.createGame({ decks, seed: 5, startingPlayer: "player1" });
+    const { state } = engine.createGame({ decks, skipMulligans: true, seed: 5, startingPlayer: "player1" });
 
     const bear = putOnBattlefield(state, BEAR, "player1");
     state.cards[bear]!.permanentState!.counters.plus1plus1 = 3;
@@ -77,7 +77,7 @@ describe("State-Based Actions", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    const { state } = engine.createGame({ decks, seed: 5, startingPlayer: "player1" });
+    const { state } = engine.createGame({ decks, skipMulligans: true, seed: 5, startingPlayer: "player1" });
 
     state.players.player2.life = 1;
     const terrain = putOnBattlefield(state, FLAME_TERRAIN, "player1");

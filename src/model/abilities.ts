@@ -29,11 +29,15 @@ export interface ManaCost {
   light?: number;
   void?: number;
   /**
-   * X-Kosten. Geklärt (rules-engine.md 4): X wird beim Casten gewählt —
-   * Reihenfolge: ankündigen -> X wählen (>= 0) -> Ziele wählen -> bezahlen.
-   * X wird als `chosenX` am Stack-Objekt gespeichert; `Amount { kind: "x" }`
-   * liest es bei Resolution. v0.1: nur auf Spells erlaubt, NICHT auf
-   * aktivierten Fähigkeiten (activateAbility hat kein chosenX-Feld).
+   * X-Kosten. Geklärt (rules-engine.md 4): X wird beim Casten/Aktivieren
+   * gewählt — Reihenfolge: ankündigen -> Modus wählen (falls modal, v0.3) ->
+   * X wählen (>= 0) -> Ziele wählen -> bezahlen. X wird als `chosenX` am
+   * Stack-Objekt gespeichert; `Amount { kind: "x" }` liest es bei Resolution.
+   * v0.3 (rules-engine.md 4, Entscheidung 9.12): erlaubt auf Spells UND
+   * aktivierten Fähigkeiten (`activateAbility`/StackObject "activatedAbility"
+   * haben ein chosenX-Feld). AUSNAHME: Mana-Fähigkeiten (isManaAbility)
+   * dürfen KEINE X-Kosten haben — sie resolven ohne Stack und damit ohne
+   * chosenX-Kontext; die Engine lehnt solche Definitionen ab.
    */
   x?: boolean;
 }
@@ -188,6 +192,40 @@ export type Effect =
     };
 
 // ---------------------------------------------------------------------------
+// Modal-Effekte ("wähle eines —", v0.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * EIN Modus eines modalen Spells / einer modalen Fähigkeit
+ * (rules-engine.md 4, Entscheidung 9.13). Träger deklarieren
+ * `modes: EffectMode[]` (mindestens 2 Einträge) STATT der flachen
+ * targets/effects-Felder; der Spieler wählt bei Cast/Aktivierung/Stacken
+ * genau EINEN Modus (`chosenMode` = Index in modes[]), dessen effects bei
+ * Resolution ausgeführt werden.
+ *
+ * Regeln (verbindlich, Details rules-engine.md 4):
+ * - Jeder Modus hat seine EIGENEN Zielslots; `chosenTargets` und die
+ *   Fizzle-Prüfung beziehen sich ausschließlich auf die targets des
+ *   gewählten Modus (Index = Slot innerhalb des Modus).
+ * - Ein Modus ist nur wählbar, wenn jeder seiner Zielslots mindestens ein
+ *   legales Ziel hat (Modi ohne targets sind immer wählbar). Ist KEIN Modus
+ *   wählbar, ist der Spell nicht castbar / die Fähigkeit nicht aktivierbar /
+ *   der Trigger verpufft beim Stacken.
+ * - Der Modus wird bei Resolution NICHT neu gewählt oder erneut geprüft
+ *   (nur seine Ziele, normale Fizzle-Regel) — MTG-konform.
+ * - v0.3-Minimalversion: genau EIN Modus wird gewählt ("wähle eines");
+ *   "wähle zwei"/konfigurierbare Anzahl ist bewusst vertagt (rules-engine.md 10).
+ */
+export interface EffectMode {
+  /** Anzeigetext des Modus (Aufzählungspunkt hinter "Wähle eines —"). */
+  text?: string;
+  /** Zielslots NUR dieses Modus; Effekte referenzieren sie per { target: index }. */
+  targets?: TargetSpec[];
+  /** Wird bei Resolution in Reihenfolge ausgeführt, wenn dieser Modus gewählt wurde. */
+  effects: Effect[];
+}
+
+// ---------------------------------------------------------------------------
 // Keywords (statische Kurz-Fähigkeiten)
 // ---------------------------------------------------------------------------
 
@@ -248,6 +286,23 @@ export type Keyword =
 /**
  * Wann eine Triggered Ability feuert. "self" bezieht sich auf die Quelle.
  * Ablauf (Pending-Queue → Stack, APNAP): docs/rules-engine.md Abschnitt 5.
+ *
+ * `onDamageReceived` (v0.3 verdrahtet, rules-engine.md 5 + Entscheidung 9.10;
+ * war bis v0.2.4 nur reserviert):
+ * - Feuert, wenn dieses Permanent Schaden > 0 erhält — Kampf- UND
+ *   Effekt-Schaden, einmal PRO Schadensereignis (bei Mehrfachblock also
+ *   einmal pro Schadensquelle, bei firstStrike pro Schadensrunde).
+ * - Schaden <= 0 feuert nicht (6c). Letaler Schaden feuert: die Quelle
+ *   stirbt erst danach in der SBA-Prüfung, der Trigger bleibt in der
+ *   Pending-Queue und wird normal gestackt (MTG-analog). Ausnahme als
+ *   dokumentierte Vereinfachung: Token-Quellen, deren Instanz SBA 7 vor dem
+ *   Stacken löscht — dort verpufft der Trigger.
+ * - `eventSubject` ist die SCHADENSQUELLE (nicht das getroffene Permanent
+ *   selbst) — ermöglicht Vergeltungs-Designs via EffectRecipient
+ *   "eventSubject". Abweichung von den übrigen Self-Combat-Triggern
+ *   (dort eventSubject = self) ist beabsichtigt.
+ * - `what: "self"` betrifft nur Permanents; "Spieler erleidet Schaden" ist
+ *   ein separater, bewusst NICHT modellierter Trigger (rules-engine.md 10).
  */
 export type TriggerCondition =
   | { kind: "onEnterBattlefield"; what: "self" }
@@ -271,6 +326,15 @@ export interface TriggeredAbility {
   trigger: TriggerCondition;
   targets?: TargetSpec[];
   effects: Effect[];
+  /**
+   * v0.3 (Modal-Effekte, rules-engine.md 4 + 9.13): Ist `modes` gesetzt
+   * (mindestens 2 Einträge), MUSS `effects` das leere Array sein und
+   * `targets` fehlen — die Engine validiert das und lehnt Verstöße ab.
+   * Moduswahl beim Stacken über PendingDecision "chooseMode" (genau ein
+   * wählbarer Modus -> Komfort-Auto-Pick, analog Zielwahl); danach ggf.
+   * "chooseTriggerTargets" für die Ziele des gewählten Modus.
+   */
+  modes?: EffectMode[];
   /** Optionaler Anzeigetext; maßgeblich ist die Datenstruktur. */
   text?: string;
 }
@@ -278,13 +342,28 @@ export interface TriggeredAbility {
 /** Aktivierte Fähigkeit: "[Kosten]: Effekte." Geht über den Stack (außer Mana-Fähigkeit). */
 export interface ActivatedAbility {
   kind: "activated";
+  /**
+   * v0.3 (rules-engine.md 4 + 9.12): darf X-Kosten enthalten (`x: true`) —
+   * X wird bei der Aktivierung gewählt (`chosenX` an der
+   * activateAbility-Aktion und am StackObject), Validierung analog Spells.
+   * NICHT kombinierbar mit isManaAbility.
+   */
   manaCost?: ManaCost;
   additionalCosts?: AdditionalCost[];
   targets?: TargetSpec[];
   effects: Effect[];
   /**
+   * v0.3 (Modal-Effekte, rules-engine.md 4 + 9.13): Ist `modes` gesetzt
+   * (mindestens 2 Einträge), MUSS `effects` das leere Array sein und
+   * `targets` fehlen (Engine validiert). Der Aktivierende wählt den Modus
+   * als Teil der Aktion (`chosenMode` an activateAbility), KEINE
+   * PendingDecision. NICHT kombinierbar mit isManaAbility.
+   */
+  modes?: EffectMode[];
+  /**
    * true = reine Mana-Fähigkeit: resolvt sofort ohne Stack (rules-engine.md 4).
-   * Engine validiert: dann keine targets und nur addMana-Effekte.
+   * Engine validiert: dann keine targets, keine modes, keine X-Kosten
+   * (v0.3) und nur addMana-Effekte.
    */
   isManaAbility?: boolean;
   /** Nur im eigenen Zug bei leerem Stack aktivierbar (Sorcery-Speed). */

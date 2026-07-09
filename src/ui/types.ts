@@ -5,22 +5,53 @@
  * applyAction, nie hier.
  */
 
-import type { ChosenTarget, InstanceId, PlayerAction, PlayerId, TargetSpec } from "../model";
+import type { ChosenTarget, EffectMode, InstanceId, PlayerAction, PlayerId, TargetSpec } from "../model";
+
+/**
+ * Herkunft eines Casts/einer Aktivierung, die eine eigene Eingabe-UI braucht
+ * (X-Kosten und/oder Modal, s.u.) - vereinheitlicht castSpell (Karte in der
+ * Hand) und activateAbility (Fähigkeit auf einem Battlefield-Permanent), da
+ * beide seit v0.3 exakt denselben Ablauf haben (Modus -> X -> Ziele,
+ * rules-engine.md 4/9.12/9.13). Vorher gab es diese Eingabe-UI nur für
+ * castSpell (xInput/xTarget mit `cardInstanceId`); die Verallgemeinerung ist
+ * Teil des v0.1.6-Auftrags ("X-Kosten auf aktivierten Fähigkeiten").
+ */
+export type CastSource =
+  | { kind: "spell"; cardInstanceId: InstanceId }
+  | { kind: "ability"; sourceInstanceId: InstanceId; abilityIndex: number };
 
 export type UiMode =
   | { kind: "idle" }
   /** Nutzer soll ein Ziel aus vorab von der Engine gelieferten Kandidaten wählen. */
   | { kind: "targeting"; title: string; candidates: PlayerAction[] }
-  /** X-Kosten-Karte: X wird abgefragt, bevor (ggf.) ein Ziel gewählt wird. */
-  | { kind: "xInput"; cardInstanceId: InstanceId; player: PlayerId }
   /**
-   * X-Kosten-Karte mit Zielslot: eigene Eingabe-UI (siehe docs/engine-status.md
-   * "NICHT enumeriert... X-Kosten"), da getLegalActions X-Karten bewusst
-   * nicht anbietet. `spec` kommt direkt von der CardDefinition (reine Daten,
-   * keine Regel-Logik) und bestimmt nur, welche Board-Elemente klickbar sind;
-   * die eigentliche Legalität prüft applyAction beim Dispatch.
+   * v0.3 (rules-engine.md 4 + 9.12): X-Kosten-Eingabe für castSpell UND
+   * (neu) activateAbility - `source` unterscheidet die beiden. `chosenMode`
+   * ist gesetzt, wenn diesem Schritt bereits eine Modus-Wahl voranging
+   * (Reihenfolge Modus -> X -> Ziele, 9.13).
    */
-  | { kind: "xTarget"; cardInstanceId: InstanceId; player: PlayerId; chosenX: number; spec: TargetSpec }
+  | { kind: "xInput"; source: CastSource; player: PlayerId; chosenMode?: number }
+  /**
+   * Zielwahl-Eingabe-UI (siehe docs/engine-status.md "NICHT enumeriert...
+   * X-Kosten"), da getLegalActions X-Karten/-Fähigkeiten UND modale
+   * Karten/Fähigkeiten bewusst nicht mit fertigen Zielkandidaten anbietet.
+   * `spec` kommt direkt von der CardDefinition/Ability (reine Daten, keine
+   * Regel-Logik) und bestimmt nur, welche Board-Elemente klickbar sind; die
+   * eigentliche Legalität prüft applyAction beim Dispatch. `chosenX` fehlt,
+   * wenn dieser Zielwahl-Schritt aus einem reinen Modal-Flow OHNE X-Kosten
+   * kommt (v0.3.1: der Name "xTarget" ist historisch, deckt seit dem
+   * Modal-Auftrag auch die reine Modus-Zielwahl ohne X ab).
+   */
+  | { kind: "xTarget"; source: CastSource; player: PlayerId; chosenX?: number; chosenMode?: number; spec: TargetSpec }
+  /**
+   * v0.3 (Modal-Effekte, rules-engine.md 4 + 9.13): Modus wird bei Spells/
+   * aktivierten Fähigkeiten als Teil der Aktion gewählt (atomar, keine
+   * PendingDecision - im Gegensatz zu Triggern, die "chooseMode" bekommen,
+   * s. PendingDecision in game-state.ts) - VOR X und Zielen. Nach der Wahl
+   * entscheidet render.ts, ob als nächstes X (falls Kosten X hat), Zielwahl
+   * (falls der gewählte Modus targets hat) oder direkt der Dispatch folgt.
+   */
+  | { kind: "modeSelect"; source: CastSource; player: PlayerId; modes: EffectMode[] }
   | { kind: "declaringAttackers"; player: PlayerId; selected: InstanceId[] }
   | {
       kind: "declaringBlockers";

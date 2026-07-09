@@ -76,7 +76,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, TRAMPLE_UNIT, "player1"); // 4/4 trample
       const blocker = putOnBattlefield(state, BEAR, "player2"); // 2/2
@@ -99,7 +99,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, TRAMPLE_UNIT, "player1"); // 4/4 trample
       const blocker = putOnBattlefield(state, BEAR, "player2");
@@ -122,7 +122,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, TRAMPLE_UNIT, "player1"); // 4/4 trample
       const blockerA = putOnBattlefield(state, BEAR, "player2"); // 2/2, letal 2
@@ -156,7 +156,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, TRAMPLE_UNIT, "player1"); // 4/4 trample -> 3/4
       const blockerX = putOnBattlefield(state, BEAR, "player2"); // 2/2, letal 2
@@ -198,7 +198,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, DEATHTOUCH_UNIT, "player1"); // 1/1 deathtouch
       const blocker = putOnBattlefield(state, BEAR, "player2"); // 2/2 -> 2/10 (Toughness weit über dem tatsächlichen Schaden)
@@ -216,7 +216,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, DEATHTOUCH_UNIT, "player1"); // 1/1 deathtouch
       const blocker = putOnBattlefield(state, BEAR, "player2");
@@ -238,7 +238,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, DEATHTOUCH_UNIT, "player1"); // 1/1 deathtouch -> 2/1
       const blockerA = putOnBattlefield(state, BEAR, "player2");
@@ -281,7 +281,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, FIRST_STRIKE_UNIT, "player1"); // 2/2 firstStrike
       const blocker = putOnBattlefield(state, BEAR, "player2"); // 2/2 (letal genau bei 2)
@@ -302,7 +302,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, BEAR, "player1");
       const blocker = putOnBattlefield(state, BEAR, "player2");
@@ -323,7 +323,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, BEAR, "player1"); // 2/2
       const blocker = putOnBattlefield(state, FIRST_STRIKE_UNIT, "player2"); // 2/2 firstStrike
@@ -346,7 +346,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, FIRST_STRIKE_DEATHTOUCH_UNIT, "player1"); // 1/1 firstStrike+deathtouch
       const blocker = putOnBattlefield(state, BEAR, "player2"); // 2/2 -> 2/10, würde regulären 1-Schaden locker überleben
@@ -367,7 +367,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, FIRST_STRIKE_TRAMPLE_UNIT, "player1"); // 4/4 firstStrike+trample
       const blocker = putOnBattlefield(state, BEAR, "player2"); // 2/2, letal 2
@@ -390,7 +390,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, TRAMPLE_DEATHTOUCH_UNIT, "player1"); // 4/4 trample+deathtouch
       const blockerA = putOnBattlefield(state, BEAR, "player2"); // 2/2
@@ -417,7 +417,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, TRAMPLE_UNIT, "player1"); // 4/4 trample, KEIN firstStrike
       const blocker = putOnBattlefield(state, FIRST_STRIKE_UNIT, "player2"); // 2/2 firstStrike
@@ -442,7 +442,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, TRAMPLE_UNIT, "player1");
       const blockerA = putOnBattlefield(state, BEAR, "player2");
@@ -479,7 +479,7 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, TRAMPLE_UNIT, "player1");
       const blockerA = putOnBattlefield(state, BEAR, "player2");

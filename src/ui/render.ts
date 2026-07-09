@@ -11,7 +11,7 @@
  * `error` der Engine anzeigt.
  */
 
-import type { GameState, PlayerAction, PlayerId } from "../model";
+import type { ActivatedAbility, GameState, PlayerAction, PlayerId } from "../model";
 import {
   backToDeckbuilder,
   confirmDeck,
@@ -41,13 +41,21 @@ import { logPanel } from "./components/logPanel";
 import {
   attackersPanel,
   blockersPanel,
+  chooseModeDecisionPanel,
   discardPanel,
+  modeSelectPanel,
+  mulliganPanel,
   orderBlockersPanel,
   targetingBanner,
   xInputPanel,
 } from "./components/actionPanels";
 import {
+  activateAbilityCandidatesFor,
+  buildCastAction,
   candidatesByTargetKey,
+  sourceHasXCost,
+  sourceName,
+  sourceTargets,
   xTargetShapeAllowsPermanent,
   xTargetShapeAllowsPlayer,
   xTargetShapeAllowsStackObject,
@@ -228,6 +236,38 @@ function pendingDecisionCandidates(state: GameState): PlayerAction[] {
 
 function actionBanner(state: GameState, mode: UiMode): HTMLElement[] {
   if (state.pendingDecision) {
+    if (state.pendingDecision.kind === "mulligan") {
+      const decision = state.pendingDecision;
+      return [
+        mulliganPanel(
+          decision.player,
+          decision.timesMulliganed,
+          () =>
+            dispatch({
+              kind: "resolveDecision",
+              player: decision.player,
+              choice: { kind: "mulligan", takeMulligan: false },
+            }),
+          () =>
+            dispatch({
+              kind: "resolveDecision",
+              player: decision.player,
+              choice: { kind: "mulligan", takeMulligan: true },
+            }),
+        ),
+      ];
+    }
+    if (state.pendingDecision.kind === "chooseMode") {
+      const decision = state.pendingDecision;
+      const def = cardDef(getPool(), state, decision.sourceInstanceId);
+      const ability = "abilities" in def ? def.abilities?.[decision.abilityIndex] : undefined;
+      const modes = ability?.kind === "triggered" ? ability.modes ?? [] : [];
+      return [
+        chooseModeDecisionPanel(def.name, modes, decision.selectableModes, (modeIndex) =>
+          dispatch({ kind: "resolveDecision", player: decision.player, choice: { kind: "chooseMode", modeIndex } }),
+        ),
+      ];
+    }
     if (state.pendingDecision.kind === "orderBlockers" && mode.kind === "orderingBlockers") {
       return [
         orderBlockersPanel(
@@ -262,17 +302,48 @@ function actionBanner(state: GameState, mode: UiMode): HTMLElement[] {
   if (mode.kind === "targeting") {
     return [targetingBanner(mode.title, () => resetUiMode())];
   }
+  if (mode.kind === "modeSelect") {
+    return [
+      modeSelectPanel(
+        sourceName(getPool(), state, mode.source),
+        mode.modes,
+        (modeIndex) => {
+          const chosenModeTargets = mode.modes[modeIndex]?.targets;
+          if (sourceHasXCost(getPool(), state, mode.source)) {
+            setUiMode({ kind: "xInput", player: mode.player, source: mode.source, chosenMode: modeIndex });
+          } else if (chosenModeTargets && chosenModeTargets.length > 0) {
+            setUiMode({
+              kind: "xTarget",
+              player: mode.player,
+              source: mode.source,
+              chosenMode: modeIndex,
+              spec: chosenModeTargets[0]!,
+            });
+          } else {
+            dispatch(buildCastAction(mode.source, mode.player, [], undefined, modeIndex));
+          }
+        },
+        () => resetUiMode(),
+      ),
+    ];
+  }
   if (mode.kind === "xInput") {
-    const def = cardDef(getPool(), state, mode.cardInstanceId);
     return [
       xInputPanel(
-        def.name,
+        sourceName(getPool(), state, mode.source),
         (x) => {
-          const targets = def.type === "spell" ? def.targets : undefined;
+          const targets = sourceTargets(getPool(), state, mode.source, mode.chosenMode);
           if (targets && targets.length > 0) {
-            setUiMode({ kind: "xTarget", cardInstanceId: mode.cardInstanceId, player: mode.player, chosenX: x, spec: targets[0]! });
+            setUiMode({
+              kind: "xTarget",
+              player: mode.player,
+              source: mode.source,
+              chosenX: x,
+              chosenMode: mode.chosenMode,
+              spec: targets[0]!,
+            });
           } else {
-            dispatch({ kind: "castSpell", player: mode.player, cardInstanceId: mode.cardInstanceId, chosenTargets: [], chosenX: x });
+            dispatch(buildCastAction(mode.source, mode.player, [], x, mode.chosenMode));
           }
         },
         () => resetUiMode(),
@@ -280,7 +351,8 @@ function actionBanner(state: GameState, mode: UiMode): HTMLElement[] {
     ];
   }
   if (mode.kind === "xTarget") {
-    return [targetingBanner(`Ziel für X=${mode.chosenX} wählen (Spielbrett antippen).`, () => resetUiMode())];
+    const label = mode.chosenX !== undefined ? `Ziel für X=${mode.chosenX} wählen` : "Ziel wählen";
+    return [targetingBanner(`${label} (Spielbrett antippen).`, () => resetUiMode())];
   }
   if (mode.kind === "declaringAttackers") {
     return [
@@ -334,13 +406,15 @@ function stackPanelOptions(state: GameState, mode: UiMode) {
         return;
       }
       if (mode.kind === "xTarget" && xTargetShapeAllowsStackObject(mode.spec)) {
-        dispatch({
-          kind: "castSpell",
-          player: mode.player,
-          cardInstanceId: mode.cardInstanceId,
-          chosenTargets: [{ kind: "stackObject", stackObjectId }],
-          chosenX: mode.chosenX,
-        });
+        dispatch(
+          buildCastAction(
+            mode.source,
+            mode.player,
+            [{ kind: "stackObject", stackObjectId }],
+            mode.chosenX,
+            mode.chosenMode,
+          ),
+        );
       }
     },
   };
@@ -380,13 +454,15 @@ function playerArea(
         ? () => dispatch(playerCandidate)
         : xTargetsPlayer && modeForXTarget
           ? () =>
-              dispatch({
-                kind: "castSpell",
-                player: modeForXTarget.player,
-                cardInstanceId: modeForXTarget.cardInstanceId,
-                chosenTargets: [{ kind: "player", playerId }],
-                chosenX: modeForXTarget.chosenX,
-              })
+              dispatch(
+                buildCastAction(
+                  modeForXTarget.source,
+                  modeForXTarget.player,
+                  [{ kind: "player", playerId }],
+                  modeForXTarget.chosenX,
+                  modeForXTarget.chosenMode,
+                ),
+              )
           : undefined,
     }),
     h("div", { class: "zone-label" }, [text("Hand")]),
@@ -420,13 +496,24 @@ function handZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: 
     const castCandidates = candidates.filter((a) => a.kind === "castSpell" && a.cardInstanceId === id);
     const playTerrainCandidate = candidates.find((a) => a.kind === "playTerrain" && a.cardInstanceId === id);
     const hasX = "cost" in def && !!def.cost.x;
+    // v0.3 (Modal-Spells, 9.13): nur SpellCard trägt Top-Level "modes" -
+    // Modus kommt vor X (Reihenfolge Modus -> X -> Ziele), daher schließen
+    // sich offerModeFlow/offerXFlow als TOP-LEVEL-Button gegenseitig aus; der
+    // modeSelect-Flow fragt X selbst noch ab, falls die Karte zusätzlich
+    // X-Kosten hat (kein aktueller Kartenpool-Fall, aber allgemein getragen).
+    const modes = def.type === "spell" ? def.modes : undefined;
+    const hasModes = !!modes && modes.length > 0;
     return handCard(id, def, {
       castCandidates,
       playTerrainCandidate,
-      offerXFlow: isActingPlayer && hasX,
+      offerXFlow: isActingPlayer && hasX && !hasModes,
+      offerModeFlow: isActingPlayer && hasModes,
       onCastDirect: (action) => dispatch(action),
       onStartTargeting: (cands, title) => setUiMode({ kind: "targeting", title, candidates: cands }),
-      onStartXFlow: (cardInstanceId) => setUiMode({ kind: "xInput", cardInstanceId, player: playerId }),
+      onStartXFlow: (cardInstanceId) =>
+        setUiMode({ kind: "xInput", player: playerId, source: { kind: "spell", cardInstanceId } }),
+      onStartModeFlow: (cardInstanceId) =>
+        setUiMode({ kind: "modeSelect", player: playerId, source: { kind: "spell", cardInstanceId }, modes: modes! }),
       onPlayTerrain: (action) => dispatch(action),
     });
   });
@@ -456,13 +543,15 @@ function battlefieldZone(
       return cardTile(state, pool, id, {
         targetable: true,
         onClick: () =>
-          dispatch({
-            kind: "castSpell",
-            player: mode.player,
-            cardInstanceId: mode.cardInstanceId,
-            chosenTargets: [{ kind: "permanent", instanceId: id }],
-            chosenX: mode.chosenX,
-          }),
+          dispatch(
+            buildCastAction(
+              mode.source,
+              mode.player,
+              [{ kind: "permanent", instanceId: id }],
+              mode.chosenX,
+              mode.chosenMode,
+            ),
+          ),
       });
     }
 
@@ -505,9 +594,35 @@ function battlefieldZone(
     }
 
     // Aktivierte Fähigkeiten (0 oder 1 Zielslot), nur für den aktuell agierenden Spieler.
-    const abilityCandidates = candidates.filter((a) => a.kind === "activateAbility" && a.sourceInstanceId === id);
+    // ("abilities" in def schließt SpellCard aus - Spells liegen nie auf dem
+    // Battlefield, tragen aber keine "abilities"; reine Typ-Absicherung.)
+    const defAbilities = "abilities" in def ? def.abilities : undefined;
+    const abilityCandidates = activateAbilityCandidatesFor(candidates, id);
     if (abilityCandidates.length > 0) {
-      const zeroSlot = abilityCandidates.find((a) => a.kind === "activateAbility" && a.chosenTargets.length === 0);
+      // Modale Fähigkeit (v0.3, 9.13): getLegalActions liefert hier einen
+      // Kandidaten OHNE chosenMode (siehe docs/engine-status.md) - ein Klick
+      // darf NICHT direkt dispatchen (die Engine lehnt ohne chosenMode ab),
+      // sondern startet erst die Modus-Wahl (Reihenfolge Modus -> X -> Ziele).
+      const modalCandidate = abilityCandidates.find((a) => {
+        const ability = defAbilities?.[a.abilityIndex];
+        return ability?.kind === "activated" && (ability.modes?.length ?? 0) > 0;
+      });
+      if (modalCandidate) {
+        const ability = defAbilities![modalCandidate.abilityIndex] as ActivatedAbility;
+        return cardTile(state, pool, id, {
+          targetable: true,
+          hinted: true,
+          onClick: () =>
+            setUiMode({
+              kind: "modeSelect",
+              player: playerId,
+              source: { kind: "ability", sourceInstanceId: id, abilityIndex: modalCandidate.abilityIndex },
+              modes: ability.modes!,
+            }),
+        });
+      }
+
+      const zeroSlot = abilityCandidates.find((a) => a.chosenTargets.length === 0);
       if (zeroSlot && abilityCandidates.length === 1) {
         return cardTile(state, pool, id, { targetable: true, hinted: true, onClick: () => dispatch(zeroSlot) });
       }
@@ -516,6 +631,30 @@ function battlefieldZone(
         hinted: true,
         onClick: () => setUiMode({ kind: "targeting", title: `Ziel für Fähigkeit von „${def.name}“ wählen`, candidates: abilityCandidates }),
       });
+    }
+
+    // X-Kosten-Fähigkeiten (v0.3, 9.12): getLegalActions liefert dafür laut
+    // Vertrag GAR KEINEN Kandidaten (activateAbilityCandidates überspringt sie
+    // explizit, siehe docs/engine-status.md) - exakt das gleiche Muster wie
+    // X-Kosten-Spells in der Hand, hier über die Kartendefinition selbst
+    // erkannt statt über Kandidaten (bewusst grob wie die X-Ziel-Klickbarkeit,
+    // siehe docs/frontend-status.md "Grenzfälle" - applyAction validiert final).
+    {
+      const xAbilityIndex = (defAbilities ?? []).findIndex(
+        (a) => a.kind === "activated" && !!a.manaCost?.x && !a.isManaAbility,
+      );
+      if (xAbilityIndex >= 0) {
+        return cardTile(state, pool, id, {
+          targetable: true,
+          hinted: true,
+          onClick: () =>
+            setUiMode({
+              kind: "xInput",
+              player: playerId,
+              source: { kind: "ability", sourceInstanceId: id, abilityIndex: xAbilityIndex },
+            }),
+        });
+      }
     }
 
     return cardTile(state, pool, id);

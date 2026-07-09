@@ -1,8 +1,33 @@
 # Starter-Set „core" (Validierungspaket + Phase-B-Erweiterung)
 
-Status: v0.5 (Card-Designer, Phase B Batch 3 — letzter Batch, Primitiv-
-Abschluss + Zielgröße erreicht) — 2026-07-09
+Status: v0.6 (Card-Designer, Modell-Update-Batch für rules-engine.md v0.3) — 2026-07-09
 Datei: `src/cards/starter-set.ts` (Typ `CardPool` aus `src/model/cards.ts`)
+
+**v0.6-Update (Modell-Update-Batch, Reaktion auf rules-engine.md v0.3):** Der
+Game-Architect hat vier zuvor offene Punkte ins Regelmodell aufgenommen
+(Entscheidungen 9.10–9.13). Dieser Batch fügt **4 neue Karten** hinzu
+(109 → 113), je eine Demo pro betroffener Mechanik (Mulligan braucht keine
+Kartenänderung, ist reine Spielablauf-Mechanik):
+
+1. **Modal-Effekte („wähle eines —", `modes`, Entscheidung 9.13):** zwei
+   Karten, wie vom Architekten für die Engine-Abnahme empfohlen (§4-
+   Unterabschnitt „Modal-Effekte", letzter Absatz) — `core.void-covenant`
+   (Spell mit 3 Modi, davon einer mit Zielslot) und `core.current-diplomat`
+   (Unit mit modaler ETB-TriggeredAbility, testet die neue PendingDecision
+   `chooseMode` inkl. Auto-Pick-Fall).
+2. **`onDamageReceived` (Entscheidung 9.10, jetzt verdrahtet):**
+   `core.thornrage-boar` — Vergeltungsdesign über `EffectRecipient
+   "eventSubject"` (= Schadensquelle). Bewusst als reguläre Pool-Karte
+   (KEIN Token), wie vom Architekten in 9.10 Punkt 4 gefordert.
+3. **X-Kosten auf aktivierten Fähigkeiten (Entscheidung 9.12):**
+   `core.cinderwrack-engine` — Relic mit `{X}, Tappe: …`-Mana-Sink, keine
+   Mana-Fähigkeit (hat Ziele, geht über den Stack).
+
+Details/Balancing-Begründung siehe Abschnitt „v0.6-Batch — Balancing-Notizen"
+unten. Kein Modellkonflikt aufgefallen: alle drei benötigten Felder
+(`modes` auf `SpellCard`/`TriggeredAbility`, `EffectRecipient "eventSubject"`,
+`ManaCost.x` auf `ActivatedAbility`) existierten in `src/model/abilities.ts`
+und `src/model/cards.ts` exakt wie in rules-engine.md v0.3 beschrieben.
 
 Zweck (v0.1/v0.2): ursprünglich ein bewusst kleines Validierungspaket, um
 das Datenmodell (`src/model/abilities.ts`, `cards.ts`) an echten Karten zu
@@ -90,19 +115,21 @@ v0.2-Karten `core.inferno-surge` (X-Kosten) und `core.iron-standard`
 
 ## Übersicht
 
-Stand nach Batch 3 (v0.5, **finaler Stand**) — 109 reguläre Karten + 3
-Token-Hilfsdefinitionen (nicht in der Tabelle, siehe v0.4-Update oben).
-Damit ist die vereinbarte Zielgröße (≥ 100 Karten) erreicht.
+Stand nach dem v0.6-Modell-Update-Batch — 113 reguläre Karten + 3
+Token-Hilfsdefinitionen (nicht in der Tabelle, siehe v0.4-Update oben). Die
+vereinbarte Zielgröße (≥ 100 Karten) war bereits mit Batch 3 (v0.5) erreicht;
+dieser Batch ist keine Größen-, sondern eine Modell-Abdeckungs-Erweiterung
+(rules-engine.md v0.3, Entscheidungen 9.10–9.13).
 
-| Typ | Anzahl (Batch 1) | Anzahl (nach Batch 2) | Anzahl (nach Batch 3, final) | Karten |
-|---|---|---|---|---|
-| terrain | 5 | 5 | 5 | je 1 Basis-Terrain pro Farbe (unverändert seit v0.2) |
-| unit | 37 | 42 | 51 | Batch 3: +9 (flame ×1, tide/wild/light/void ×2) — `scope:self`×3 (davon 1× kombiniert mit `grantKeyword`-Modifier, 1× kombiniert mit `lifelink`), `scry`×1, `onDealtCombatDamageToPlayer`×1, `minus1minus1`-ETB×1, `removeCounters`-AdditionalCost×1, `vigilant` (letzte fehlende Farbe: light)×1, `guardian` (vierte Farbe: void)×1 |
-| spell | 8 | 18 | 25 | Batch 3: +7 — `scry`×1, `minus1minus1`×1, `modifyStats`×2 (endOfTurn, Offense/Defense-Paar), `loseLife`×1, `destroyPermanent`×1, `grantKeyword`-Trick #5 (firstStrike)×1 |
-| relic | 7 | 7 | 13 | Batch 3: +6 — `costChange`×1, `scope:opponentUnits`×1, `scope:allUnits`×1, `payLife`-AdditionalCost×1, `discardCards`-AdditionalCost×1, `destroyPermanent` (erste Relic-/Enchantment-/Terrain-Entfernung im Pool)×1 |
-| enchantment | 9 | 9 | 15 | Batch 3: +6 — `costChange`×2 (Kostensenkung + Kostenerhöhung), `scope:opponentUnits`×1, `scope:allUnits`×1, `onUpkeep`×1, `onSpellCast`×1 |
+| Typ | Anzahl (Batch 1) | Anzahl (nach Batch 2) | Anzahl (nach Batch 3, final) | Anzahl (nach v0.6) | Karten |
+|---|---|---|---|---|---|
+| terrain | 5 | 5 | 5 | 5 | je 1 Basis-Terrain pro Farbe (unverändert seit v0.2) |
+| unit | 37 | 42 | 51 | 53 | v0.6: +2 — `modes` auf `TriggeredAbility` (tide, `core.current-diplomat`), `onDamageReceived` (wild, `core.thornrage-boar`) |
+| spell | 8 | 18 | 25 | 26 | v0.6: +1 — `modes` auf `SpellCard` (void, `core.void-covenant`) |
+| relic | 7 | 7 | 13 | 14 | v0.6: +1 — X-Kosten auf `ActivatedAbility` (farblos, `core.cinderwrack-engine`) |
+| enchantment | 9 | 9 | 15 | 15 | unverändert in v0.6 |
 
-Gesamt: 5 + 51 + 25 + 13 + 15 = 109.
+Gesamt: 5 + 53 + 26 + 14 + 15 = 113.
 
 Mana-Kurve der Units (gesamt, inkl. Batch 1–3): weiterhin klar nach unten
 verschoben, Batch 3 hält sich an dieselbe Kurve (Schwerpunkt 2–3 Mana bei
@@ -599,20 +626,79 @@ bei Karten vom Typ `spell` — analog zur breiten Wirkung von `costChange`.
 `core.warding-thorns` ist deshalb trotz moderater Kosten (3 Mana) als rare
 statt uncommon eingestuft.
 
-**Bewusst NICHT verwendet: `onDamageReceived` (TriggerCondition).** Beim
-systematischen Abgleich aller `TriggerCondition`-Varianten gegen den
-Engine-Code wurde festgestellt, dass `onDamageReceived` — anders als die
-fünf oben genannten und bereits genutzten Trigger — **an keiner Stelle im
-Engine-Code gefeuert wird** (`fireSelfCombatTrigger` wird für
-`"onAttackDeclared"`/`"onBlockDeclared"`/`"onDealtCombatDamageToPlayer"` an
-mehreren Stellen in `combat.ts` aufgerufen, für `"onDamageReceived"` an
-keiner). Eine Karte, die sich auf diesen Trigger verlässt, wäre also
-faktisch tot — anders als bei `scry` ist dieser Zustand nirgends als
-bewusstes No-Op dokumentiert, es sieht nach einer unvollständigen
-Implementierung aus. `core.thornwarden-ascetic` wurde deshalb bewusst so
-umgebaut, dass sie ausschließlich auf bereits bestätigt funktionierenden
-Bausteinen (ETB + `removeCounters`-Aktivierungskosten) beruht. Siehe
-Rückmeldung an Game-Architect/Engine-Engineer in „Offene Fragen" Punkt 6.
+**Bewusst NICHT verwendet in Batch 3: `onDamageReceived` (TriggerCondition).**
+Beim systematischen Abgleich aller `TriggerCondition`-Varianten gegen den
+Engine-Code wurde in Batch 3 festgestellt, dass `onDamageReceived` — anders
+als die fünf oben genannten und bereits genutzten Trigger — an keiner Stelle
+im Engine-Code gefeuert wurde. `core.thornwarden-ascetic` wurde deshalb
+bewusst so gebaut, dass sie ausschließlich auf bereits bestätigt
+funktionierenden Bausteinen (ETB + `removeCounters`-Aktivierungskosten)
+beruht. Siehe Rückmeldung an Game-Architect/Engine-Engineer in „Offene
+Fragen" Punkt 6. **Update v0.6:** Der Game-Architect hat den Trigger mit
+rules-engine.md v0.3 (Entscheidung 9.10) verdrahtet und freigegeben —
+`core.thornrage-boar` ist die erste Testkarte dafür, siehe Balancing-Notiz
+im Abschnitt „v0.6-Batch" unten.
+
+### v0.6-Batch (Modell-Update, rules-engine.md v0.3) — Balancing-Notizen
+
+**Modal-Effekte: `core.void-covenant` (void, Spell, 3 Modi) /
+`core.current-diplomat` (tide, Unit, modale ETB-TriggeredAbility).**
+Erste Nutzung von `modes` im Pool (Entscheidung 9.13). `core.void-covenant`
+demonstriert die spieler-initiierte Variante (`chosenMode` als Teil der
+`castSpell`-Aktion, keine Decision): 3 Modi, davon Modus 1 mit eigenem
+Zielslot (`{ kind: "unitOrPlayer" }`) und Modi 2/3 ganz ohne Ziele — deckt
+damit beide in 9.13 verlangten Fälle auf einer Karte ab. Preisgebend war der
+teuerste Einzelmodus (Modus 2 entspricht inhaltlich `core.mind-rot`, dort 2
+Mana als `slow`-Spell) plus ein kleiner Flexibilitätsaufschlag, da bei
+Modal-Karten nie mehr als ein Modus gleichzeitig zum Zug kommt (kein
+additiver Wert). `core.current-diplomat` demonstriert die
+Engine-initiierte Variante (neue `PendingDecision` „chooseMode" beim
+Stacken einer `TriggeredAbility`): Modus 1 (Karte ziehen) hat keine Ziele
+und ist immer wählbar, Modus 2 (gegnerische Kreatur tappen) braucht ein
+gegnerisches Ziel — kontrolliert einen Angreifer/Verteidiger ohne Kreaturen,
+ist nur Modus 1 wählbar und wird laut 9.13 ohne Nachfrage automatisch
+gewählt (Auto-Pick-Fall). Beide Karten tragen einen unterdurchschnittlichen
+Körper/Preis-Malus gegenüber dem jeweils stärkeren Einzelmodus als
+Fixkarte, um die Wahlfreiheit selbst nicht zusätzlich zu vergüten (siehe
+Kartenkommentare in `starter-set.ts` für die konkreten Vergleichskarten).
+
+**`onDamageReceived`: `core.thornrage-boar` (wild, 2/3 für 3 Mana,
+Vergeltung 2 Schaden an die Schadensquelle).** Erste Nutzung des seit v0.3
+verdrahteten Triggers (Entscheidung 9.10). Nutzt `EffectRecipient
+"eventSubject"` — bei diesem Trigger laut Modell die Schadensquelle, NICHT
+die eigene Instanz (Abweichung von den übrigen Self-Combat-Triggern, siehe
+Kommentar an `TriggerCondition` in `abilities.ts`) — für ein klassisches
+Vergeltungsdesign: jede Schadensinstanz gegen den Keiler (Kampf- oder
+Effekt-Schaden, jede Instanz einzeln getriggert) schlägt mit 2 Schaden
+zurück. Ausdrücklich **kein Token-Design** (Architekt-Vorgabe 9.10 Punkt 4:
+Token-Quellen mit diesem Trigger würden beim eigenen Tod vor dem Stacken
+durch SBA 7 gelöscht und der Trigger verpuffte wirkungslos) — eine reguläre,
+dauerhaft im Pool referenzierbare Kartendefinition. Statline bewusst unter
+`core.thornback-warden` (2/4 `reach`, derselbe Preis 3 Mana): `reach` ist
+rein defensiv und nur gegen Flieger relevant, die Vergeltung hier trifft
+dagegen JEDE Schadensquelle inklusive Brand-Spells und ist damit ein
+deutlich breiterer Deterrent — der Abzug auf 2/3 gleicht das aus.
+
+**X-Kosten auf aktivierten Fähigkeiten: `core.cinderwrack-engine`
+(farbloses Relic, {4} Cast, `{X}, Tappe: X Schaden an ein Ziel`).** Erste
+Nutzung von `chosenX` an einer `activateAbility` (Entscheidung 9.12, vorher
+nur auf Spells wie `core.inferno-surge` erlaubt). Bewusst als wiederholbarer
+Mana-Sink (durch die Tap-Kosten auf 1×/Zug begrenzt) statt Einmaleffekt
+konzipiert — das macht die Karte über ein langes Spiel potenziell zu einem
+eigenständigen Win-Condition-Motor, daher deutlich teurer im Cast als
+`core.inferno-surge` ({4} generisch statt {Flamme}) und als `rare`
+eingestuft, analog zu anderen deckweit/langfristig wirkenden
+Rare-Engines (`core.forgeheart-crucible`, `core.grasping-shadows`). Farblos
+gemäß der Design-Linie „Relics möglichst farblos". Kein Konflikt mit dem
+Mana-Fähigkeit-Verbot aus 9.12: Die Fähigkeit hat Ziele und geht über den
+Stack, ist also keine Mana-Fähigkeit.
+
+**Modellabgleich, kein Konflikt gefunden.** Vor dem Kartenbau wurden
+`src/model/abilities.ts`/`cards.ts`/`game-state.ts` gegen rules-engine.md
+v0.3 geprüft: `EffectMode`/`modes` auf `SpellCard` und `TriggeredAbility`,
+`EffectRecipient "eventSubject"` und `ManaCost.x` auf `ActivatedAbility`
+existierten exakt wie im Regeltext beschrieben — keine Rückmeldung an den
+Game-Architect nötig.
 
 ## Offene Fragen ans Datenmodell — Status v0.2: alle geklärt
 
@@ -685,6 +771,13 @@ beantwortet. Kurzstatus (Details siehe `docs/rules-engine.md` v0.2):
    Karte diesen Trigger nutzt (`core.thornwarden-ascetic` bewusst ohne ihn
    gebaut, s.o.).
 
+   **Weiterer Stand (v0.6):** Mit rules-engine.md v0.3 (Entscheidung 9.10)
+   hat der Game-Architect `onDamageReceived` nun doch final verdrahtet und
+   für den Card-Designer freigegeben (semantisch final in §5: feuert pro
+   Schadensereignis > 0, `eventSubject` = Schadensquelle, Token-Quellen
+   bewusst meiden). `core.thornrage-boar` ist die erste Testkarte, siehe
+   „v0.6-Batch"-Balancing-Notizen oben. Punkt vollständig geschlossen.
+
 ## Keywords: Abdeckung im Pool (Stand Batch 3 / v0.5, final)
 
 Alle 9 Einträge des `Keyword`-Typs (`src/model/abilities.ts`) sind im
@@ -714,7 +807,7 @@ Trick) statt als dauerhafte `KeywordAbility` — diese zählen bewusst nicht
 in obiger Tabelle, da sie kein permanentes Keyword auf einer Karte sind.
 Details/Statlines siehe Balancing-Notizen oben und Farbidentität.
 
-## Nicht verwendete DSL-Primitive (Stand Batch 3 / v0.5, final)
+## Nicht verwendete DSL-Primitive (Stand v0.6, aktualisiert)
 
 Batch 3 war der letzte geplante Batch der Kartenpool-Erweiterung. Vor der
 Kartenerstellung wurde der komplette Primitiv-Katalog aus
@@ -737,17 +830,21 @@ Verbleibend unbenutzt (nach sorgfältiger Prüfung, mit Begründung, warum
 ein weiterer Batch dafür sinnvoller ist als ein erzwungener Einbau in
 diesem):
 
-- **TriggerCondition `onDamageReceived`** — wird vom Engine-Code an keiner
-  Stelle gefeuert (im Unterschied zu den anderen fünf, jetzt genutzten
-  Combat-/Upkeep-/Spell-Cast-Triggern, die alle vollständig verdrahtet
-  sind); ausführliche Rückmeldung mit Codestellen siehe „Offene Fragen ans
-  Datenmodell" Punkt 6 oben. **Update (documenter-Sweep nach Batch 3):**
-  Der game-architect hat die Rückfrage beantwortet und bewusst entschieden,
-  den Trigger vorerst **nicht** zu implementieren, sondern als
-  „reserviert, noch nicht verdrahtet" zu dokumentieren
-  (`docs/rules-engine.md` §5/§6d(4)/§10) — kein Bug mehr, sondern eine
-  offene, bewusst vertagte Design-Entscheidung; weiterhin kein Blocker für
-  den aktuellen Pool, da keine Karte den Trigger nutzt.
+- ~~**TriggerCondition `onDamageReceived`**~~ — **geschlossen in v0.6:** mit
+  rules-engine.md v0.3 (Entscheidung 9.10) vom Game-Architect verdrahtet und
+  freigegeben; `core.thornrage-boar` nutzt ihn jetzt (Vergeltungsdesign über
+  `EffectRecipient "eventSubject"`), siehe „v0.6-Batch"-Balancing-Notizen
+  oben.
+- ~~**X-Kosten auf aktivierten Fähigkeiten**~~ — **geschlossen in v0.6:** mit
+  rules-engine.md v0.3 (Entscheidung 9.12) freigegeben (`chosenX` jetzt auch
+  auf `ActivatedAbility`, verboten nur für Mana-Fähigkeiten);
+  `core.cinderwrack-engine` ist die erste Testkarte, siehe
+  „v0.6-Batch"-Balancing-Notizen oben.
+- ~~**Modal-Effekte („wähle eines —")**~~ — **geschlossen in v0.6:** mit
+  rules-engine.md v0.3 (Entscheidung 9.13) eingeführt (`modes` auf
+  `SpellCard`/`ActivatedAbility`/`TriggeredAbility`); `core.void-covenant`
+  und `core.current-diplomat` sind die ersten Testkarten, siehe
+  „v0.6-Batch"-Balancing-Notizen oben.
 - **TriggerConditions `onAttackDeclared`/`onBlockDeclared`** — vollständig
   in der Engine verdrahtet (`combat.ts`, `fireSelfCombatTrigger`), aber
   bewusst nicht in Batch 3 verwendet, um den Batch nicht weiter
@@ -756,13 +853,13 @@ diesem):
   Startpunkt für einen etwaigen vierten Batch oder ein zukünftiges
   Erweiterungsset — z. B. ein Angriffs-Trigger-Aggro-Payoff (flame) oder
   ein Block-Trigger-Defensiv-Payoff (light/wild).
-- **`EffectRecipient` `eventSubject`** — vollständig in der Engine
-  implementiert (`effects.ts`/`triggers.ts`/`stack.ts`), aber im Pool noch
-  ungenutzt: alle bisherigen `onUnitDied`-Karten (`core.verdant-return`)
-  verwenden ausschließlich feste Empfänger (`"controller"`), nicht das
-  konkrete gestorbene Objekt selbst. Sinnvoll für eine künftige Karte wie
-  „wenn eine gegnerische Kreatur stirbt, verbanne sie" (Graveyard-Hate).
-  Kein Blocker, nur noch nicht demonstriert.
+- ~~**`EffectRecipient` `eventSubject`**~~ — **geschlossen in v0.6:**
+  `core.thornrage-boar`s Vergeltungsdesign (`onDamageReceived`, s.o.) nutzt
+  `eventSubject` jetzt als ersten Anwendungsfall im Pool (dort =
+  Schadensquelle). Der zuvor skizzierte `onUnitDied`-Anwendungsfall
+  („wenn eine gegnerische Kreatur stirbt, verbanne sie", `eventSubject` =
+  das gestorbene Objekt) bleibt weiterhin unbenutzt und ein guter Kandidat
+  für ein künftiges Erweiterungsset.
 - **`modifyStats` mit `duration: "permanent"`** — die Batch-3-Karten
   (`core.blazing-frenzy`, `core.aegis-ward`) nutzen beide nur
   `duration: "endOfTurn"`; die `"permanent"`-Variante (impliziter
@@ -770,11 +867,9 @@ diesem):
   `removeCounters` entfernbar, aber auch nicht auf mehrere Marken
   skalierbar) ist im Pool noch nicht demonstriert. Kein Blocker, geringe
   Priorität.
-- **X-Kosten auf aktivierten Fähigkeiten** — weiterhin strukturell nicht
-  erlaubt (kein `chosenX`-Feld auf `activateAbility`, seit v0.2 bestätigt).
-  Kein Card-Designer-Ermessen, sondern eine Modellgrenze.
 
-Die drei letztgenannten Punkte (`onAttackDeclared`/`onBlockDeclared`,
-`eventSubject`, `modifyStats permanent`) sind bewusste Auslassungen ohne
-Funktionsrisiko — anders als `onDamageReceived`, das eine echte
-Rückmeldung an Game-Architect/Engine-Engineer erfordert (siehe oben).
+Verbleibend nur noch zwei bewusste Auslassungen ohne Funktionsrisiko
+(`onAttackDeclared`/`onBlockDeclared`, `modifyStats permanent`) — alle
+übrigen zuvor offenen Punkte dieses Abschnitts (`onDamageReceived`,
+`eventSubject`, X-Kosten auf aktivierten Fähigkeiten, Modal-Effekte) sind
+mit dem v0.6-Batch geschlossen.

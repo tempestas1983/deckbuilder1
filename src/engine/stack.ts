@@ -29,10 +29,12 @@ export function pushSpellToStack(
   controller: PlayerId,
   chosenTargets: ChosenTarget[],
   chosenX: number | undefined,
+  /** v0.3 (Modal-Spells, rules-engine.md 4 + 9.13): Index in SpellCard.modes. */
+  chosenMode?: number,
 ): string {
   moveToStack(state, events, cardInstanceId);
   const id = nextStackObjectId(state);
-  const obj: StackObject = { kind: "spell", id, cardInstanceId, controller, chosenTargets, chosenX };
+  const obj: StackObject = { kind: "spell", id, cardInstanceId, controller, chosenTargets, chosenX, chosenMode };
   state.stack.push(obj);
   events.push({ kind: "spellCast", stackObjectId: id, cardInstanceId });
   return id;
@@ -45,6 +47,10 @@ export function pushActivatedAbilityToStack(
   abilityIndex: number,
   controller: PlayerId,
   chosenTargets: ChosenTarget[],
+  /** v0.3 (rules-engine.md 4 + 9.12): Gewähltes X bei X-Kosten (analog Spells). */
+  chosenX?: number,
+  /** v0.3 (Modal-Fähigkeiten, rules-engine.md 4 + 9.13): Index in ActivatedAbility.modes. */
+  chosenMode?: number,
 ): string {
   const id = nextStackObjectId(state);
   const obj: StackObject = {
@@ -54,6 +60,8 @@ export function pushActivatedAbilityToStack(
     abilityIndex,
     controller,
     chosenTargets,
+    chosenX,
+    chosenMode,
   };
   state.stack.push(obj);
   events.push({ kind: "abilityActivated", stackObjectId: id, sourceInstanceId });
@@ -82,8 +90,19 @@ function resolveSpell(
   if (!card) return;
   const def = getDefinition(pool, card.definitionId);
 
-  const targetSpecs =
-    def.type === "spell" ? def.targets : def.type === "enchantment" && def.enchantKind === "aura" ? [def.auraTarget!] : undefined;
+  // v0.3 (Modal-Spells, rules-engine.md 4 + 9.13): Bei Resolution werden
+  // ausschließlich modes[chosenMode].effects ausgeführt; der Modus wird HIER
+  // nicht erneut gewählt/geprüft - nur seine Ziele (normale Fizzle-Regel).
+  const isModal = def.type === "spell" && !!def.modes && def.modes.length > 0;
+  const modalMode = isModal ? def.modes![obj.chosenMode ?? -1] : undefined;
+  const targetSpecs = isModal
+    ? modalMode?.targets
+    : def.type === "spell"
+      ? def.targets
+      : def.type === "enchantment" && def.enchantKind === "aura"
+        ? [def.auraTarget!]
+        : undefined;
+  const effectsToRun = isModal ? modalMode?.effects ?? [] : def.type === "spell" ? def.effects : [];
   const filtered = filterLegalTargets(state, pool, targetSpecs, obj.chosenTargets, obj.controller);
 
   const requiredTargets = targetSpecs?.length ?? 0;
@@ -95,7 +114,7 @@ function resolveSpell(
   }
 
   if (def.type === "spell") {
-    executeEffects(state, pool, events, def.effects, {
+    executeEffects(state, pool, events, effectsToRun, {
       controller: obj.controller,
       chosenTargets: filtered,
       chosenX: obj.chosenX,
@@ -129,7 +148,15 @@ function resolveAbilityObject(
   events: GameEvent[],
   obj: Extract<StackObject, { kind: "activatedAbility" | "triggeredAbility" }>,
 ): void {
-  const def = getDefinition(pool, state.cards[obj.sourceInstanceId]?.definitionId ?? "");
+  // v0.3: state.cards[obj.sourceInstanceId] kann fehlen, wenn die Quelle
+  // inzwischen als Token endgültig entfernt wurde (SBA 7) - getDefinition("")
+  // würde crashen statt sauber zu "verpuffen" (analog 9.10 Punkt 4).
+  const sourceCard = state.cards[obj.sourceInstanceId];
+  if (!sourceCard) {
+    events.push({ kind: "stackObjectFizzled", stackObjectId: obj.id });
+    return;
+  }
+  const def = getDefinition(pool, sourceCard.definitionId);
   const abilities = "abilities" in def ? def.abilities ?? [] : [];
   const ability = abilities[obj.abilityIndex];
   if (!ability || (ability.kind !== "activated" && ability.kind !== "triggered")) {
@@ -137,7 +164,14 @@ function resolveAbilityObject(
     return;
   }
 
-  const targetSpecs = ability.targets;
+  // v0.3 (Modal-Fähigkeiten, rules-engine.md 4 + 9.13): analog zu Spells -
+  // bei Resolution ausschließlich modes[chosenMode].effects, Modus wird
+  // NICHT erneut gewählt/geprüft.
+  const isModal = !!ability.modes && ability.modes.length > 0;
+  const modalMode = isModal ? ability.modes![obj.chosenMode ?? -1] : undefined;
+  const targetSpecs = isModal ? modalMode?.targets : ability.targets;
+  const effectsToRun = isModal ? modalMode?.effects ?? [] : ability.effects;
+
   const filtered = filterLegalTargets(state, pool, targetSpecs, obj.chosenTargets, obj.controller);
   const requiredTargets = targetSpecs?.length ?? 0;
   const allIllegal = requiredTargets > 0 && filtered.every((t) => t === undefined);
@@ -146,9 +180,11 @@ function resolveAbilityObject(
     return;
   }
 
-  executeEffects(state, pool, events, ability.effects, {
+  executeEffects(state, pool, events, effectsToRun, {
     controller: obj.controller,
     chosenTargets: filtered,
+    // v0.3 (rules-engine.md 4 + 9.12): chosenX existiert nur an "activatedAbility".
+    chosenX: obj.kind === "activatedAbility" ? obj.chosenX : undefined,
     self: obj.sourceInstanceId,
     eventSubject: obj.kind === "triggeredAbility" ? obj.eventSubject : undefined,
   });

@@ -28,6 +28,14 @@
  *   cardInstanceIds-Liste der richtigen Länge zusammenstellen.
  * - resolveDecision (chooseTriggerTargets): nur bei genau einem Zielslot
  *   enumeriert (gleiche Begründung wie oben).
+ * - v0.3: X-Kosten auf aktivierten Fähigkeiten (rules-engine.md 4 + 9.12)
+ *   werden wie X-Spells NICHT enumeriert (gleiche Begründung). Modale
+ *   Spells/Fähigkeiten (rules-engine.md 4 + 9.13) liefern GENAU EINEN
+ *   Kandidaten ohne chosenMode/chosenTargets (anders als X-Kosten: nicht
+ *   komplett ausgelassen), sofern mindestens ein Modus wählbar ist -
+ *   Frontend fragt Modus + Ziele separat ab. `resolveDecision` bei
+ *   "mulligan" enumeriert beide Antworten vollständig, bei "chooseMode"
+ *   einen Kandidaten pro `selectableModes`-Eintrag.
  */
 
 import type { CardPool, ChosenTarget, GameState, PendingDecision, PlayerAction, PlayerId } from "../model";
@@ -36,6 +44,7 @@ import { canPayCost } from "./mana";
 import { computeSpellCostDelta } from "./stats";
 import { canActivateAbilityNow, canCastNow, canPlayTerrainNow, hasPriority } from "./legality";
 import { enumerateLegalTargets } from "./targets";
+import { selectableModeIndices } from "./modal";
 import { guardianUnitsRequiringBlock, isLegalAttacker, isLegalBlock } from "./combat";
 import { otherPlayer } from "./util";
 
@@ -50,6 +59,21 @@ function castSpellCandidates(state: GameState, pool: CardPool, player: PlayerId)
     if (def.cost.x) continue; // TODO: X-Kosten werden nicht enumeriert, siehe Datei-Kommentar.
 
     const costDelta = computeSpellCostDelta(state, pool, player);
+
+    // v0.3 (Modal-Spells, rules-engine.md 4 + 9.13): wie X-Kosten liefert
+    // getLegalActions hier NUR einen Kandidaten OHNE chosenMode/chosenTargets
+    // (Frontend fragt Modus + Ziele separat ab) - Modus-x-Ziel-Kombinationen
+    // werden nicht enumeriert. Ist KEIN Modus wählbar, ist die Karte gerade
+    // nicht castbar (analog "kein legales Ziel beim Ansagen").
+    if (def.type === "spell" && def.modes && def.modes.length > 0) {
+      const selectable = selectableModeIndices(state, pool, def.modes, player);
+      if (selectable.length === 0) continue;
+      if (canPayCost(state.players[player].manaPool, def.cost, undefined, costDelta)) {
+        result.push({ kind: "castSpell", player, cardInstanceId, chosenTargets: [] });
+      }
+      continue;
+    }
+
     const targetSpecs =
       def.type === "spell" ? def.targets : def.type === "enchantment" && def.enchantKind === "aura" ? [def.auraTarget!] : undefined;
 
@@ -103,7 +127,22 @@ function activateAbilityCandidates(state: GameState, pool: CardPool, player: Pla
       ) {
         return;
       }
+      // v0.3 (rules-engine.md 4 + 9.12): X-Kosten werden wie bei Spells nicht
+      // enumeriert (canPayCost mit chosenX=undefined lehnt X-Kosten ohnehin
+      // ab - expliziter früher Return für Lesbarkeit, gleiche Linie wie
+      // castSpellCandidates).
+      if (ability.manaCost?.x) return;
       if (!canPayCost(state.players[player].manaPool, ability.manaCost ?? {}, undefined)) return;
+
+      // v0.3 (Modal-Fähigkeiten, rules-engine.md 4 + 9.13): analog zu
+      // castSpellCandidates - ein Kandidat ohne chosenMode/chosenTargets,
+      // sofern mindestens ein Modus wählbar ist.
+      if (ability.modes && ability.modes.length > 0) {
+        const selectable = selectableModeIndices(state, pool, ability.modes, player);
+        if (selectable.length === 0) return;
+        result.push({ kind: "activateAbility", player, sourceInstanceId, abilityIndex, chosenTargets: [] });
+        return;
+      }
 
       const targetSpecs = ability.targets;
       if (!targetSpecs || targetSpecs.length === 0) {
@@ -164,6 +203,23 @@ function resolveDecisionCandidates(
   player: PlayerId,
 ): PlayerAction[] {
   if (decision.player !== player) return [];
+  if (decision.kind === "mulligan") {
+    // rules-engine.md 1b: beide Antworten sind immer legal, vollständig enumerierbar.
+    return [
+      { kind: "resolveDecision", player, choice: { kind: "mulligan", takeMulligan: true } },
+      { kind: "resolveDecision", player, choice: { kind: "mulligan", takeMulligan: false } },
+    ];
+  }
+  if (decision.kind === "chooseMode") {
+    // rules-engine.md 4 + 9.13: ein Kandidat pro Eintrag in selectableModes.
+    return decision.selectableModes.map(
+      (modeIndex): PlayerAction => ({
+        kind: "resolveDecision",
+        player,
+        choice: { kind: "chooseMode", modeIndex },
+      }),
+    );
+  }
   if (decision.kind === "orderBlockers") {
     // rules-engine.md 9.9 (Vertragshinweis): mindestens EIN gültiger
     // Kandidat genügt - Permutationen werden NICHT enumeriert. Die
@@ -189,7 +245,10 @@ function resolveDecisionCandidates(
   const abilities = "abilities" in def ? def.abilities ?? [] : [];
   const ability = abilities[decision.abilityIndex];
   if (!ability || ability.kind !== "triggered") return [];
-  const specs = ability.targets ?? [];
+  // v0.3.1 (rules-engine.md 9.13, Nachtrag): bei modalen Triggern (Ketten-
+  // Decision chooseMode -> chooseTriggerTargets) beziehen sich die Zielslots
+  // auf den in decision.chosenMode bereits gewählten Modus.
+  const specs = decision.chosenMode !== undefined ? (ability.modes?.[decision.chosenMode]?.targets ?? []) : (ability.targets ?? []);
   if (specs.length !== 1) return []; // nicht erschöpfend, siehe Datei-Kommentar oben
 
   const options = enumerateLegalTargets(state, pool, specs[0]!, decision.player);

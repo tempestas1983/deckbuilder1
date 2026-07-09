@@ -15,7 +15,7 @@ describe("Priority-Pass resolved den Stack (Counterspell-Beispiel)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 11, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 11, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const bear = giveCardInHand(state, pool, BEAR, "player1");

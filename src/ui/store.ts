@@ -195,6 +195,11 @@ export function initGame(
   const { state: s, events } = engine.createGame({
     decks: { player1: deckP1, player2: deckP2 },
     seed,
+    // v0.1.6: skipMulligans wird NICHT mehr gesetzt (Engine-Default `false`,
+    // rules-engine.md 1b) - das UI hat jetzt einen echten Mulligan-Dialog
+    // (render.ts#actionBanner, pendingDecision.kind === "mulligan"), die
+    // vorherige mechanische Not-Anpassung (immer skipMulligans: true) ist
+    // damit hinfällig.
   });
   state = s;
   log = [`Seed: ${seed}`];

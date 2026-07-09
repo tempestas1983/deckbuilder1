@@ -9,7 +9,7 @@ describe("Trigger (APNAP-Grundfall) und weitere Regelfälle", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 21, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 21, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const herald = putOnBattlefield(state, DEATH_TRIGGER_UNIT, "player1");
@@ -46,7 +46,7 @@ describe("Trigger (APNAP-Grundfall) und weitere Regelfälle", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 21, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 21, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const t1 = giveCardInHand(state, pool, FLAME_TERRAIN, "player1");
@@ -63,7 +63,7 @@ describe("Trigger (APNAP-Grundfall) und weitere Regelfälle", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 21, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 21, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const terrain = giveCardInHand(state, pool, FLAME_TERRAIN, "player1");
@@ -80,7 +80,7 @@ describe("Trigger (APNAP-Grundfall) und weitere Regelfälle", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 21, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 21, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     // 2 zusätzliche Karten auf die Hand -> 9 Handkarten.
@@ -106,7 +106,7 @@ describe("Trigger (APNAP-Grundfall) und weitere Regelfälle", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    const { state } = engine.createGame({ decks, seed: 21, startingPlayer: "player1" });
+    const { state } = engine.createGame({ decks, skipMulligans: true, seed: 21, startingPlayer: "player1" });
 
     const result = engine.applyAction(state, { kind: "concede", player: "player1" });
     expect(result.error).toBeUndefined();

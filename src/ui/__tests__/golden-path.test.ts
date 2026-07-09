@@ -13,8 +13,10 @@
  *
  * App-Start (Deckbau-Screen Spieler 1) -> "Zufällig füllen" -> "Weiter"
  * -> Deckbau-Screen Spieler 2 -> "Gleiches Deck wie Spieler 1 übernehmen"
- * -> "Spiel starten" -> Spielbrett -> Priorität passen (Upkeep -> Draw ->
- * Main1) -> Terrain aus der Hand spielen (Battlefield wächst um 1).
+ * -> "Spiel starten" -> Spielbrett -> Mulligan-Entscheidung(en) beider
+ * Spieler ("Starthand behalten", v0.1.6 - seit `skipMulligans` in
+ * store.ts#initGame entfernt wurde, s.u.) -> Priorität passen (Upkeep ->
+ * Draw -> Main1) -> Terrain aus der Hand spielen (Battlefield wächst um 1).
  *
  * Jeder Testfall importiert store.ts/render.ts frisch (vi.resetModules()),
  * damit die beiden Tests sich nicht über den modul-scoped Store-Zustand
@@ -119,6 +121,24 @@ describe("Frontend Golden Path (End-to-End ab App-Start, v0.1.5)", () => {
     // Jetzt läuft die Partie (initGame() wurde intern von confirmDeck() ausgelöst).
     expect(getAppPhase()).toEqual({ kind: "playing" });
     expect(root.querySelector(".deckbuilder-screen")).toBeFalsy();
+
+    // v0.1.6: createGame endet jetzt (Engine-Default skipMulligans: false,
+    // rules-engine.md 1b) mit einer offenen Mulligan-Decision für den
+    // Startspieler VOR dem ersten Priority-Fenster - store.ts#initGame
+    // erzwingt skipMulligans nicht mehr (siehe dortiger Kommentar). Beide
+    // Spieler behalten hier bewusst ihre Starthand ("Starthand behalten"),
+    // streng sequentiell wie von der Engine vorgegeben (erst Startspieler,
+    // dann der andere) - echtes Durchklicken statt Store-Bypass, exakt das
+    // Muster dieser Datei. Ein eigener Mulligan-Test (mulligan.test.ts)
+    // deckt den "mulliganen"-Zweig gesondert ab.
+    let mulliganGuard = 0;
+    while (root.querySelector(".mulligan-panel") && mulliganGuard < 10) {
+      click(buttonWithText(root, ".btn.btn-play", "Starthand behalten"));
+      mulliganGuard++;
+    }
+    expect(mulliganGuard).toBeLessThan(10);
+    expect(root.querySelector(".mulligan-panel")).toBeFalsy();
+
     expect(queryOne(root, ".status-bar")).toBeTruthy();
 
     const statusText = () => queryOne(root, ".status-bar").textContent ?? "";

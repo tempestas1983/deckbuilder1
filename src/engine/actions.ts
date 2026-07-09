@@ -24,9 +24,15 @@ import { findZone, leaveBattlefield, moveCard } from "./zones";
 import { canPayCost, payCost } from "./mana";
 import { computeSpellCostDelta } from "./stats";
 import { areAllTargetsLegal } from "./targets";
+import { selectableModeIndices } from "./modal";
 import { pushActivatedAbilityToStack, pushSpellToStack } from "./stack";
 import { executeEffects } from "./effects";
-import { fireEnterBattlefieldTriggers, fireSpellCastTriggers, pushResolvedTriggerToStack } from "./triggers";
+import {
+  fireEnterBattlefieldTriggers,
+  fireSpellCastTriggers,
+  pushResolvedTriggerToStack,
+  resolveChosenModeForTrigger,
+} from "./triggers";
 import {
   applyOrderBlockers,
   buildOrderBlockersDecision,
@@ -39,6 +45,7 @@ import {
 import { runStateBasedActionsLoop } from "./sba";
 import { checkStateBeforePriority, finishCleanup, handleBothPassed, openPriorityWindow, resumePriorityAfterDecision } from "./turn";
 import { canActivateAbilityNow, canCastNow, canPlayTerrainNow, hasPriority } from "./legality";
+import { resolveMulliganDecision } from "./mulligan";
 import { otherPlayer } from "./util";
 
 function fail(state: GameState, message: string): ApplyActionResult {
@@ -73,8 +80,21 @@ function validate(state: GameState, pool: CardPool, action: PlayerAction): strin
       const def = getDefinitionForInstance(pool, state, action.cardInstanceId);
       if (def.type === "terrain") return "Terrains werden über playTerrain gespielt, nicht castSpell.";
       if (!canCastNow(state, action.player, def)) return "Zauber ist jetzt nicht castbar (Timing/Priority).";
-      const targetSpecs =
-        def.type === "spell" ? def.targets : def.type === "enchantment" && def.enchantKind === "aura" ? [def.auraTarget!] : undefined;
+
+      let targetSpecs;
+      // v0.3 (Modal-Spells, rules-engine.md 4 + 9.13): Moduswahl kommt VOR
+      // der Zielwahl - chosenMode ist Teil der Aktion (atomar, keine Decision).
+      if (def.type === "spell" && def.modes && def.modes.length > 0) {
+        if (action.chosenMode === undefined) return "Modus fehlt (modale Karte).";
+        const mode = def.modes[action.chosenMode];
+        if (!mode) return "Ungültiger Modus-Index.";
+        const selectable = selectableModeIndices(state, pool, def.modes, action.player);
+        if (!selectable.includes(action.chosenMode)) return "Gewählter Modus hat keine legalen Ziele (nicht wählbar).";
+        targetSpecs = mode.targets;
+      } else {
+        targetSpecs =
+          def.type === "spell" ? def.targets : def.type === "enchantment" && def.enchantKind === "aura" ? [def.auraTarget!] : undefined;
+      }
       if (!areAllTargetsLegal(state, pool, targetSpecs, action.chosenTargets, action.player)) {
         return "Ziele sind nicht legal.";
       }
@@ -109,7 +129,33 @@ function validate(state: GameState, pool: CardPool, action: PlayerAction): strin
       const ability = abilities[action.abilityIndex];
       if (!ability || ability.kind !== "activated") return "Keine aktivierte Fähigkeit an diesem Index.";
       if (!canActivateAbilityNow(state, action.player, ability)) return "Fähigkeit jetzt nicht aktivierbar.";
-      if (!areAllTargetsLegal(state, pool, ability.targets, action.chosenTargets, action.player)) {
+
+      // v0.3 (rules-engine.md 4 + 9.12): Mana-Fähigkeiten dürfen keine
+      // X-Kosten haben (resolven ohne Stack, kein chosenX-Kontext) - Verstöße
+      // gegen dieses Verbot (in den Kartendaten ODER in der Aktion) werden
+      // abgelehnt, statt Mana-Fähigkeiten je auf den Stack zu legen.
+      if (ability.isManaAbility && (ability.manaCost?.x || action.chosenX !== undefined)) {
+        return "Mana-Fähigkeiten dürfen keine X-Kosten haben.";
+      }
+      if (ability.isManaAbility && ability.modes && ability.modes.length > 0) {
+        return "Mana-Fähigkeiten dürfen keine Modi haben.";
+      }
+      if (ability.manaCost?.x && (action.chosenX === undefined || action.chosenX < 0)) {
+        return "X-Kosten: chosenX fehlt oder ist negativ.";
+      }
+
+      let targetSpecs = ability.targets;
+      // v0.3 (Modal-Fähigkeiten, rules-engine.md 4 + 9.13): Moduswahl kommt
+      // VOR der Zielwahl - chosenMode ist Teil der Aktion (atomar).
+      if (ability.modes && ability.modes.length > 0) {
+        if (action.chosenMode === undefined) return "Modus fehlt (modale Fähigkeit).";
+        const mode = ability.modes[action.chosenMode];
+        if (!mode) return "Ungültiger Modus-Index.";
+        const selectable = selectableModeIndices(state, pool, ability.modes, action.player);
+        if (!selectable.includes(action.chosenMode)) return "Gewählter Modus hat keine legalen Ziele (nicht wählbar).";
+        targetSpecs = mode.targets;
+      }
+      if (!areAllTargetsLegal(state, pool, targetSpecs, action.chosenTargets, action.player)) {
         return "Ziele sind nicht legal.";
       }
       for (const cost of ability.additionalCosts ?? []) {
@@ -129,7 +175,7 @@ function validate(state: GameState, pool: CardPool, action: PlayerAction): strin
           if ((card.permanentState.counters[cost.counterType] ?? 0) < cost.count) return "Nicht genug Marken.";
         }
       }
-      if (!canPayCost(state.players[action.player].manaPool, ability.manaCost ?? {}, undefined)) {
+      if (!canPayCost(state.players[action.player].manaPool, ability.manaCost ?? {}, action.chosenX)) {
         return "Nicht genug Mana im Pool.";
       }
       return undefined;
@@ -219,7 +265,12 @@ function validateResolveDecision(
       const abilities = "abilities" in def ? def.abilities ?? [] : [];
       const ability = abilities[decision.abilityIndex];
       if (!ability || ability.kind !== "triggered") return "Ungültige Trigger-Referenz in der Entscheidung.";
-      const specs = ability.targets ?? [];
+      // v0.3.1 (rules-engine.md 9.13, Nachtrag): Bei modalen Triggern (Ketten-
+      // Decision chooseMode -> chooseTriggerTargets) steht der bereits
+      // gewählte Modus in decision.chosenMode (NICHT in der Antwort) - die
+      // Zielslots beziehen sich dann auf DIESEN Modus statt auf ability.targets.
+      const specs =
+        decision.chosenMode !== undefined ? (ability.modes?.[decision.chosenMode]?.targets ?? []) : (ability.targets ?? []);
       if (choice.chosenTargets.length !== specs.length) return "Falsche Anzahl gewählter Ziele.";
       if (!areAllTargetsLegal(state, pool, specs, choice.chosenTargets, decision.player)) {
         return "Gewählte Ziele sind nicht legal.";
@@ -249,6 +300,18 @@ function validateResolveDecision(
           seenBlockers.add(blockerId);
           if (!expected.has(blockerId)) return `Blocker nicht Teil des ursprünglichen Blocks: ${blockerId}`;
         }
+      }
+      return undefined;
+    }
+    case "mulligan": {
+      if (choice.kind !== "mulligan") return "Falscher Antworttyp.";
+      // rules-engine.md 1b: beide Antworten (behalten/mulliganen) sind immer legal.
+      return undefined;
+    }
+    case "chooseMode": {
+      if (choice.kind !== "chooseMode") return "Falscher Antworttyp.";
+      if (!decision.selectableModes.includes(choice.modeIndex)) {
+        return "Gewählter Modus ist nicht wählbar.";
       }
       return undefined;
     }
@@ -301,7 +364,7 @@ function perform(state: GameState, pool: CardPool, events: GameEvent[], action: 
       if (def.type === "terrain") return; // durch validate() bereits ausgeschlossen
       const costDelta = computeSpellCostDelta(state, pool, action.player);
       payCost(state.players[action.player].manaPool, def.cost, action.chosenX, costDelta);
-      pushSpellToStack(state, events, action.cardInstanceId, action.player, action.chosenTargets, action.chosenX);
+      pushSpellToStack(state, events, action.cardInstanceId, action.player, action.chosenTargets, action.chosenX, action.chosenMode);
       const effectiveSpeed = def.type === "spell" ? def.speed : undefined;
       fireSpellCastTriggers(state, pool, action.player, effectiveSpeed);
       openPriorityWindow(state, pool, events, action.player);
@@ -355,17 +418,28 @@ function perform(state: GameState, pool: CardPool, events: GameEvent[], action: 
           events.push({ kind: "countersChanged", instanceId: action.sourceInstanceId, counterType: cost.counterType, delta: -cost.count });
         }
       }
-      payCost(state.players[action.player].manaPool, ability.manaCost ?? {}, undefined);
+      payCost(state.players[action.player].manaPool, ability.manaCost ?? {}, action.chosenX);
 
       if (ability.isManaAbility) {
-        // Mana-Fähigkeiten gehen NICHT über den Stack (rules-engine.md 4) - sofortige Resolution.
+        // Mana-Fähigkeiten gehen NICHT über den Stack (rules-engine.md 4) - sofortige
+        // Resolution. Kein chosenX (verboten für Mana-Fähigkeiten, s. validate()),
+        // kein chosenMode (Modi ∧ isManaAbility schließen sich aus).
         executeEffects(state, pool, events, ability.effects, {
           controller: action.player,
           chosenTargets: action.chosenTargets,
           self: action.sourceInstanceId,
         });
       } else {
-        pushActivatedAbilityToStack(state, events, action.sourceInstanceId, action.abilityIndex, action.player, action.chosenTargets);
+        pushActivatedAbilityToStack(
+          state,
+          events,
+          action.sourceInstanceId,
+          action.abilityIndex,
+          action.player,
+          action.chosenTargets,
+          action.chosenX,
+          action.chosenMode,
+        );
       }
       openPriorityWindow(state, pool, events, action.player);
       return;
@@ -412,6 +486,11 @@ function perform(state: GameState, pool: CardPool, events: GameEvent[], action: 
             eventSubject: decision.eventSubject,
           },
           action.choice.chosenTargets,
+          // v0.3.1 (rules-engine.md 9.13, Nachtrag): bei modalen Triggern
+          // (Ketten-Decision chooseMode -> chooseTriggerTargets) steht der
+          // gewählte Modus in decision.chosenMode - wird unverändert als
+          // StackObject.chosenMode übernommen. Fehlt bei nicht-modalen Triggern.
+          decision.chosenMode,
         );
         events.push({ kind: "decisionResolved", player: decision.player, decisionKind: "chooseTriggerTargets" });
         state.pendingDecision = undefined;
@@ -431,6 +510,33 @@ function perform(state: GameState, pool: CardPool, events: GameEvent[], action: 
         // nicht gegeben: das reguläre Priority-Fenster des Declare-Blockers-
         // Steps öffnet jetzt für den aktiven Spieler.
         openPriorityWindow(state, pool, events, state.activePlayer);
+        return;
+      }
+      if (decision.kind === "mulligan" && action.choice.kind === "mulligan") {
+        // v0.3 (rules-engine.md 1b/9.11): liegt AUSSERHALB einer Priority-
+        // Vergabe (resumePriorityTo unberührt) - resolveMulliganDecision
+        // setzt selbst die Folge-Decision bzw. startet den ersten Zug.
+        resolveMulliganDecision(state, pool, events, decision, action.choice.takeMulligan);
+        return;
+      }
+      if (decision.kind === "chooseMode" && action.choice.kind === "chooseMode") {
+        const outcome = resolveChosenModeForTrigger(state, pool, events, decision, action.choice.modeIndex);
+        events.push({ kind: "decisionResolved", player: decision.player, decisionKind: "chooseMode" });
+        if (outcome === "awaitingDecision") {
+          // v0.3.1 (rules-engine.md 9.13 Punkt 2, Nachtrag): der gewählte
+          // Modus hat selbst mehrdeutige Ziele - resolveChosenModeForTrigger
+          // hat bereits die Ketten-Decision "chooseTriggerTargets" (MIT
+          // chosenMode) gesetzt. state.pendingDecision NICHT überschreiben;
+          // resumePriorityTo bleibt unverändert stehen (9.7), die Pause geht
+          // weiter, bis auch diese Decision aufgelöst ist.
+          return;
+        }
+        state.pendingDecision = undefined;
+        // Wie chooseTriggerTargets liegt chooseMode INNERHALB einer
+        // Priority-Vergabe (9.13 Punkt 2: "trägt der 9.7-Mechanismus
+        // unverändert") - ggf. weitere Decision-Kette, sonst Priority an
+        // resumePriorityTo.
+        resumePriorityAfterDecision(state, pool, events);
         return;
       }
       state.pendingDecision = undefined;

@@ -1,7 +1,47 @@
 # Regelwerk-Design: Rules Engine
 
-Status: v0.2.3 (Game-Architect) — 2026-07-09
+Status: v0.3.1 (Game-Architect) — 2026-07-09
 Verbindlich für: engine-engineer (Implementierung), card-designer (Fähigkeitsdesign), frontend-engineer (Visualisierung von Stack/Priority)
+
+v0.3.1-Änderung (Modellkonflikt-Fund des engine-engineers bei der
+v0.3-Umsetzung, 9.13 Punkt 2): Die Entscheidungskette `chooseMode` →
+`chooseTriggerTargets` bei modalen Triggern hatte im Modell keinen Ort, den
+bereits gewählten Modus über den zweiten `resolveDecision`-Roundtrip zu
+persistieren. Gelöst additiv: neues Feld `chosenMode?: number` an der
+`PendingDecision`-Variante `chooseTriggerTargets` (`src/model/game-state.ts`)
+— bewusst OHNE Gegenstück an der `DecisionChoice` (die Engine liest den Modus
+aus `state.pendingDecision`). Details/Begründung im Nachtrag zu Entscheidung
+9.13. Der dokumentierte Interims-Fallback der Engine
+(`triggers.ts#stackModalTriggerWithMode`, Auto-Pick des ersten legalen Ziels
+statt echter Zielwahl-Decision) ist damit abgelöst und zu entfernen.
+
+v0.3-Änderungen (vier bewusst vertagte Punkte aus Abschnitt 10 geschlossen):
+1. **`onDamageReceived` verdrahtet** (Abschnitt 5, Entscheidung 9.10): feuert
+   jetzt für Kampf- UND Effekt-Schaden an Permanents, einmal pro
+   Schadensereignis; Schaden ≤ 0 feuert nicht (6c); letaler Schaden feuert
+   (Trigger überlebt den Tod der Quelle in der Pending-Queue);
+   `eventSubject` = Schadensquelle. Der „reserviert, nicht verwenden"-Status
+   aus v0.2.3 ist aufgehoben — card-designer darf den Trigger benutzen.
+2. **Mulligan-Regel** (neuer Abschnitt 1b, Entscheidung 9.11): klassische
+   Paris-Variante (neu mischen, eine Karte weniger ziehen), sequentiell
+   Startspieler zuerst, über die neue `PendingDecision`-Variante `mulligan`.
+   `CreateGameConfig.skipMulligans` für Tests; `PlayerState.mulligans` neu.
+3. **X-Kosten auf aktivierten Fähigkeiten** (Abschnitt 4, Entscheidung 9.12):
+   `chosenX` jetzt auch an der `activateAbility`-Aktion und am
+   `activatedAbility`-Stack-Objekt; Verbot für Mana-Fähigkeiten.
+4. **Modal-Effekte „wähle eines —"** (Abschnitt 4, Entscheidung 9.13): neues
+   `EffectMode`-Modell (`modes` auf `SpellCard`/`ActivatedAbility`/
+   `TriggeredAbility`), Moduswahl vor X- und Zielwahl; `chosenMode` an
+   `castSpell`/`activateAbility` und allen Stack-Objekt-Varianten; neue
+   `PendingDecision`-Variante `chooseMode` (nur für Trigger).
+Datenmodell-Änderungen: `src/model/abilities.ts` (`EffectMode`, `modes`,
+`ManaCost.x`-/`TriggerCondition`-Kommentare), `src/model/cards.ts`
+(`SpellCard.modes`), `src/model/game-state.ts` (`PendingDecision`/
+`DecisionChoice` + `mulligan`/`chooseMode`, `chosenX`/`chosenMode` an
+Aktionen/Stack-Objekten, `PlayerState.mulligans`, Event `mulliganTaken`,
+`CreateGameConfig.skipMulligans`). Abschnitt 10 bereinigt. Die größeren
+Architektur-Themen (>2 Spieler, Kontrollwechsel, Double Strike, …) bleiben
+bewusst zurückgestellt.
 
 v0.2.3-Änderungen (Kampf-Ausbau: Keyword-Paket für die Kartenpool-Erweiterung):
 Drei neue Keywords `trample`, `firstStrike`, `deathtouch` (Semantik in neuem
@@ -80,8 +120,48 @@ melden statt still zu entscheiden.
    Für Tests/Sonderfälle darf `CreateGameConfig.startingPlayer` den Münzwurf
    überschreiben.
 2. Beide Librarys werden gemischt (RNG), beide Spieler ziehen 7 Karten.
-3. Der Startspieler überspringt seinen ersten Draw Step (Abschnitt 2).
-4. Kein Mulligan in v0.1/v0.2 (Abschnitt 10).
+3. **Mulligan-Phase** (v0.3, Abschnitt 1b) — danach beginnt der erste Zug.
+4. Der Startspieler überspringt seinen ersten Draw Step (Abschnitt 2).
+
+### 1b. Mulligan (v0.3, Entscheidung 9.11)
+
+Klassische **Paris-Variante**: Wer seine Starthand nicht behalten will, mischt
+sie zurück in die Library und zieht eine neue Hand mit **einer Karte weniger**
+(7 → 6 → 5 → … → 0). Ablauf:
+
+1. Nach dem Ziehen der Starthände (1a Schritt 2), **vor** dem ersten Untap
+   Step, setzt die Engine `pendingDecision = { kind: "mulligan",
+   player: <Startspieler>, timesMulliganed: 0 }` — createGame endet also mit
+   dieser Decision statt am Upkeep-Priority-Fenster (Ausnahme:
+   `CreateGameConfig.skipMulligans`, s.u.).
+2. Der Spieler antwortet per `resolveDecision` mit
+   `{ kind: "mulligan", takeMulligan: boolean }`:
+   - **behalten** (`false`): Seine Mulligan-Phase ist beendet.
+   - **mulliganen** (`true`): Hand vollständig in die Library, mischen
+     (RNG-Verbrauch, deterministisch pro Seed und Aktionsfolge), dann
+     `7 − timesMulliganed − 1` Karten ziehen; `PlayerState.mulligans` wird
+     hochgezählt, Event `mulliganTaken` emittiert. Danach erhält **derselbe**
+     Spieler die nächste `mulligan`-Decision (`timesMulliganed + 1`) — außer
+     die neue Handgröße ist 0, dann behält er automatisch (keine Decision).
+3. **Reihenfolge streng sequentiell:** Erst entscheidet der Startspieler
+   vollständig (bis er behält bzw. 0 Karten hat), dann der andere Spieler
+   nach demselben Schema. Erst wenn beide fertig sind, beginnt Zug 1 mit dem
+   Untap Step. Bewusste Abweichung vom MTG-Vorbild (dort entscheiden die
+   Spieler rundenweise): Der zweite Spieler sieht die finale Handgröße des
+   Startspielers vor seiner ersten Entscheidung — Trade-off in 9.11.
+4. **Einordnung in den Decision-Mechanismus (9.7):** Die Decision liegt
+   außerhalb jeder Priority-Vergabe → `resumePriorityTo` wird nicht gesetzt;
+   solange sie aussteht, gibt es keine Priority und keinen Step (das Spiel
+   hat noch gar nicht „gesteppt"). `getLegalActions` liefert **beide**
+   Kandidaten (behalten/mulliganen). Legal ist wie immer nur
+   `resolveDecision` des betroffenen Spielers (plus `concede`).
+5. **Keine Folgewirkung:** Das Handkartenmaximum bleibt 7; der
+   Draw-Step-Skip des Startspielers (1a) gilt unverändert;
+   `PlayerState.mulligans` ist nach Spielstart rein informativ (UI/Log).
+6. **Tests/Komfort:** `CreateGameConfig.skipMulligans: true` überspringt die
+   Phase komplett (beide behalten; Verhalten wie bis v0.2.4). Bestehende
+   Engine-/UI-Tests, die direkt am Upkeep-Fenster aufsetzen, setzen dieses
+   Flag — Default ist `false` (Mulligan ist Regelbestandteil, kein Opt-in).
 
 ---
 
@@ -156,10 +236,82 @@ Der Stack ist eine LIFO-Zone. Objekte auf dem Stack:
 ### Casten eines Spells (Ablauf)
 
 1. Karte ankündigen, auf den Stack legen.
-2. **X wählen** (nur bei `ManaCost.x`, v0.2 geklärt): Der castende Spieler wählt X ≥ 0. X ist Teil der `castSpell`-Aktion (`chosenX`), wird am Stack-Objekt gespeichert und von `Amount { kind: "x" }` bei Resolution gelesen. Wird der Spell gecountert, ist X irrelevant (kein „Rückerstatten"). X-Kosten sind in v0.2 **nur auf Spells** erlaubt, nicht auf aktivierten Fähigkeiten. `getLegalActions` enumeriert X-Werte nicht — es liefert einen Kandidaten ohne `chosenX`, das Frontend fragt X ab, `applyAction` validiert Bezahlbarkeit.
-3. **Ziele wählen** (falls die Karte/Fähigkeit Targets verlangt). Ziele müssen jetzt legal sein. Karten/Fähigkeiten ganz **ohne** `targets`-Array sind ein regulärer Fall (nur fixe `EffectRecipient`-Werte); für sie entfallen Zielwahl, Ziel-Validierung und Fizzle-Prüfung.
-4. Kosten bestimmen und **bezahlen** (Mana inkl. X, ggf. Zusatzkosten wie Tappen/Opfern). Kann nicht bezahlt werden, wird der Cast rückabgewickelt (v0.1: Engine validiert Bezahlbarkeit vor Schritt 1, um Rollback-Komplexität zu vermeiden).
-5. Der Spell ist gecastet → Cast-Trigger („wenn ein Spieler einen Zauber wirkt") feuern, der castende Spieler erhält erneut Priority.
+2. **Modus wählen** (nur bei modalen Karten, v0.3 — Details im Unterabschnitt „Modal-Effekte" unten): Der castende Spieler wählt genau einen wählbaren Modus (`chosenMode` als Index in `modes[]`, Teil der `castSpell`-Aktion). MTG-analog kommt die Moduswahl **vor** X- und Zielwahl.
+3. **X wählen** (nur bei `ManaCost.x`, v0.2 geklärt): Der castende Spieler wählt X ≥ 0. X ist Teil der `castSpell`-Aktion (`chosenX`), wird am Stack-Objekt gespeichert und von `Amount { kind: "x" }` bei Resolution gelesen. Wird der Spell gecountert, ist X irrelevant (kein „Rückerstatten"). **v0.3 (Entscheidung 9.12):** X-Kosten sind jetzt auch auf **aktivierten Fähigkeiten** erlaubt — siehe Unterabschnitt unten; die frühere „nur Spells"-Einschränkung ist aufgehoben. `getLegalActions` enumeriert X-Werte nicht — es liefert einen Kandidaten ohne `chosenX`, das Frontend fragt X ab, `applyAction` validiert Bezahlbarkeit.
+4. **Ziele wählen** (falls die Karte/Fähigkeit — bei modalen Objekten: der **gewählte Modus** — Targets verlangt). Ziele müssen jetzt legal sein. Karten/Fähigkeiten ganz **ohne** `targets`-Array sind ein regulärer Fall (nur fixe `EffectRecipient`-Werte); für sie entfallen Zielwahl, Ziel-Validierung und Fizzle-Prüfung.
+5. Kosten bestimmen und **bezahlen** (Mana inkl. X, ggf. Zusatzkosten wie Tappen/Opfern). Kann nicht bezahlt werden, wird der Cast rückabgewickelt (v0.1: Engine validiert Bezahlbarkeit vor Schritt 1, um Rollback-Komplexität zu vermeiden).
+6. Der Spell ist gecastet → Cast-Trigger („wenn ein Spieler einen Zauber wirkt") feuern, der castende Spieler erhält erneut Priority.
+
+### Aktivierte Fähigkeiten mit X-Kosten (v0.3, Entscheidung 9.12)
+
+Die Aktivierung läuft analog zum Cast-Ablauf oben: ankündigen → Modus wählen
+(falls modal) → **X wählen** (falls `manaCost.x`) → Ziele wählen → Kosten
+bezahlen (Mana inkl. X plus `additionalCosts`). Verbindlich:
+
+- `chosenX` ist Teil der `activateAbility`-Aktion und wird am Stack-Objekt
+  `activatedAbility` gespeichert; `Amount { kind: "x" }` liest es bei
+  Resolution — exakt wie bei Spells. Fehlt `chosenX` bei einer Fähigkeit mit
+  X-Kosten (oder ist es < 0 / nicht bezahlbar), lehnt `applyAction` ab.
+- `getLegalActions` liefert wie bei Spells einen Kandidaten **ohne**
+  `chosenX` (keine Enumeration; Frontend fragt X ab).
+- **Mana-Fähigkeiten dürfen keine X-Kosten haben** (`isManaAbility` ∧
+  `manaCost.x` ist eine illegale Definition, die Engine lehnt sie ab): Sie
+  resolven ohne Stack und hätten keinen `chosenX`-Kontext — und „{X}:
+  erzeuge X Mana" wäre ohnehin sinnlos.
+- Der `costChange`-Static-Modifier wirkt weiterhin **nur auf Spells**
+  (Engine-Status v0.2.4), nicht auf Aktivierungskosten — daran ändert v0.3
+  nichts.
+
+### Modal-Effekte: „Wähle eines —" (v0.3, Entscheidung 9.13)
+
+Modale Spells und Fähigkeiten deklarieren statt der flachen
+`targets`/`effects`-Felder eine Liste `modes: EffectMode[]`
+(`src/model/abilities.ts`; auf `SpellCard`, `ActivatedAbility` und
+`TriggeredAbility` verfügbar). Jeder `EffectMode` bringt eigenen Anzeigetext,
+**eigene Zielslots** und eigene `Effect[]` mit. Verbindliche Regeln:
+
+- **Struktur:** `modes` braucht mindestens 2 Einträge; ist es gesetzt, muss
+  das Top-Level-`effects` das leere Array sein und `targets` fehlen (Engine
+  validiert und lehnt Verstöße ab — bewusst kein Typ-Union-Umbau, um Churn
+  im Kartenpool zu vermeiden, siehe 9.13). `isManaAbility` und `modes`
+  schließen sich aus.
+- **Anzahl:** Es wird genau **ein** Modus gewählt (v0.3-Minimalversion;
+  „wähle zwei"/konfigurierbare Anzahl: Abschnitt 10).
+- **Zeitpunkt der Wahl:** Beim Auf-den-Stack-Legen, **vor** X- und Zielwahl
+  (MTG-analog zu CR 601.2b). Der Modus wird bei Resolution **nicht** neu
+  gewählt oder erneut auf „Wählbarkeit" geprüft — nur die normale
+  Fizzle-Regel für die Ziele des gewählten Modus gilt.
+- **Wählbarkeit:** Ein Modus ist wählbar, wenn jeder seiner Zielslots
+  mindestens ein legales Ziel hat (Modi ohne `targets` sind immer wählbar).
+  Ist **kein** Modus wählbar, ist der Spell nicht castbar / die Fähigkeit
+  nicht aktivierbar / der Trigger wird gar nicht erst gestackt (analog
+  „kein legales Ziel beim Ansagen", Abschnitt 5).
+- **Mechanik der Wahl — zwei Wege, analog zur Zielwahl:**
+  - **Spells / aktivierte Fähigkeiten:** `chosenMode` ist Teil der Aktion
+    (`castSpell`/`activateAbility`) — die Aktion ist atomar, keine
+    PendingDecision. Fehlender/ungültiger/nicht wählbarer Modus → Ablehnung.
+  - **Getriggerte Fähigkeiten:** Beim Stacken setzt die Engine
+    `pendingDecision = { kind: "chooseMode", ... }` für den Controller
+    (Antwort: `{ kind: "chooseMode", modeIndex }`, muss in
+    `selectableModes` liegen). Genau ein wählbarer Modus → Komfort-Auto-Pick
+    ohne Nachfrage (gleiche Abkürzung wie bei der Trigger-Zielwahl,
+    Abschnitt 5). Braucht der gewählte Modus danach eine mehrdeutige
+    Zielwahl, folgt `chooseTriggerTargets` als Ketten-Decision — der
+    9.7-Mechanismus (inkl. `resumePriorityTo`) trägt solche Ketten bereits.
+    **v0.3.1:** Die Moduswahl wird dabei am Folge-Decision-Objekt selbst
+    persistiert (`chooseTriggerTargets.chosenMode`); die Zielwahl-Antwort
+    bezieht sich auf die targets dieses Modus, und der Wert wandert beim
+    Stacken als `StackObject.chosenMode` weiter (Nachtrag zu 9.13).
+- **Stack/Resolution:** `chosenMode` wird an allen drei
+  `StackObject`-Varianten gespeichert; `chosenTargets` indizieren die
+  `targets` des gewählten Modus. Bei Resolution werden ausschließlich
+  `modes[chosenMode].effects` ausgeführt. X (`Amount { kind: "x" }`) ist mit
+  Modal frei kombinierbar.
+- **`getLegalActions`:** liefert für modale Spells/Fähigkeiten einen
+  Kandidaten ohne `chosenMode`/`chosenTargets` (Frontend fragt Modus und
+  Ziele ab — Modus-x-Ziel-Kombinationen werden nicht enumeriert); bei der
+  `chooseMode`-Decision einen `resolveDecision`-Kandidaten **pro** Eintrag
+  in `selectableModes`.
 
 ### Resolution
 
@@ -180,7 +332,13 @@ Der Stack ist eine LIFO-Zone. Objekte auf dem Stack:
 ## 5. Getriggerte Fähigkeiten
 
 - Trigger-Bedingungen (siehe `TriggerCondition` in `src/model/abilities.ts`): u.a. ETB („kommt ins Spiel"), Tod, Zugbeginn/Upkeep, End Step, Angriffs-/Block-Deklaration, Schaden verursacht, Spell gecastet.
-- **`onDamageReceived` („Schaden erlitten") ist RESERVIERT, aber noch nicht verdrahtet (Stand v0.2.3):** Die Variante existiert im Datenmodell (`TriggerCondition`) und in der Signatur von `fireSelfCombatTrigger` (`src/engine/triggers.ts`), wird aber von keiner Stelle der Engine gefeuert — weder in `combat.ts` (Kampfschaden) noch in `effects.ts#dealDamageToPermanent` (Nicht-Kampf-Schaden). Eine Karte, die diesen Trigger nutzt, wäre ein stilles No-Op. **Card-Designer: bis zur Verdrahtung nicht verwenden** (Ersatzmuster: ETB-Marker, siehe `core.thornwarden-ascetic`). Der Typ-Eintrag bleibt bewusst bestehen (reservierter Name, vermeidet spätere Churn in Typ-Union und Signaturen). Offener Punkt mit Implementierungs-Notizen: Abschnitt 10.
+- **`onDamageReceived` („Schaden erlitten") — v0.3 verdrahtet (Entscheidung 9.10; der „reserviert, nicht verwenden"-Status aus v0.2.3 ist aufgehoben):**
+  - **Wann:** Feuert, wenn das Permanent mit dieser Fähigkeit Schaden > 0 erhält — **Kampf- UND Effekt-Schaden**, einheitlich. Es feuert einmal **pro Schadensereignis** (Granularität = ein `damageDealt`-Event an das Permanent): Bei Mehrfachblock also einmal pro Schadensquelle, bei firstStrike einmal pro Schadensrunde (6d(4)).
+  - **Schaden ≤ 0 feuert nicht** (konsistent mit 6c — „deals 0 damage" ist kein Schadensereignis).
+  - **Letaler Schaden feuert:** Der Trigger wird beim Schadensereignis in die Pending-Queue gelegt; stirbt das Permanent anschließend in der SBA-Prüfung, bleibt der Trigger dort und wird normal gestackt und resolvt (MTG-analog „stirbt mit Trigger auf dem Stack"). Dokumentierte Vereinfachung: Ist die Quelle ein **Token**, dessen Instanz SBA 7 vor dem Stacken vollständig löscht, verpufft der Trigger (kein Definitions-Lookup mehr möglich).
+  - **`eventSubject` ist die Schadensquelle** (die InstanceId des schadenverursachenden Permanents/Spells) — ermöglicht „Vergeltungs"-Designs über `EffectRecipient "eventSubject"`. Bewusste Abweichung von den übrigen Self-Combat-Triggern (dort `eventSubject` = die Quelle selbst); `fireSelfCombatTrigger` braucht dafür einen Parameter oder eine eigene Feuer-Funktion.
+  - **Scope:** `what: "self"` betrifft ausschließlich Permanents. „Ein Spieler erleidet Schaden" ist ein separater, bewusst **nicht** modellierter Trigger (Abschnitt 10).
+  - **Verdrahtung (Empfehlung an engine-engineer):** bevorzugt EIN zentraler Helfer „Schaden an Permanent anwenden" (markiert `damageMarked`, setzt ggf. `deathtouchDamage`, emittiert `damageDealt`, feuert `onDamageReceived`), genutzt sowohl von der Apply-Schleife in `combat.ts#dealCombatDamageRound` als auch von `effects.ts#dealDamageToPermanent` — das dedupliziert nebenbei die heute doppelt vorhandene deathtouch-Flag-Logik. Zwei getrennte Feuerstellen sind zulässig, wenn der Helfer nicht sinnvoll extrahierbar ist; die Semantik oben ist in beiden Fällen identisch einzuhalten.
 - **Feuern ≠ Resolven:** Tritt das Ereignis ein, wird der Trigger nur **vorgemerkt** (Pending-Trigger-Queue). Er wird erst auf den Stack gelegt, **wenn das nächste Mal ein Spieler Priority erhalten würde** (siehe Priority-Regel 3).
 - **Reihenfolge (APNAP):** Warten mehrere Trigger, legt zuerst der aktive Spieler seine Trigger in selbstgewählter Reihenfolge auf den Stack, dann der nicht-aktive Spieler. Dessen Trigger resolven dadurch zuerst (LIFO). v0.1-Vereinfachung: Hat ein Spieler mehrere gleichzeitige Trigger, ordnet die Engine sie deterministisch (Timestamp der Quelle) statt den Spieler wählen zu lassen — Spielerwahl ist ein späteres Feature.
 - Trigger mit Targets wählen ihre Ziele beim **Auf-den-Stack-Legen**, nicht beim Feuern.
@@ -312,10 +470,11 @@ regulären Runde abgeräumt und alle im Step gefeuerten Trigger gestackt.
   zuerst; stirbt der Angreifer im Zwischen-SBA-Durchlauf, teilt er keinerlei Schaden aus —
   auch keinen trample-Durchschlag.
 - **firstStrike + lifelink / Schadens-Trigger:** Jede Runde ist ein normales Schadensereignis
-  — lifelink-Lebensgewinn, `onDealtCombatDamageToPlayer`-Trigger und `damageDealt`-Events
-  entstehen pro Runde; Trigger werden erst im Priority-Fenster gestackt. (`onDamageReceived`
-  ist aktuell nur reserviert und feuert nirgends — siehe Abschnitt 5/10; sobald verdrahtet,
-  gilt dieselbe Pro-Runde-Regel.)
+  — lifelink-Lebensgewinn, `onDealtCombatDamageToPlayer`- und `onDamageReceived`-Trigger
+  (v0.3 verdrahtet, Abschnitt 5) sowie `damageDealt`-Events entstehen pro Runde; Trigger
+  werden erst im Priority-Fenster des Steps gestackt (auch die aus der frühen Runde —
+  eine in der frühen Runde letal getroffene Unit stirbt also im Zwischen-SBA-Durchlauf,
+  ihr `onDamageReceived`-Trigger resolvt trotzdem).
 - **6c bleibt unverändert:** Schaden ≤ 0 ist kein Schaden — eine deathtouch-Quelle mit
   effektiver Power ≤ 0 setzt also auch **kein** deathtouch-Flag.
 - **firstStrike/deathtouch/trample + guardian/vigilant/airborne/reach:** keine Interaktion
@@ -436,9 +595,93 @@ Unterbricht eine PendingDecision eine anstehende Priority-Vergabe, darf der ursp
 
 **Vertragshinweise:** `getLegalActions` liefert bei `orderBlockers` mindestens **einen** gültigen `resolveDecision`-Kandidaten (z.B. die Deklarationsreihenfolge) und enumeriert Permutationen **nicht** (gleiche Linie wie der Enumerations-Vertrag am `RulesEngine`-Interface). Card-Designer: `trample + deathtouch` nur bewusst und teuer (6d(4)); Karten, deren Wert an der Antwort *zwischen* den Schadensrunden hinge, bitte nicht entwerfen (Fenster existiert nicht, Punkt 2).
 
+### 9.10 `onDamageReceived`: eine Feuerstelle, Ereignis-Granularität, eventSubject = Quelle (v0.3)
+
+**Anlass:** Die Typ-Variante existierte seit v0.1, wurde aber nie gefeuert (Fund des Card-Designers, Abschnitt 10 alt). Jetzt verdrahtet; Semantik verbindlich in Abschnitt 5.
+
+**Einzelentscheidungen:**
+
+1. **Feuerstelle:** (A) je ein Aufruf in `combat.ts` und `effects.ts` vs. (B) **ein zentraler „Schaden an Permanent anwenden"-Helfer**, den beide Pfade nutzen. **Empfehlung (B)** — die Apply-Schleife in `dealCombatDamageRound` und `effects.ts#dealDamageToPermanent` tun heute schon fast dasselbe (damageMarked, deathtouch-Flag, `damageDealt`-Event); ein Helfer macht künftige Schadensregeln (weitere Trigger, Prevention-Effekte) einmalig statt doppelt. (A) bleibt als Fallback erlaubt, die Semantik ist identisch.
+2. **Granularität:** einmal **pro Schadensereignis** (pro `damageDealt`-Event), nicht einmal pro Runde/Batch. MTG-analog (jede Schadensinstanz triggert separat) und implementatorisch die natürliche Stelle, wenn am Ereignis gefeuert wird. Konsequenz: 3 Blocker = bis zu 3 Trigger auf denselben Angreifer.
+3. **`eventSubject` = Schadensquelle statt = self:** Das getroffene Permanent ist als Trigger-Quelle ohnehin bekannt (`sourceInstanceId`); der einzige informative Wert im `eventSubject`-Slot ist die **Quelle des Schadens** — damit werden „schlägt zurück auf das, was mich verletzt hat"-Designs (Enrage-Vergeltung) ohne DSL-Erweiterung möglich. Preis: kleine Inkonsistenz zu den übrigen Self-Combat-Triggern, im `TriggerCondition`-Kommentar dokumentiert.
+4. **Letaler Schaden / tote Token-Quellen:** Trigger überlebt den Tod der Quelle in der Pending-Queue (MTG-analog). Für Token, deren Instanz SBA 7 komplett löscht, verpufft er beim Stacken — dokumentierte Vereinfachung statt eines `sourceDefinitionId`-Snapshots am `PendingTrigger` (das Muster von `fireDeathTriggers` ließe sich bei Bedarf später nachrüsten, Abschnitt 10 braucht dafür keinen Eintrag: erst relevant, wenn ein Token-Design mit Enrage-Trigger existiert — card-designer bitte bis dahin meiden).
+5. **Kein Spieler-Pendant:** „Spieler erleidet Schaden" bleibt unmodelliert (Abschnitt 10) — anderes Subjekt, anderes Filterbedürfnis (eigener/gegnerischer Spieler), kein aktueller Kartenbedarf.
+
+### 9.11 Mulligan: Paris-Variante, streng sequentiell (v0.3)
+
+**Optionen:**
+- (A) **Paris-Mulligan (klassisch, Entscheidung):** neu mischen, eine Karte weniger ziehen. Braucht genau EINE neue Decision-Variante mit Ja/Nein-Antwort; keine Karten-Auswahl-UI.
+- (B) London-Mulligan (modern): immer 7 ziehen, danach N Karten nach Wahl unter die Library. Spielerisch großzügiger und heute Standard — kostet aber eine zweite Entscheidung (welche N Karten? in welcher Reihenfolge nach unten?) samt Auswahl-UI im Frontend, ähnlich `orderScry` (das selbst noch Auto-Default ist, 9.7).
+- (C) Ein kostenloser Voll-Mulligan: am einfachsten, aber degeneriert (immer neuziehen bei mittelmäßiger Hand ist strikt richtig — keine echte Entscheidung).
+
+**Begründung für (A):** Für dieses Projektstadium das beste Verhältnis aus Regel-Echtheit und Aufwand — die Ja/Nein-Decision ist im bestehenden 9.7-Kanal trivial (getLegalActions kann sogar vollständig enumerieren), und die Kartenzahl-Strafe erzeugt die echte Abwägung, die (C) fehlt. (B) ist später **additiv** nachrüstbar (gleiche `mulligan`-Decision, plus eine Folge-Decision fürs Bottoming — Abschnitt 10), ohne dass sich für Karten oder Engine-Verträge etwas Rückwirkendes ändert.
+
+**Sequenzialität:** Der Startspieler entscheidet vollständig zu Ende, dann der Gegner (statt MTG-Rundenmodell, bei dem beide pro Runde ansagen und gleichzeitig neu ziehen). Preis: Der zweite Spieler kennt die finale Handgröße des Startspielers vor seiner ersten Entscheidung — ein milder Informationsvorteil für den ohnehin benachteiligten Nachziehenden, den wir bewusst in Kauf nehmen. Gewinn: Es ist zu jedem Zeitpunkt genau eine Decision aktiv (kein Runden-Tracking über beide Spieler), exakt das bestehende 9.7-Modell.
+
+**Weitere Festlegungen:** Decision liegt außerhalb einer Priority-Vergabe (`resumePriorityTo` unberührt). Jeder Mulligan verbraucht RNG (Mischen) — Determinismus pro Seed + Aktionsfolge bleibt gewahrt (9.1). `CreateGameConfig.skipMulligans` hält die 83 Bestandstests und Test-Fixtures billig lauffähig; Default ist bewusst `false`, damit die Regel im echten Spiel nicht vergessen wird.
+
+### 9.12 X-Kosten auf aktivierten Fähigkeiten (v0.3)
+
+**Anlass:** Mana-Sinks („{X}, tap: …") sind ein Standard-Designraum, den der Kartenpool bisher nicht nutzen konnte; die v0.2-Einschränkung „X nur auf Spells" war eine reine Aufwandsvertagung, keine inhaltliche.
+
+**Entscheidung:** `chosenX?: number` an der `activateAbility`-Aktion und am `activatedAbility`-Stack-Objekt — exakt das Spell-Muster (Wahl bei Ankündigung, Speicherung am Stack-Objekt, `Amount { kind: "x" }` liest bei Resolution, keine Enumeration in `getLegalActions`). Kein neuer Mechanismus, keine Alternative ernsthaft erwogen — die einzige echte Festlegung ist das **Verbot für Mana-Fähigkeiten** (`isManaAbility` ∧ `x` illegal): Sie resolven ohne Stack, hätten also keinen Speicherort für `chosenX`, und ein X-kostender Mana-Effekt ist designseitig sinnfrei. Die Engine validiert das Verbot bei Aktivierung (empfohlen zusätzlich als Pool-Lint).
+
+### 9.13 Modal-Effekte: Modi als Datenliste, Wahl beim Stacken, eine Decision nur für Trigger (v0.3)
+
+**Optionen für die Datenform:**
+- (A) Neues Effekt-Primitiv `{ kind: "chooseMode", modes: Effect[][] }` **innerhalb** der Effektliste: maximal flexibel (Modi mitten in einer Sequenz), aber die Wahl fiele erst bei **Resolution** — die Engine müsste mitten in der Effektausführung pausieren und wiederaufnehmen können (neuer Zustand „halb resolvtes Stack-Objekt"), und Gegner könnten nicht auf die Moduswahl reagieren. Bricht das bisherige Invariant „alle Entscheidungen eines Stack-Objekts fallen vor der Resolution".
+- (B) **Modi auf Objektebene, Wahl beim Auf-den-Stack-Legen (Entscheidung):** `modes: EffectMode[]` ersetzt `targets`/`effects`; gewählt wird beim Casten/Aktivieren/Stacken, MTG-analog (CR 601.2b). Resolution bleibt pausenfrei; Antworten auf die Moduswahl sind möglich (sie ist öffentlich am Stack-Objekt sichtbar).
+
+**Begründung für (B):** MTG-Konformität und keinerlei neue Resolution-Maschinerie. (A) wäre nur für „wähle während der Abwicklung"-Designs nötig, die MTG selbst fast nie nutzt.
+
+**Weitere Festlegungen und Trade-offs:**
+
+1. **Kein Typ-Union-Umbau:** `modes` ist ein optionales Zusatzfeld; bei gesetztem `modes` muss `effects: []` und `targets` fehlen (Laufzeit-Validierung). Ein sauberer Discriminated-Union-Split („NonModalSpell | ModalSpell") wäre typsicherer, hätte aber alle 109 Bestandskarten und den Engine-Code angefasst — bewusst dagegen entschieden; die Validierung fängt Fehlkonfiguration ab.
+2. **Wahl-Mechanik zweigleisig, exakt wie die Zielwahl heute:** Spieler-initiierte Objekte (Spells, aktivierte Fähigkeiten) tragen `chosenMode` in der **Aktion** (atomar, keine Decision — dieselbe Linie wie `chosenTargets`/`chosenX`); Engine-initiierte Objekte (Trigger) bekommen die neue PendingDecision `chooseMode` beim Stacken (dieselbe Linie wie `chooseTriggerTargets`, inkl. Auto-Pick bei genau einer wählbaren Option und Verpuffen bei null). Decision-Ketten Modus→Ziele trägt der 9.7-Mechanismus unverändert.
+3. **Ziele pro Modus statt global:** Jeder Modus hat eigene Zielslots; Wählbarkeit eines Modus setzt legale Ziele für **seine** Slots voraus (MTG-analog). Fizzle-Prüfung bei Resolution gegen die Ziele des gewählten Modus.
+4. **Genau ein Modus (Minimalversion):** „Wähle zwei" / „wähle bis zu N" braucht Mengen-Validierung, Effekt-Reihenfolge-Fragen und UI-Mehraufwand für null aktuelle Karten — vertagt (Abschnitt 10). Das Datenmodell muss dafür später nur um ein `chooseCount`-Feld ergänzt werden (additiv).
+5. **`selectableModes` in der Decision:** redundant zur Neuberechnung durch das Frontend, aber billig und macht die Decision selbsterklärend (gleiches Muster wie `orderBlockers.attackers` als Vorschlagsbasis).
+
+**Hinweis an card-designer:** Es besteht kein Pool-Zwang — Modal ist ab jetzt verfügbar, nicht verpflichtend. Für die Engine-Abnahme werden 1–2 Beispielkarten gebraucht (empfohlen: ein „Charm"-artiger `spell(fast)` mit 2–3 Modi, davon mindestens einer mit Zielslot und einer ohne, sowie ein modaler Trigger zum Testen der `chooseMode`-Decision inkl. Auto-Pick-Fall).
+
+> **NACHTRAG v0.3.1 (Modellkonflikt-Fund des engine-engineers, bestätigt und
+> gelöst):** Punkt 2 beschrieb die Kette `chooseMode` → `chooseTriggerTargets`,
+> aber die `chooseTriggerTargets`-Variante hatte kein Feld, um den bereits
+> gewählten Modus über den zweiten `resolveDecision`-Roundtrip zu tragen — der
+> gewählte Modus wäre zwischen den beiden Decisions verloren gegangen.
+> *Erwogene Lösungen:* (a) **`chosenMode?: number` an der
+> `chooseTriggerTargets`-PendingDecision (Entscheidung, Vorschlag des
+> engine-engineers):** Die Decision ist bereits genau der Ort, der einen
+> halb gestackten Trigger über einen Roundtrip trägt
+> (`sourceInstanceId`/`abilityIndex`/`eventSubject` liegen dort) — der Modus
+> gehört in dieselbe Reihe; der Zustand ist die Wahrheit (9.1) und
+> `state.pendingDecision` überlebt den Roundtrip. (b) `chosenMode` am
+> `PendingTrigger` und den Trigger bis zur Zielwahl in der Queue lassen —
+> bricht den etablierten Fluss „Trigger wird beim Stacken entnommen" und
+> fasst mehr Engine-Code an. (c) Modus- und Zielwahl in EINER kombinierten
+> Decision — bläht `getLegalActions`-Enumeration und UI auf (Modus-x-Ziel-
+> Kreuzprodukt) und bricht das etablierte Ketten-Muster aus 9.7.
+> *Präzisierung zu (a):* Das Feld kommt bewusst NUR an die PendingDecision,
+> **nicht** an die `DecisionChoice` — die Engine liest den Modus beim
+> Auflösen aus `state.pendingDecision`; eine Kopie in der Antwort wäre
+> redundant und bräuchte nur eine sinnlose „muss übereinstimmen"-Validierung.
+> Beim Stacken wird der Wert als `StackObject.chosenMode` übernommen.
+> *Konsequenz für die Engine:* Der dokumentierte Interims-Fallback
+> `triggers.ts#stackModalTriggerWithMode` (Auto-Pick des ersten legalen Ziels
+> bei modalen Triggern mit mehrdeutiger Zielwahl) ist abgelöst und durch die
+> echte `chooseTriggerTargets`-Decision mit gesetztem `chosenMode` zu
+> ersetzen (inkl. Test: modaler Trigger, Moduswahl, danach mehrdeutige
+> Zielwahl, beide Decisions nacheinander).
+
 ---
 
-## 10. Offene Punkte (v0.2.3 aktualisiert)
+## 10. Offene Punkte (v0.3 aktualisiert)
+
+**In v0.3 entschieden (aus dieser Liste gestrichen):**
+- ~~`onDamageReceived` verdrahten~~ → Semantik final in Abschnitt 5 (feuert pro Schadensereignis > 0, Kampf- und Effekt-Schaden, `eventSubject` = Schadensquelle, letaler Schaden feuert), Entscheidung 9.10. Card-Designer darf den Trigger jetzt verwenden (Token-Quellen meiden, 9.10 Punkt 4).
+- ~~Mulligan-Regel~~ → Paris-Variante, Abschnitt 1b; `PendingDecision`-Variante `mulligan`, `PlayerState.mulligans`, `CreateGameConfig.skipMulligans`, Event `mulliganTaken`; Entscheidung 9.11.
+- ~~X-Kosten auf aktivierten Fähigkeiten~~ → Abschnitt 4 (Unterabschnitt „Aktivierte Fähigkeiten mit X-Kosten"), `chosenX` an `activateAbility`-Aktion und Stack-Objekt; Verbot für Mana-Fähigkeiten; Entscheidung 9.12.
+- ~~Modal-Effekte („wähle eines —")~~ → Abschnitt 4 (Unterabschnitt „Modal-Effekte"), `EffectMode`/`modes` im Datenmodell, `chosenMode` an Aktionen/Stack-Objekten, `PendingDecision`-Variante `chooseMode` für Trigger; Entscheidung 9.13.
 
 **In v0.2.3 entschieden (aus dieser Liste gestrichen):**
 - ~~Trample-Analog~~ → Keyword `trample`, Regeln in 6b(2)/6d, Entscheidung 9.9.
@@ -446,7 +689,7 @@ Unterbricht eine PendingDecision eine anstehende Priority-Vergabe, darf der ursp
 - ~~First-Strike-/Deathtouch-Analoga~~ → Keywords `firstStrike`/`deathtouch`, Regeln in 6d, SBA 4 erweitert (Abschnitt 7), Entscheidung 9.9.
 
 **In v0.2 entschieden (aus dieser Liste gestrichen):**
-- ~~X-Kosten~~ → Abschnitt 4 (Ablauf) und `ManaCost.x`-Kommentar; v0.2-Einschränkung: nur auf Spells.
+- ~~X-Kosten~~ → Abschnitt 4 (Ablauf) und `ManaCost.x`-Kommentar; v0.2-Einschränkung „nur auf Spells" (in v0.3 aufgehoben, siehe 9.12).
 - ~~guardian-Regel~~ → Abschnitt 6, final.
 - ~~Startspieler-Bestimmung~~ → Abschnitt 1a.
 - ~~Effekte ohne targets-Array~~ → regulärer Fall, bestätigt (Abschnitt 4, `TargetSpec`-Kommentar).
@@ -454,19 +697,15 @@ Unterbricht eine PendingDecision eine anstehende Priority-Vergabe, darf der ursp
 - Konvention „Relics möglichst farblos": **bestätigt** als Design-Linie (Relics = farbübergreifend nutzbare Werkzeuge, MTG-Artefakt-Vorbild). Farbige Relics sind als bewusste, begründete Ausnahme erlaubt (z.B. stark farbidentitätsgebundene Effekte), sollten aber selten bleiben.
 
 **Weiterhin offen (bewusst verschoben):**
-- **`onDamageReceived` verdrahten** (Fund des Card-Designers beim Phase-B-Audit, bestätigt): Die `TriggerCondition`-Variante ist im Modell deklariert, wird aber nirgends gefeuert — anders als die 9.7-Auto-Defaults ist das keine dokumentierte Vereinfachung gewesen, sondern eine Lücke; jetzt explizit als „reserviert" markiert (Abschnitt 5) und hierher vertagt. Bei Implementierung zu klären/beachten:
-  - Anknüpfpunkte: `dealCombatDamageRound` in `combat.ts` (analog zu den `onDealtCombatDamageToPlayer`-Aufrufen, pro Schadensrunde) **und** `effects.ts#dealDamageToPermanent`, damit Kampf- und Nicht-Kampf-Schaden konsistent triggern. Bevorzugt: einheitlich am zentralen Schadensereignis feuern statt an zwei Stellen, falls die Codestruktur das hergibt.
-  - Semantik festlegen: Schaden ≤ 0 feuert nicht (konsistent mit 6c); Trigger feuert auch bei letalem Schaden (Quelle stirbt danach in der SBA-Prüfung, Trigger bleibt in der Pending-Queue — MTG-analog); `what: "self"` betrifft nur Permanents, Spielerschaden ist ein separater, noch nicht modellierter Trigger.
-  - Erst umsetzen, wenn eine konkrete Karte ihn braucht (Enrage-artiges Design-Muster) — dann Übergabe an den Engine-Engineer inkl. Tests für firstStrike-Doppelrunde und deathtouch-Interaktion.
-- Mulligan-Regel (weiterhin: keine)
 - Mehr als 2 Spieler
 - Kontrollwechsel, Kopier-Effekte, Keyword-Entzug
 - Double-Strike-Analog (teilt in **beiden** Schadensrunden aus; bewusst nicht in v0.2.3, siehe 9.9)
 - Priority-Fenster zwischen den beiden Schadensrunden (9.9 Punkt 2, Option A — additiv nachrüstbar als eigener Step, falls Antwortspielraum nach First-Strike-Schaden je gebraucht wird)
 - trample-Über-Zuteilung (Spielerwahl „mehr als letal an einen Blocker", 9.9 Punkt 3 — erst mit Regenerations-/Unzerstörbarkeits-artigen Mechaniken relevant)
 - Spielerwahl bei der Reihenfolge mehrerer eigener gleichzeitiger Trigger (deterministische Timestamp-Ordnung bleibt v0.2-Verhalten; Kandidat für den Pending-Decision-Kanal aus 9.7)
-- Modal-Effekte („wähle eines —"; ebenfalls Kandidat für 9.7)
-- X-Kosten auf aktivierten Fähigkeiten (Mana-Sinks mit X); erfordert `chosenX` an `activateAbility`
+- „Spieler erleidet Schaden"-Trigger (das Spieler-Pendant zu `onDamageReceived`, 9.10 Punkt 5 — anderes Subjekt/Filterbedürfnis, erst bei Kartenbedarf)
+- London-Mulligan als Upgrade der Paris-Variante (9.11 Option B — additiv: gleiche `mulligan`-Decision plus Bottoming-Folge-Decision, sinnvoll frühestens zusammen mit der `orderScry`-Migration)
+- „Wähle zwei"/konfigurierbare Modusanzahl bei Modal-Effekten (9.13 Punkt 4 — additives `chooseCount`-Feld, erst bei Kartenbedarf)
 - Vollständig rekursive Cleanup-Sonderregel (Abschnitt 2; aktuell: ein Extra-Fenster genügt)
 - Migration von `addMana("any")` / `discardCards`-Zusatzkosten / `scry` auf den Pending-Decision-Kanal (9.7)
 - Kombinatorische Enumeration in `getLegalActions` (bewusstes Nicht-Ziel, siehe Vertragskommentar am `RulesEngine`-Interface — `applyAction` bleibt die Legalitäts-Wahrheit)

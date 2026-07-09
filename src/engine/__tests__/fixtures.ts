@@ -36,6 +36,18 @@ export const COST_REDUCER_RELIC = "test.cheap-forge"; // {generic:2}, static: ei
 export const COST_TAX_RELIC = "test.tariff-post"; // {generic:2}, static: gegnerische Sprüche kosten {1} mehr (generisch)
 export const CHEAP_VANILLA_SPELL = "test.spark"; // {generic:2}, fast, spell ohne Effekt-Ziel (No-Op-Test für Kostenänderung)
 
+// v0.3 onDamageReceived (rules-engine.md 5 + Entscheidung 9.10):
+export const ENRAGE_UNIT = "test.enrage-boar"; // 2/6 für {generic:2}, wenn Schaden erhalten: 1 Schaden an die Schadensquelle (eventSubject)
+
+// v0.3 X-Kosten auf aktivierten Fähigkeiten (rules-engine.md 4 + Entscheidung 9.12):
+export const X_ABILITY_RELIC = "test.mana-siphon"; // {generic:1} Relic, {X}: X Schaden an Ziel (X-Kosten-Testfähigkeit)
+export const ILLEGAL_MANA_X_RELIC = "test.broken-font"; // {generic:1} Relic, Mana-Fähigkeit MIT X-Kosten (laut 9.12 illegale Definition, für den Verbots-Test)
+
+// v0.3 Modal-Effekte "wähle eines -" (rules-engine.md 4 + Entscheidung 9.13):
+export const MODAL_CHARM_SPELL = "test.tactician-charm"; // {generic:1}, fast, 2 Modi: (a) zerstöre gegnerische Unit deiner Wahl (b) ziehe 1 Karte (kein Ziel)
+export const MODAL_ABILITY_RELIC = "test.trickster-idol"; // {generic:1} Relic, aktivierte Fähigkeit {generic:1} mit 2 Modi: (a) 1 Schaden an Ziel (b) gewinne 1 Leben
+export const MODAL_TRIGGER_UNIT = "test.omen-oracle"; // 1/1 für {generic:1}, ETB modal: (a) zerstöre gegnerische Unit deiner Wahl (b) ziehe 1 Karte (kein Ziel) - für chooseMode-Decision inkl. Auto-Pick-Fall
+
 export function buildTestPool(): CardPool {
   return {
     [FLAME_TERRAIN]: {
@@ -374,6 +386,132 @@ export function buildTestPool(): CardPool {
       set: "test",
       cost: { generic: 2 },
       effects: [],
+    },
+    [ENRAGE_UNIT]: {
+      id: ENRAGE_UNIT,
+      name: "Testwuteber",
+      type: "unit",
+      set: "test",
+      cost: { generic: 2 },
+      power: 2,
+      toughness: 6,
+      abilities: [
+        {
+          kind: "triggered",
+          trigger: { kind: "onDamageReceived", what: "self" },
+          effects: [{ kind: "dealDamage", to: "eventSubject", amount: 1 }],
+          text: "Wenn diese Unit Schaden erhält, füge der Schadensquelle 1 Schaden zu.",
+        },
+      ],
+    },
+    [X_ABILITY_RELIC]: {
+      id: X_ABILITY_RELIC,
+      name: "Testmanaschöpfer",
+      type: "relic",
+      set: "test",
+      cost: { generic: 1 },
+      abilities: [
+        {
+          kind: "activated",
+          manaCost: { x: true },
+          targets: [{ kind: "unitOrPlayer" }],
+          effects: [{ kind: "dealDamage", to: { target: 0 }, amount: { kind: "x" } }],
+          text: "{X}: X Schaden an Zieleinheit oder -spieler.",
+        },
+      ],
+    },
+    [ILLEGAL_MANA_X_RELIC]: {
+      id: ILLEGAL_MANA_X_RELIC,
+      name: "Testfehlbrunnen",
+      type: "relic",
+      set: "test",
+      cost: { generic: 1 },
+      // v0.3 (9.12): laut Regelwerk illegale Definition (Mana-Fähigkeit MIT
+      // X-Kosten) - existiert NUR für den Ablehnungs-Test in ability-x-cost.
+      abilities: [
+        {
+          kind: "activated",
+          isManaAbility: true,
+          manaCost: { x: true },
+          additionalCosts: [{ kind: "tap" }],
+          effects: [{ kind: "addMana", color: "flame", amount: { kind: "x" } }],
+          text: "{X}, {T}: Erzeuge X {flame} (illegal laut 9.12).",
+        },
+      ],
+    },
+    [MODAL_CHARM_SPELL]: {
+      id: MODAL_CHARM_SPELL,
+      name: "Testtaktikcharme",
+      type: "spell",
+      speed: "fast",
+      set: "test",
+      cost: { generic: 1 },
+      effects: [],
+      modes: [
+        {
+          text: "Zerstöre eine gegnerische Unit deiner Wahl.",
+          targets: [{ kind: "permanent", cardTypes: ["unit"], controller: "opponent" }],
+          effects: [{ kind: "destroyPermanent", what: { target: 0 } }],
+        },
+        {
+          text: "Ziehe 1 Karte.",
+          effects: [{ kind: "drawCards", who: "controller", count: 1 }],
+        },
+      ],
+    },
+    [MODAL_ABILITY_RELIC]: {
+      id: MODAL_ABILITY_RELIC,
+      name: "Testgauklerfigur",
+      type: "relic",
+      set: "test",
+      cost: { generic: 1 },
+      abilities: [
+        {
+          kind: "activated",
+          manaCost: { generic: 1 },
+          effects: [],
+          modes: [
+            {
+              text: "1 Schaden an Zieleinheit oder -spieler.",
+              targets: [{ kind: "unitOrPlayer" }],
+              effects: [{ kind: "dealDamage", to: { target: 0 }, amount: 1 }],
+            },
+            {
+              text: "Gewinne 1 Leben.",
+              effects: [{ kind: "gainLife", who: "controller", amount: 1 }],
+            },
+          ],
+          text: "{1}: Wähle eines - 1 Schaden an Zieleinheit/-spieler; oder gewinne 1 Leben.",
+        },
+      ],
+    },
+    [MODAL_TRIGGER_UNIT]: {
+      id: MODAL_TRIGGER_UNIT,
+      name: "Testomenorakel",
+      type: "unit",
+      set: "test",
+      cost: { generic: 1 },
+      power: 1,
+      toughness: 1,
+      abilities: [
+        {
+          kind: "triggered",
+          trigger: { kind: "onEnterBattlefield", what: "self" },
+          effects: [],
+          modes: [
+            {
+              text: "Zerstöre eine gegnerische Unit deiner Wahl.",
+              targets: [{ kind: "permanent", cardTypes: ["unit"], controller: "opponent" }],
+              effects: [{ kind: "destroyPermanent", what: { target: 0 } }],
+            },
+            {
+              text: "Ziehe 1 Karte.",
+              effects: [{ kind: "drawCards", who: "controller", count: 1 }],
+            },
+          ],
+          text: "ETB - Wähle eines: zerstöre eine gegnerische Unit deiner Wahl; oder ziehe 1 Karte.",
+        },
+      ],
     },
   };
 }

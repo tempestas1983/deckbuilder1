@@ -19,7 +19,7 @@ describe("Kampf (Grundfälle)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
     const bear = putOnBattlefield(state, BEAR, "player1");
     makeNotSummoningSick(state, bear);
@@ -44,7 +44,7 @@ describe("Kampf (Grundfälle)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
     const attacker = putOnBattlefield(state, BEAR, "player1");
     const blocker = putOnBattlefield(state, BEAR, "player2");
@@ -68,7 +68,7 @@ describe("Kampf (Grundfälle)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
     const attacker = putOnBattlefield(state, AIRBORNE_UNIT, "player1");
     const groundBlocker = putOnBattlefield(state, BEAR, "player2");

@@ -23,7 +23,7 @@ describe("guardian-Blockpflicht (rules-engine.md 6)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 31, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 31, startingPlayer: "player1" });
 
     const attacker = putOnBattlefield(state, BEAR, "player1");
     makeNotSummoningSick(state, attacker);
@@ -50,7 +50,7 @@ describe("guardian-Blockpflicht (rules-engine.md 6)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 31, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 31, startingPlayer: "player1" });
 
     const attacker = putOnBattlefield(state, BEAR, "player1");
     makeNotSummoningSick(state, attacker);
@@ -73,7 +73,7 @@ describe("guardian-Blockpflicht (rules-engine.md 6)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 31, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 31, startingPlayer: "player1" });
 
     const attacker = putOnBattlefield(state, BEAR, "player1");
     makeNotSummoningSick(state, attacker);
@@ -92,7 +92,7 @@ describe("guardian-Blockpflicht (rules-engine.md 6)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 31, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 31, startingPlayer: "player1" });
 
     const attacker = putOnBattlefield(state, AIRBORNE_UNIT, "player1");
     makeNotSummoningSick(state, attacker);
@@ -110,7 +110,7 @@ describe("guardian-Blockpflicht (rules-engine.md 6)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 31, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 31, startingPlayer: "player1" });
 
     const attackingGuardian = putOnBattlefield(state, GUARDIAN_UNIT, "player1");
     makeNotSummoningSick(state, attackingGuardian);

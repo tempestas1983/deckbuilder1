@@ -18,7 +18,7 @@ describe("Starter-Set-Rauchtest (echter Kartenpool)", () => {
     const decks: Record<PlayerId, Record<string, number>> = { player1: deck, player2: deck };
 
     const engine = createRulesEngine(starterSet);
-    const { state } = engine.createGame({ decks, seed: 999, startingPlayer: "player1" });
+    const { state } = engine.createGame({ decks, skipMulligans: true, seed: 999, startingPlayer: "player1" });
 
     expect(state.players.player1.hand).toHaveLength(7);
     expect(state.players.player2.hand).toHaveLength(7);

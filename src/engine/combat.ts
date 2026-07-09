@@ -15,6 +15,7 @@ import { getDefinitionForInstance } from "./card-defs";
 import { runStateBasedActionsLoop } from "./sba";
 import { computeEffectiveKeywords, computeEffectiveStats } from "./stats";
 import { fireSelfCombatTrigger } from "./triggers";
+import { applyDamageToPermanent } from "./damage";
 import { otherPlayer } from "./util";
 
 export function currentAttackers(state: GameState, player: PlayerId): InstanceId[] {
@@ -284,15 +285,10 @@ function dealCombatDamageRound(
   }
 
   for (const { id, amount, sourceId } of permanentDamageInstances) {
-    const ps = state.cards[id]?.permanentState;
-    if (!ps || amount <= 0) continue;
-    ps.damageMarked += amount;
-    // §6d/§7 SBA 4 (deathtouch): jeder Schaden > 0 einer deathtouch-Quelle
-    // markiert das Ziel als "letal getroffen", unabhängig von Toughness.
-    if (computeEffectiveKeywords(state, pool, sourceId).has("deathtouch")) {
-      ps.deathtouchDamage = true;
-    }
-    events.push({ kind: "damageDealt", to: id, amount, source: sourceId });
+    // v0.3 (rules-engine.md 5 + 9.10): zentraler Helfer statt Inline-Logik -
+    // markiert Schaden, setzt ggf. deathtouchDamage (§6d/§7 SBA 4), emittiert
+    // damageDealt und feuert onDamageReceived (amount <= 0 -> No-Op, §6c).
+    applyDamageToPermanent(state, pool, events, id, amount, sourceId);
   }
   for (const { id, amount, sourceId } of playerDamageInstances) {
     if (amount <= 0) continue;

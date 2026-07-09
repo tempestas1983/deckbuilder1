@@ -9,8 +9,8 @@ describe("createGame", () => {
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
 
-    const a = engine.createGame({ decks, seed: 42 });
-    const b = engine.createGame({ decks, seed: 42 });
+    const a = engine.createGame({ decks, skipMulligans: true, seed: 42 });
+    const b = engine.createGame({ decks, skipMulligans: true, seed: 42 });
 
     expect(a.state.players.player1.hand).toEqual(b.state.players.player1.hand);
     expect(a.state.players.player2.hand).toEqual(b.state.players.player2.hand);
@@ -22,8 +22,8 @@ describe("createGame", () => {
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
 
-    const a = engine.createGame({ decks, seed: 1 });
-    const b = engine.createGame({ decks, seed: 2 });
+    const a = engine.createGame({ decks, skipMulligans: true, seed: 1 });
+    const b = engine.createGame({ decks, skipMulligans: true, seed: 2 });
 
     expect(a.state.players.player1.hand).not.toEqual(b.state.players.player1.hand);
   });
@@ -32,7 +32,7 @@ describe("createGame", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    const { state } = engine.createGame({ decks, seed: 7, startingPlayer: "player1" });
+    const { state } = engine.createGame({ decks, skipMulligans: true, seed: 7, startingPlayer: "player1" });
 
     expect(state.players.player1.hand).toHaveLength(7);
     expect(state.players.player2.hand).toHaveLength(7);
@@ -56,7 +56,7 @@ describe("createGame", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    const { state, events } = engine.createGame({ decks, seed: 7, startingPlayer: "player1" });
+    const { state, events } = engine.createGame({ decks, skipMulligans: true, seed: 7, startingPlayer: "player1" });
 
     const deckSize = Object.values(decks.player1).reduce((a, b) => a + b, 0);
     expect(state.players.player1.library).toHaveLength(deckSize - 7);
@@ -79,11 +79,11 @@ describe("createGame", () => {
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
 
-    const p1 = engine.createGame({ decks, seed: 100, startingPlayer: "player1" });
+    const p1 = engine.createGame({ decks, skipMulligans: true, seed: 100, startingPlayer: "player1" });
     expect(p1.state.activePlayer).toBe("player1");
     expect(p1.events[0]).toMatchObject({ kind: "gameStarted", startingPlayer: "player1" });
 
-    const p2 = engine.createGame({ decks, seed: 100, startingPlayer: "player2" });
+    const p2 = engine.createGame({ decks, skipMulligans: true, seed: 100, startingPlayer: "player2" });
     expect(p2.state.activePlayer).toBe("player2");
     expect(p2.events[0]).toMatchObject({ kind: "gameStarted", startingPlayer: "player2" });
   });
@@ -93,8 +93,8 @@ describe("createGame", () => {
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
 
-    const a = engine.createGame({ decks, seed: 777 });
-    const b = engine.createGame({ decks, seed: 777 });
+    const a = engine.createGame({ decks, skipMulligans: true, seed: 777 });
+    const b = engine.createGame({ decks, skipMulligans: true, seed: 777 });
     expect(a.state.activePlayer).toBe(b.state.activePlayer);
     expect(["player1", "player2"]).toContain(a.state.activePlayer);
   });

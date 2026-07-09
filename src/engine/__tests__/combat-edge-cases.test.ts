@@ -81,7 +81,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
     const attacker = putOnBattlefield(state, BEAR, "player1"); // 2/2 -> 10/10
     makeNotSummoningSick(state, attacker);
@@ -148,7 +148,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
     const attacker = putOnBattlefield(state, VIGILANT_BEAR, "player1");
     makeNotSummoningSick(state, attacker);
@@ -165,7 +165,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, LIFELINK_UNIT, "player1"); // 2/2 lifelink
       makeNotSummoningSick(state, attacker);
@@ -185,7 +185,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, LIFELINK_UNIT, "player1"); // 2/2 lifelink
       const blocker = putOnBattlefield(state, BEAR, "player2"); // 2/2
@@ -208,7 +208,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, LIFELINK_UNIT, "player1"); // 2/2 lifelink
       makeNotSummoningSick(state, attacker);
@@ -234,7 +234,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, BEAR, "player1");
       const blocker = putOnBattlefield(state, BEAR, "player2");
@@ -268,7 +268,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, BEAR, "player1");
       const blocker = putOnBattlefield(state, BEAR, "player2");
@@ -298,7 +298,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, BEAR, "player1"); // 2/2 -> 10/10
       makeNotSummoningSick(state, attacker);
@@ -365,7 +365,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, DAMAGE_TRIGGER_UNIT, "player1"); // 1/1
       makeNotSummoningSick(state, attacker);
@@ -400,7 +400,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, DAMAGE_TRIGGER_UNIT, "player1"); // 1/1
       makeNotSummoningSick(state, attacker);
@@ -421,7 +421,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, BEAR, "player1"); // 2/2
       const blocker = putOnBattlefield(state, BEAR, "player2"); // 2/2
@@ -448,7 +448,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, BEAR, "player1"); // 2/2
       const blocker = putOnBattlefield(state, BEAR, "player2"); // 2/2
@@ -477,7 +477,7 @@ describe("Kampf - Edge Cases (rules-engine.md 6a/6b/6c/9.8/6d)", () => {
       const pool = buildTestPool();
       const decks = standardTestDecks();
       const engine = createRulesEngine(pool);
-      let { state } = engine.createGame({ decks, seed: 9, startingPlayer: "player1" });
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
 
       const attacker = putOnBattlefield(state, BEAR, "player1");
       const blocker = putOnBattlefield(state, BEAR, "player2");

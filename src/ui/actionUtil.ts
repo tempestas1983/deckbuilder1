@@ -4,8 +4,9 @@
  * Struktur-Zugriff auf die vom Engine-Interface gelieferten Objekte).
  */
 
-import type { CardDefinition, ChosenTarget, PlayerAction, TargetSpec } from "../model";
-import { targetKeyOf } from "./types";
+import type { CardDefinition, CardPool, ChosenTarget, EffectMode, GameState, InstanceId, PlayerAction, PlayerId, TargetSpec } from "../model";
+import { cardDef } from "./cardInfo";
+import { targetKeyOf, type CastSource } from "./types";
 
 /** Das einzelne gewählte Ziel eines Kandidaten (falls vorhanden). */
 export function singleTargetOf(action: PlayerAction): ChosenTarget | undefined {
@@ -53,4 +54,97 @@ export function xTargetShapeAllowsPlayer(spec: TargetSpec): boolean {
 
 export function xTargetShapeAllowsStackObject(spec: TargetSpec): boolean {
   return spec.kind === "stackObject";
+}
+
+// ---------------------------------------------------------------------------
+// CastSource-Helfer (v0.3, rules-engine.md 4/9.12/9.13): vereinheitlichen
+// castSpell (Handkarte) und activateAbility (Battlefield-Fähigkeit) für den
+// gemeinsamen Modus-/X-/Ziel-Eingabe-Flow (types.ts#UiMode "modeSelect"/
+// "xInput"/"xTarget"). Reines Auslesen von CardPool/GameState-Daten (kein
+// Regel-Code) + Bau der finalen PlayerAction - dieselbe Abgrenzung wie beim
+// Rest dieser Datei.
+// ---------------------------------------------------------------------------
+
+function sourceInstanceIdOf(source: CastSource): InstanceId {
+  return source.kind === "spell" ? source.cardInstanceId : source.sourceInstanceId;
+}
+
+/** Kartenname der Quelle (Anzeige in Modus-/X-Panels). */
+export function sourceName(pool: CardPool, state: GameState, source: CastSource): string {
+  return cardDef(pool, state, sourceInstanceIdOf(source)).name;
+}
+
+/** Modi der Quelle, falls modal (SpellCard.modes bzw. ActivatedAbility.modes am gewählten abilityIndex). */
+export function sourceModes(pool: CardPool, state: GameState, source: CastSource): EffectMode[] | undefined {
+  const def = cardDef(pool, state, sourceInstanceIdOf(source));
+  if (source.kind === "spell") {
+    return def.type === "spell" ? def.modes : undefined;
+  }
+  const ability = "abilities" in def ? def.abilities?.[source.abilityIndex] : undefined;
+  return ability?.kind === "activated" ? ability.modes : undefined;
+}
+
+/** true, wenn die Quelle X-Kosten hat (Spell-cost.x bzw. ActivatedAbility.manaCost.x). */
+export function sourceHasXCost(pool: CardPool, state: GameState, source: CastSource): boolean {
+  const def = cardDef(pool, state, sourceInstanceIdOf(source));
+  if (source.kind === "spell") {
+    return "cost" in def && !!def.cost.x;
+  }
+  const ability = "abilities" in def ? def.abilities?.[source.abilityIndex] : undefined;
+  return ability?.kind === "activated" ? !!ability.manaCost?.x : false;
+}
+
+/**
+ * Zielslots der Quelle - bei gesetztem chosenMode die des gewählten Modus
+ * (9.13: "chosenTargets beziehen sich dann auf die targets DIESES Modus"),
+ * sonst die Top-Level-targets von Spell/Fähigkeit.
+ */
+export function sourceTargets(
+  pool: CardPool,
+  state: GameState,
+  source: CastSource,
+  chosenMode?: number,
+): TargetSpec[] | undefined {
+  if (chosenMode !== undefined) {
+    return sourceModes(pool, state, source)?.[chosenMode]?.targets;
+  }
+  const def = cardDef(pool, state, sourceInstanceIdOf(source));
+  if (source.kind === "spell") {
+    return def.type === "spell" ? def.targets : undefined;
+  }
+  const ability = "abilities" in def ? def.abilities?.[source.abilityIndex] : undefined;
+  return ability?.kind === "activated" ? ability.targets : undefined;
+}
+
+/** Baut die finale castSpell-/activateAbility-Aktion aus einer CastSource + gesammelten Eingaben. */
+export function buildCastAction(
+  source: CastSource,
+  player: PlayerId,
+  chosenTargets: ChosenTarget[],
+  chosenX?: number,
+  chosenMode?: number,
+): PlayerAction {
+  if (source.kind === "spell") {
+    return { kind: "castSpell", player, cardInstanceId: source.cardInstanceId, chosenTargets, chosenX, chosenMode };
+  }
+  return {
+    kind: "activateAbility",
+    player,
+    sourceInstanceId: source.sourceInstanceId,
+    abilityIndex: source.abilityIndex,
+    chosenTargets,
+    chosenX,
+    chosenMode,
+  };
+}
+
+/** Alle activateAbility-Kandidaten aus getLegalActions für eine bestimmte Quelle, sauber getypt. */
+export function activateAbilityCandidatesFor(
+  candidates: PlayerAction[],
+  sourceInstanceId: InstanceId,
+): Array<Extract<PlayerAction, { kind: "activateAbility" }>> {
+  return candidates.filter(
+    (a): a is Extract<PlayerAction, { kind: "activateAbility" }> =>
+      a.kind === "activateAbility" && a.sourceInstanceId === sourceInstanceId,
+  );
 }

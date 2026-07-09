@@ -497,6 +497,49 @@ export const starterSet: CardPool = {
     set: "core",
   },
 
+  // v0.3 Modell-Update (Modal-Effekte, rules-engine.md 4 + 9.13): erste
+  // Testkarte für `modes` auf einer TriggeredAbility (statt Spell/aktivierter
+  // Fähigkeit) — deckt gezielt die neue PendingDecision "chooseMode" ab,
+  // inkl. Auto-Pick-Fall (steht kein gegnerisches Ziel für Modus 2 zur
+  // Verfügung, ist nur Modus 1 wählbar und wird laut 9.13 ohne Nachfrage
+  // gewählt). Bewusst unterdurchschnittlicher Körper (1/2 statt
+  // core.tidebind-couriers 2/2 für denselben Preis): die Wahlmöglichkeit
+  // zwischen "ziehe eine Karte" (mind. so gut wie core.current-seers ETB)
+  // und "tappe eine gegnerische Kreatur" (identisch zu core.tidebind-
+  // couriers festem Effekt) ist strikt mindestens so gut wie jede der
+  // beiden Einzelkarten für sich — der Statline-Abzug gleicht diesen
+  // Flexibilitätsvorteil aus.
+  "core.current-diplomat": {
+    id: "core.current-diplomat",
+    name: "Strömungsdiplomatin",
+    type: "unit",
+    subtypes: ["Wassergeist"],
+    cost: { generic: 2, tide: 1 },
+    power: 1,
+    toughness: 2,
+    abilities: [
+      {
+        kind: "triggered",
+        trigger: { kind: "onEnterBattlefield", what: "self" },
+        effects: [],
+        modes: [
+          {
+            text: "Ziehe eine Karte.",
+            effects: [{ kind: "drawCards", who: "controller", count: 1 }],
+          },
+          {
+            text: "Tappe eine Kreatur deiner Wahl, die dein Gegner kontrolliert.",
+            targets: [{ kind: "permanent", cardTypes: ["unit"], controller: "opponent" }],
+            effects: [{ kind: "tapPermanent", what: { target: 0 } }],
+          },
+        ],
+        text: "Wenn die Strömungsdiplomatin ins Spiel kommt, wähle eins — Ziehe eine Karte. Oder: Tappe eine Kreatur deiner Wahl, die dein Gegner kontrolliert.",
+      },
+    ],
+    rarity: "uncommon",
+    set: "core",
+  },
+
   // ---------------------------------------------------------------------
   // Units — Wild (große Körper, Zähigkeit, Marken/Wachstum)
   // ---------------------------------------------------------------------
@@ -710,6 +753,42 @@ export const starterSet: CardPool = {
         text: "Entferne einen +1/+1-Marker vom Dornwart-Asketen: Füge einem Ziel deiner Wahl 2 Schaden zu.",
       },
     ],
+    rarity: "uncommon",
+    set: "core",
+  },
+
+  // v0.3 Modell-Update (`onDamageReceived` verdrahtet, rules-engine.md 5 +
+  // 9.10): erste Testkarte für diesen Trigger im Pool (bis v0.2.4 laut
+  // Balancing-Notizen in docs/cards/starter-set.md "reserviert, nicht
+  // verwenden" — mit v0.3 vom Architekten freigegeben). Vergeltungsdesign
+  // über EffectRecipient "eventSubject" (= Schadensquelle, NICHT die eigene
+  // Instanz): jede Schadensquelle, die den Keiler trifft — Kampf- oder
+  // Effekt-Schaden, jede Instanz einzeln, siehe Granularitäts-Regel in
+  // Abschnitt 5 —, erhält 2 Schaden zurück. Bewusst KEIN Token-Design
+  // (Architekt-Vorgabe 9.10 Punkt 4): eine reguläre Pool-Karte, deren
+  // Definition beim Stacken des Triggers auch nach dem eigenen Tod noch
+  // auflösbar bleibt (letaler Schaden feuert, der Trigger überlebt in der
+  // Pending-Queue, Abschnitt 5). Statline unter der von
+  // core.thornback-warden (2/4, reach, gleicher Preis 3 Mana) — reach
+  // schützt nur gegen Flieger, die Vergeltung hier wirkt gegen JEDEN
+  // Schaden inkl. Brand-Spells, daher der Abzug auf 2/3.
+  "core.thornrage-boar": {
+    id: "core.thornrage-boar",
+    name: "Dornwut-Keiler",
+    type: "unit",
+    subtypes: ["Bestie"],
+    cost: { generic: 2, wild: 1 },
+    power: 2,
+    toughness: 3,
+    abilities: [
+      {
+        kind: "triggered",
+        trigger: { kind: "onDamageReceived", what: "self" },
+        effects: [{ kind: "dealDamage", to: "eventSubject", amount: 2 }],
+        text: "Immer wenn der Dornwut-Keiler Schaden erhält, fügt er der Schadensquelle 2 Schaden zu.",
+      },
+    ],
+    rulesText: "Vergeltung: 2 Schaden an die Schadensquelle bei jedem erhaltenen Schaden.",
     rarity: "uncommon",
     set: "core",
   },
@@ -1554,6 +1633,45 @@ export const starterSet: CardPool = {
     set: "core",
   },
 
+  // v0.3 Modell-Update (Modal-Effekte, rules-engine.md 4 + 9.13): Testkarte
+  // für `modes` auf einem `spell(fast)` — "Charm"-artig mit 3 Modi (Modus 1
+  // mit Zielslot, Modi 2/3 ohne), Moduswahl vor Zielwahl (`chosenMode` an
+  // der castSpell-Aktion, wie in 4/9.13 spezifiziert). Preislich am
+  // teuersten Einzelmodus orientiert plus Flexibilitätsaufschlag: Modus 1
+  // entspricht core.fire-jolt (1 Mana, 2 Schaden an ein beliebiges Ziel),
+  // Modus 2 entspricht core.mind-rots Effekt (dort 2 Mana, `slow`-only —
+  // hier `fast`-Speed, also strikt stärker als Einzelkarte), Modus 3 ist
+  // ein reiner Karten-Cantrip. Da immer nur EIN Modus zum Zug kommt (kein
+  // additiver Wert gegenüber den Einzelkarten), hält {2}{Leere} (3 Mana) die
+  // Karte über core.mind-rots Solo-Preis, ohne einen der drei Effekte für
+  // sich zu dominieren.
+  "core.void-covenant": {
+    id: "core.void-covenant",
+    name: "Bund der Leere",
+    type: "spell",
+    speed: "fast",
+    cost: { generic: 2, void: 1 },
+    effects: [],
+    modes: [
+      {
+        text: "Füge einer Kreatur oder einem Spieler deiner Wahl 2 Schaden zu.",
+        targets: [{ kind: "unitOrPlayer" }],
+        effects: [{ kind: "dealDamage", to: { target: 0 }, amount: 2 }],
+      },
+      {
+        text: "Dein Gegner wirft eine zufällig bestimmte Karte ab.",
+        effects: [{ kind: "discardCards", who: "opponent", count: 1, random: true }],
+      },
+      {
+        text: "Ziehe eine Karte.",
+        effects: [{ kind: "drawCards", who: "controller", count: 1 }],
+      },
+    ],
+    rulesText: "Wähle eins — Füge einer Kreatur oder einem Spieler deiner Wahl 2 Schaden zu. Oder: Dein Gegner wirft eine zufällig bestimmte Karte ab. Oder: Ziehe eine Karte.",
+    rarity: "uncommon",
+    set: "core",
+  },
+
   // ---------------------------------------------------------------------
   // Relic
   // ---------------------------------------------------------------------
@@ -1862,6 +1980,34 @@ export const starterSet: CardPool = {
       },
     ],
     rarity: "uncommon",
+    set: "core",
+  },
+
+  // v0.3 Modell-Update (X-Kosten auf aktivierten Fähigkeiten, rules-engine.md
+  // 4 + 9.12): erste Testkarte für `chosenX` an einer `activateAbility`
+  // (bisher nur auf Spells wie core.inferno-surge). Reiner Mana-Sink,
+  // wiederholbar (Tap-Kosten begrenzt auf 1×/Zug) statt Einmaleffekt wie
+  // core.inferno-surge — daher deutlich teurer im Cast ({4} generisch,
+  // `rare`) und ohne Farbbindung (Design-Linie "Relics möglichst farblos").
+  // KEINE Mana-Fähigkeit (hat Ziele und geht über den Stack) — das Verbot
+  // aus 9.12 für isManaAbility+X gilt hier nicht.
+  "core.cinderwrack-engine": {
+    id: "core.cinderwrack-engine",
+    name: "Sengende Kriegsmaschine",
+    type: "relic",
+    subtypes: ["Wunderwerk", "Belagerungsgerät"],
+    cost: { generic: 4 },
+    abilities: [
+      {
+        kind: "activated",
+        manaCost: { x: true },
+        additionalCosts: [{ kind: "tap" }],
+        targets: [{ kind: "unitOrPlayer" }],
+        effects: [{ kind: "dealDamage", to: { target: 0 }, amount: { kind: "x" } }],
+        text: "{X}, Tappe die Sengende Kriegsmaschine: Füge einem Ziel deiner Wahl X Schaden zu.",
+      },
+    ],
+    rarity: "rare",
     set: "core",
   },
 

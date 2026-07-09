@@ -9,7 +9,7 @@
  * Regelsemantik der Kartentypen: docs/rules-engine.md Abschnitt 1 und 2.
  */
 
-import type { Ability, ManaCost, TargetSpec, Effect } from "./abilities";
+import type { Ability, EffectMode, ManaCost, TargetSpec, Effect } from "./abilities";
 
 // ---------------------------------------------------------------------------
 // Kartentypen
@@ -81,6 +81,15 @@ export interface SpellCard extends CardDefinitionBase {
   targets?: TargetSpec[];
   /** Wird bei Resolution in Reihenfolge ausgeführt, danach Karte -> Graveyard. */
   effects: Effect[];
+  /**
+   * v0.3 (Modal-Spells "wähle eines —", rules-engine.md 4 + 9.13): Ist
+   * `modes` gesetzt (mindestens 2 Einträge), MUSS `effects` das leere Array
+   * sein und `targets` fehlen (Engine validiert). Der Caster wählt den Modus
+   * als Teil der Aktion (`chosenMode` an castSpell, Reihenfolge: Modus ->
+   * X -> Ziele); `chosenTargets` und die Fizzle-Regel beziehen sich auf die
+   * targets des GEWÄHLTEN Modus. Semantik von EffectMode: abilities.ts.
+   */
+  modes?: EffectMode[];
 }
 
 export interface RelicCard extends CardDefinitionBase {

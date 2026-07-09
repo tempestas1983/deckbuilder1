@@ -153,6 +153,12 @@ export type StackObject =
       chosenTargets: ChosenTarget[];
       /** Gewähltes X bei X-Kosten. */
       chosenX?: number;
+      /**
+       * v0.3 (Modal-Spells, rules-engine.md 4 + 9.13): Index des gewählten
+       * Modus in SpellCard.modes. Pflicht, wenn die Karte modes deklariert;
+       * chosenTargets beziehen sich dann auf die targets DIESES Modus.
+       */
+      chosenMode?: number;
     }
   | {
       kind: "activatedAbility";
@@ -163,6 +169,14 @@ export type StackObject =
       abilityIndex: number;
       controller: PlayerId;
       chosenTargets: ChosenTarget[];
+      /**
+       * v0.3 (rules-engine.md 4 + 9.12): Gewähltes X bei X-Kosten der
+       * Fähigkeit — analog Spells; Amount { kind: "x" } liest es bei
+       * Resolution. Mana-Fähigkeiten (kein Stack-Objekt) sind ausgenommen.
+       */
+      chosenX?: number;
+      /** v0.3 (Modal, 9.13): Index des gewählten Modus in ActivatedAbility.modes. */
+      chosenMode?: number;
     }
   | {
       kind: "triggeredAbility";
@@ -171,8 +185,18 @@ export type StackObject =
       abilityIndex: number;
       controller: PlayerId;
       chosenTargets: ChosenTarget[];
-      /** Auslösendes Objekt (für EffectRecipient "eventSubject"). */
+      /**
+       * Auslösendes Objekt (für EffectRecipient "eventSubject").
+       * v0.3: bei onDamageReceived ist das die SCHADENSQUELLE
+       * (siehe TriggerCondition-Kommentar in abilities.ts).
+       */
       eventSubject?: InstanceId | PlayerId;
+      /**
+       * v0.3 (Modal, 9.13): Index des gewählten Modus in
+       * TriggeredAbility.modes — via PendingDecision "chooseMode" beim
+       * Stacken gewählt (bzw. Auto-Pick bei genau einem wählbaren Modus).
+       */
+      chosenMode?: number;
     };
 
 /**
@@ -206,8 +230,10 @@ export interface PendingTrigger {
  *   alle legalen Einzelziele).
  *
  * Umsetzungspflicht: "chooseTriggerTargets" (seit v0.2, MTG-Konformität der
- * Trigger-Zielwahl) und "orderBlockers" (seit v0.2.3, Teil des
- * Kampf-Keyword-Pakets — ohne sie ist trample nicht sinnvoll spielbar).
+ * Trigger-Zielwahl), "orderBlockers" (seit v0.2.3, Teil des
+ * Kampf-Keyword-Pakets — ohne sie ist trample nicht sinnvoll spielbar) sowie
+ * seit v0.3 "mulligan" (rules-engine.md 1b) und "chooseMode"
+ * (Modal-Trigger, rules-engine.md 4 + 9.13).
  * Die übrigen Varianten sind bereits definiert, damit die Engine
  * scry / addMana("any") / discardCards-Zusatzkosten schrittweise von ihren
  * dokumentierten Auto-Defaults auf echte Spielerwahl umstellen kann,
@@ -221,6 +247,20 @@ export type PendingDecision =
       sourceInstanceId: InstanceId;
       abilityIndex: number;
       eventSubject?: InstanceId | PlayerId;
+      /**
+       * v0.3.1 (rules-engine.md 9.13, Nachtrag): Bei modalen Triggern der
+       * bereits gewählte Modus (aus der vorangegangenen chooseMode-Decision
+       * bzw. deren Auto-Pick) — persistiert die Moduswahl über den zweiten
+       * resolveDecision-Roundtrip der Kette chooseMode ->
+       * chooseTriggerTargets. Die Zielwahl (chosenTargets der Antwort)
+       * bezieht sich dann auf die targets DIESES Modus, und der Wert wird
+       * beim Stacken als StackObject.chosenMode übernommen. Bewusst KEIN
+       * Gegenstück an der DecisionChoice: die Engine liest den Modus aus
+       * state.pendingDecision; eine Kopie in der Antwort wäre redundant und
+       * bräuchte nur Konsistenz-Validierung. Fehlt bei nicht-modalen
+       * Triggern.
+       */
+      chosenMode?: number;
     }
   | {
       kind: "chooseManaColor"; // addMana mit color: "any"
@@ -258,6 +298,48 @@ export type PendingDecision =
        * (Deklarations-)Reihenfolge als Vorschlagsbasis.
        */
       attackers: Array<{ attacker: InstanceId; blockers: InstanceId[] }>;
+    }
+  | {
+      /**
+       * v0.3 (Mulligan, rules-engine.md 1b + Entscheidung 9.11,
+       * Paris-Variante): Vor dem ersten Untap Step entscheidet zuerst der
+       * Startspieler, dann der andere Spieler — jeweils vollständig
+       * sequentiell (behalten oder neu mischen + eine Karte weniger ziehen,
+       * wiederholbar bis Handgröße 0). Von createGame gesetzt statt
+       * beginStep("untap"); liegt außerhalb einer Priority-Vergabe
+       * (resumePriorityTo wird NICHT gesetzt). Bei Handgröße 0 stellt die
+       * Engine keine weitere Decision (automatisches Behalten).
+       * getLegalActions liefert BEIDE resolveDecision-Kandidaten
+       * (takeMulligan true/false).
+       */
+      kind: "mulligan";
+      player: PlayerId;
+      /** Wie oft dieser Spieler bereits gemulligant hat (aktuelle Handgröße = 7 - timesMulliganed). */
+      timesMulliganed: number;
+    }
+  | {
+      /**
+       * v0.3 (Modal-Trigger, rules-engine.md 4 + 9.13): Beim Stacken eines
+       * Triggers mit TriggeredAbility.modes wählt der Controller genau
+       * einen Modus — VOR der Zielwahl (ggf. folgt "chooseTriggerTargets"
+       * für die targets des gewählten Modus als Ketten-Decision). Genau ein
+       * wählbarer Modus -> Komfort-Auto-Pick ohne Decision; kein wählbarer
+       * Modus -> Trigger verpufft. Spells/aktivierte Fähigkeiten brauchen
+       * diese Decision NICHT (chosenMode ist Teil der Aktion).
+       * getLegalActions liefert einen resolveDecision-Kandidaten pro
+       * Eintrag in selectableModes.
+       */
+      kind: "chooseMode";
+      player: PlayerId;
+      /** Der Trigger aus pendingTriggers, der gerade gestackt werden soll. */
+      sourceInstanceId: InstanceId;
+      abilityIndex: number;
+      eventSubject?: InstanceId | PlayerId;
+      /**
+       * Indizes der aktuell wählbaren Modi (Modi, deren Zielslots alle
+       * mindestens ein legales Ziel haben; Modi ohne targets immer).
+       */
+      selectableModes: number[];
     };
 
 /** Antwort des Spielers auf die jeweilige PendingDecision (gleicher kind). */
@@ -281,6 +363,22 @@ export type DecisionChoice =
        * Ergebnis wird in CombatAssignment.blockedBy übernommen.
        */
       orders: Array<{ attacker: InstanceId; blockers: InstanceId[] }>;
+    }
+  | {
+      kind: "mulligan";
+      /**
+       * true = Hand in die Library mischen und (7 - timesMulliganed - 1)
+       * Karten neu ziehen; false = Hand behalten (rules-engine.md 1b).
+       */
+      takeMulligan: boolean;
+    }
+  | {
+      kind: "chooseMode";
+      /**
+       * Index in TriggeredAbility.modes; muss in
+       * PendingDecision.selectableModes enthalten sein — sonst Ablehnung.
+       */
+      modeIndex: number;
     };
 
 // ---------------------------------------------------------------------------
@@ -320,6 +418,12 @@ export interface PlayerState {
   manaPool: ManaPool;
   /** Bereits gespielte Terrains in diesem Zug (Limit 1). */
   terrainsPlayedThisTurn: number;
+  /**
+   * v0.3 (rules-engine.md 1b): Anzahl genommener Mulligans dieses Spielers
+   * (Paris-Variante: Starthandgröße = 7 - mulligans). Nach Spielstart nur
+   * noch informativ (UI/Log); das Handkartenmaximum bleibt unverändert 7.
+   */
+  mulligans: number;
   /** Musste aus leerer Library ziehen -> verliert bei nächstem SBA-Check. */
   attemptedDrawFromEmptyLibrary: boolean;
   hasLost: boolean;
@@ -391,6 +495,12 @@ export type PlayerAction =
       cardInstanceId: InstanceId;
       chosenTargets: ChosenTarget[];
       chosenX?: number;
+      /**
+       * v0.3 (Modal-Spells, rules-engine.md 4 + 9.13): Pflicht, wenn die
+       * Karte modes deklariert (fehlend/ungültig/nicht wählbar -> Ablehnung);
+       * chosenTargets beziehen sich dann auf die targets dieses Modus.
+       */
+      chosenMode?: number;
     }
   | { kind: "playTerrain"; player: PlayerId; cardInstanceId: InstanceId }
   | {
@@ -399,6 +509,14 @@ export type PlayerAction =
       sourceInstanceId: InstanceId;
       abilityIndex: number;
       chosenTargets: ChosenTarget[];
+      /**
+       * v0.3 (rules-engine.md 4 + 9.12): Pflicht, wenn die Fähigkeit
+       * X-Kosten hat (manaCost.x) — Validierung analog castSpell.
+       * getLegalActions enumeriert X nicht (Kandidat ohne chosenX).
+       */
+      chosenX?: number;
+      /** v0.3 (Modal, 9.13): Pflicht, wenn die Fähigkeit modes deklariert. */
+      chosenMode?: number;
     }
   | {
       kind: "declareAttackers";
@@ -435,6 +553,13 @@ export type PlayerAction =
  */
 export type GameEvent =
   | { kind: "gameStarted"; startingPlayer: PlayerId }
+  | {
+      /** v0.3 (rules-engine.md 1b): Spieler hat einen Mulligan genommen. */
+      kind: "mulliganTaken";
+      player: PlayerId;
+      /** Handgröße NACH dem Neuziehen (7 - Anzahl bisheriger Mulligans). */
+      newHandSize: number;
+    }
   | { kind: "turnBegan"; player: PlayerId; turnNumber: number }
   | { kind: "stepBegan"; step: TurnStep }
   | { kind: "priorityGained"; player: PlayerId }
@@ -493,6 +618,14 @@ export interface CreateGameConfig {
    * pro Seed. Siehe rules-engine.md Abschnitt 1a.
    */
   startingPlayer?: PlayerId;
+  /**
+   * v0.3 (rules-engine.md 1b): true = Mulligan-Phase überspringen (beide
+   * Spieler behalten ihre Starthand, createGame läuft wie bis v0.2.4 direkt
+   * bis zum ersten Priority-Fenster). Für Tests/Komfort; Default false =
+   * createGame endet mit pendingDecision { kind: "mulligan" } für den
+   * Startspieler.
+   */
+  skipMulligans?: boolean;
 }
 
 export interface RulesEngine {
@@ -507,11 +640,16 @@ export interface RulesEngine {
    * Vertragspräzisierung (Architect): Diese Liste ist bewusst NICHT
    * erschöpfend. Garantiert enumeriert werden: passPriority, concede,
    * playTerrain, castSpell/activateAbility mit 0 oder 1 Zielslot (alle
-   * legalen Einzelziele), resolveDecision-Kandidaten bei pendingDecision.
+   * legalen Einzelziele), resolveDecision-Kandidaten bei pendingDecision
+   * (v0.3: bei "mulligan" beide Antworten, bei "chooseMode" ein Kandidat
+   * pro Eintrag in selectableModes).
    * NICHT enumeriert werden kombinatorische Räume: mehrere Zielslots,
-   * X-Werte (Kandidat ohne chosenX; Frontend fragt X ab), Attacker-/
-   * Blocker-Teilmengen, Discard-Kombinationen. applyAction validiert
-   * jede vollständige Aktion korrekt — das ist die Legalitäts-Wahrheit.
+   * X-Werte (Kandidat ohne chosenX — gilt seit v0.3 auch für
+   * activateAbility; Frontend fragt X ab), Modus-x-Ziel-Kombinationen
+   * modaler Spells/Fähigkeiten (Kandidat ohne chosenMode/chosenTargets;
+   * Frontend fragt Modus und Ziele ab), Attacker-/Blocker-Teilmengen,
+   * Discard-Kombinationen. applyAction validiert jede vollständige Aktion
+   * korrekt — das ist die Legalitäts-Wahrheit.
    */
   getLegalActions(state: GameState, player: PlayerId): PlayerAction[];
 }

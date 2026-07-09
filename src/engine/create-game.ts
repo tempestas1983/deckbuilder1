@@ -17,6 +17,7 @@ import { createCardInstance, drawCard } from "./zones";
 import { nextInt, shuffleInPlace } from "./rng";
 import { emptyManaPool } from "./mana";
 import { beginStep } from "./turn";
+import { buildInitialMulliganDecision } from "./mulligan";
 
 const PLAYER_IDS: PlayerId[] = ["player1", "player2"];
 const STARTING_HAND_SIZE = 7;
@@ -71,6 +72,7 @@ export function createGame(
       exile: [],
       manaPool: emptyManaPool(),
       terrainsPlayedThisTurn: 0,
+      mulligans: 0,
       attemptedDrawFromEmptyLibrary: false,
       hasLost: false,
     };
@@ -92,7 +94,17 @@ export function createGame(
   // Ziehversuch aus leerer Library beim Starthand-Ziehen wäre ein Deckbau-Fehler
   // (min. 40 Karten Pflicht laut Decklist-Dokumentation) - keine SBA-Prüfung hier nötig.
 
-  beginStep(state, pool, events, "untap");
+  // v0.3 (rules-engine.md 1b + Entscheidung 9.11): Mulligan-Phase VOR dem
+  // ersten Untap Step - createGame endet mit einer offenen "mulligan"-
+  // Decision für den Startspieler statt sofort zu steppen. Default false =
+  // Mulligan-Phase läuft; skipMulligans überspringt sie (Tests/Komfort).
+  if (config.skipMulligans) {
+    beginStep(state, pool, events, "untap");
+  } else {
+    const decision = buildInitialMulliganDecision(state.activePlayer);
+    state.pendingDecision = decision;
+    events.push({ kind: "decisionRequired", player: state.activePlayer, decisionKind: "mulligan" });
+  }
 
   return { state, events };
 }

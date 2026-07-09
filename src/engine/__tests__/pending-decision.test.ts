@@ -23,7 +23,7 @@ describe("PendingDecision: chooseTriggerTargets", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const existingUnit = putOnBattlefield(state, BEAR, "player1"); // 2. eigene Unit -> Mehrdeutigkeit
@@ -95,7 +95,7 @@ describe("PendingDecision: chooseTriggerTargets", () => {
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 42, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 42, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
 
     const terrain = putOnBattlefield(state, FLAME_TERRAIN, "player1");
@@ -131,7 +131,7 @@ describe("resumePriorityTo: Priority-Empfänger nach PendingDecision-Pause", () 
     const pool = buildTestPool();
     const decks = standardTestDecks();
     const engine = createRulesEngine(pool);
-    let { state } = engine.createGame({ decks, seed: 61, startingPlayer: "player1" });
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 61, startingPlayer: "player1" });
     state = advanceToStep(engine, state, "main1");
     expect(state.activePlayer).toBe("player1");
     expect(state.priorityPlayer).toBe("player1");
