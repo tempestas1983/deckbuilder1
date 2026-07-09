@@ -54,7 +54,13 @@ function runOnce(state: GameState, pool: CardPool, events: GameEvent[]): boolean
     const def = getDefinition(pool, card.definitionId);
     if (def.type !== "unit") continue;
     const stats = computeEffectiveStats(state, pool, instanceId);
-    if (stats.toughness <= 0 || card.permanentState.damageMarked >= stats.toughness) {
+    // v0.2.3 (deathtouch, rules-engine.md 6d/7): Schaden > 0 von einer
+    // deathtouch-Quelle gilt unabhängig von der Toughness als letal.
+    if (
+      stats.toughness <= 0 ||
+      card.permanentState.damageMarked >= stats.toughness ||
+      card.permanentState.deathtouchDamage
+    ) {
       dying.push({ instanceId, controller: playerId, definitionId: card.definitionId });
     }
   }

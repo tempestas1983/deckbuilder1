@@ -105,6 +105,7 @@ export function computeAmount(state: GameState, pool: CardPool, amount: Amount, 
 
 function dealDamageToPermanent(
   state: GameState,
+  pool: CardPool,
   events: GameEvent[],
   instanceId: InstanceId,
   amount: number,
@@ -113,6 +114,12 @@ function dealDamageToPermanent(
   const card = state.cards[instanceId];
   if (!card?.permanentState) return;
   card.permanentState.damageMarked += amount;
+  // v0.2.3 (deathtouch, rules-engine.md 6d): gilt für JEDEN Schaden der
+  // Quelle, nicht nur Kampfschaden. §6c bleibt unverändert: amount <= 0 ist
+  // kein Schaden und setzt kein Flag.
+  if (amount > 0 && computeEffectiveKeywords(state, pool, source).has("deathtouch")) {
+    card.permanentState.deathtouchDamage = true;
+  }
   events.push({ kind: "damageDealt", to: instanceId, amount, source });
 }
 
@@ -178,7 +185,7 @@ function executeEffect(
       const amount = computeAmount(state, pool, effect.amount, ctx);
       for (const r of resolveRecipients(state, effect.to, ctx)) {
         if (r.kind === "permanent") {
-          dealDamageToPermanent(state, events, r.instanceId, amount, ctx.self);
+          dealDamageToPermanent(state, pool, events, r.instanceId, amount, ctx.self);
           applyLifelinkIfApplicable(state, pool, events, ctx.self, amount);
         } else if (r.kind === "player") {
           dealDamageToPlayer(state, events, r.playerId, amount, ctx.self);

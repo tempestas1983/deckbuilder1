@@ -1,7 +1,32 @@
 # Regelwerk-Design: Rules Engine
 
-Status: v0.2.1 (Game-Architect) — 2026-07-08
+Status: v0.2.3 (Game-Architect) — 2026-07-09
 Verbindlich für: engine-engineer (Implementierung), card-designer (Fähigkeitsdesign), frontend-engineer (Visualisierung von Stack/Priority)
+
+v0.2.3-Änderungen (Kampf-Ausbau: Keyword-Paket für die Kartenpool-Erweiterung):
+Drei neue Keywords `trample`, `firstStrike`, `deathtouch` (Semantik in neuem
+Abschnitt 6d, Kombinatorik verbindlich durchdekliniert). **Entscheidung 9.8
+wird bewusst REVIDIERT:** Die Mehrfachblock-Schadensreihenfolge wählt jetzt
+der **Angreifer** (Option B aus 9.8) über die neue PendingDecision-Variante
+`orderBlockers` — die v0.2.2-Vereinfachung „Verteidiger-Reihenfolge" ist damit
+kein spezifiziertes Verhalten mehr; Tests, die sich darauf stützen, müssen
+angepasst werden. First Strike als interne zweite Schadensrunde innerhalb der
+Combat-Damage-Turn-Based-Action (KEIN neuer Step, kein neues Priority-Fenster;
+Zwischen-SBA-Durchlauf, 6d). SBA 4 um deathtouch erweitert (Abschnitt 7).
+6b(2) für trample angepasst. Trade-offs in neuer Entscheidung 9.9.
+Datenmodell-Änderungen: `Keyword` +3 Einträge (`src/model/abilities.ts`);
+`PendingDecision`/`DecisionChoice` um `orderBlockers` erweitert,
+`PermanentState.deathtouchDamage`, präzisierter Kommentar an
+`CombatAssignment.blockedBy` (`src/model/game-state.ts`).
+
+v0.2.2-Änderungen (Kampf-Härtung, Klärungsfragen vor dem Combat-End-to-End-Test):
+Abschnitt 6 ausgebaut — Priority-Fenster aller fünf Combat-Steps bestätigt (6a),
+explizite Regeln für Zonenwechsel zwischen Blocker-Deklaration und Kampfschaden
+(„geblockt bleibt geblockt", 6b), 0/negative Power/Toughness im Kampf (Schaden
+≤ 0 ist kein Schaden; SBAs genügen, 6c). Neue Design-Entscheidung 9.8:
+Mehrfachblock-Schadensreihenfolge bleibt Verteidiger-Reihenfolge (dokumentierte
+Vereinfachung); Angreifer-gewählte Reihenfolge und Trample-Analog als
+gemeinsames Paket nach Abschnitt 10 vertagt. Keine Datenmodell-Änderung.
 
 v0.2.1-Änderung: Priority-Wiederaufnahme nach Decision-Pause über neues Feld
 `GameState.resumePriorityTo` (9.7, letzter Absatz) — ersetzt den
@@ -154,7 +179,8 @@ Der Stack ist eine LIFO-Zone. Objekte auf dem Stack:
 
 ## 5. Getriggerte Fähigkeiten
 
-- Trigger-Bedingungen (siehe `TriggerCondition` in `src/model/abilities.ts`): u.a. ETB („kommt ins Spiel"), Tod, Zugbeginn/Upkeep, End Step, Angriffs-/Block-Deklaration, Schaden erlitten/verursacht, Spell gecastet.
+- Trigger-Bedingungen (siehe `TriggerCondition` in `src/model/abilities.ts`): u.a. ETB („kommt ins Spiel"), Tod, Zugbeginn/Upkeep, End Step, Angriffs-/Block-Deklaration, Schaden verursacht, Spell gecastet.
+- **`onDamageReceived` („Schaden erlitten") ist RESERVIERT, aber noch nicht verdrahtet (Stand v0.2.3):** Die Variante existiert im Datenmodell (`TriggerCondition`) und in der Signatur von `fireSelfCombatTrigger` (`src/engine/triggers.ts`), wird aber von keiner Stelle der Engine gefeuert — weder in `combat.ts` (Kampfschaden) noch in `effects.ts#dealDamageToPermanent` (Nicht-Kampf-Schaden). Eine Karte, die diesen Trigger nutzt, wäre ein stilles No-Op. **Card-Designer: bis zur Verdrahtung nicht verwenden** (Ersatzmuster: ETB-Marker, siehe `core.thornwarden-ascetic`). Der Typ-Eintrag bleibt bewusst bestehen (reservierter Name, vermeidet spätere Churn in Typ-Union und Signaturen). Offener Punkt mit Implementierungs-Notizen: Abschnitt 10.
 - **Feuern ≠ Resolven:** Tritt das Ereignis ein, wird der Trigger nur **vorgemerkt** (Pending-Trigger-Queue). Er wird erst auf den Stack gelegt, **wenn das nächste Mal ein Spieler Priority erhalten würde** (siehe Priority-Regel 3).
 - **Reihenfolge (APNAP):** Warten mehrere Trigger, legt zuerst der aktive Spieler seine Trigger in selbstgewählter Reihenfolge auf den Stack, dann der nicht-aktive Spieler. Dessen Trigger resolven dadurch zuerst (LIFO). v0.1-Vereinfachung: Hat ein Spieler mehrere gleichzeitige Trigger, ordnet die Engine sie deterministisch (Timestamp der Quelle) statt den Spieler wählen zu lassen — Spielerwahl ist ein späteres Feature.
 - Trigger mit Targets wählen ihre Ziele beim **Auf-den-Stack-Legen**, nicht beim Feuern.
@@ -163,7 +189,7 @@ Der Stack ist eine LIFO-Zone. Objekte auf dem Stack:
 
 ---
 
-## 6. Kampf (Kurzregeln)
+## 6. Kampf
 
 - **Declare Attackers:** Aktiver Spieler wählt beliebig viele eigene ungetappte Units ohne Summoning Sickness (Ausnahme: Keyword `swift`/Eile). Angreifer werden getappt (Ausnahme: Keyword `vigilant`). Angriffsziel ist in v0.1 immer der gegnerische Spieler. Angriffs-Trigger feuern.
 - **Declare Blockers:** Verteidiger ordnet ungetappte eigene Units als Blocker je einem Angreifer zu (mehrere Blocker pro Angreifer erlaubt; ein Blocker blockt genau einen Angreifer). Blocker werden nicht getappt. Evasion: `airborne` (Flying-Analog) kann nur von `airborne` oder `reach`-Units geblockt werden.
@@ -173,7 +199,128 @@ Der Stack ist eine LIFO-Zone. Objekte auf dem Stack:
   - Nur der Verteidiger ist betroffen; guardian auf angreifenden oder angreiferseitigen Units hat keine Wirkung. Da nur der Verteidiger blockt, ist „mehrere Guardians verschiedener Spieler" kein möglicher Konfliktfall.
   - Enforcement: reine Validierung der `declareBlockers`-Aktion (illegale Deklarationen ohne Pflicht-Blocks werden abgelehnt); `getLegalActions` muss die Pflicht nicht enumerieren.
   - Design-Einordnung für den Card-Designer: guardian ist damit thematisch ein Vorteil („stellt sich schützend in den Weg"), mechanisch eine milde Selbstbindung — auf defensiven Statlines (wie `core.temple-sentinel` 2/5) praktisch kein Nachteil, auf aggressiven Statlines ein echter Preis. Bitte so bepreisen.
-- **Combat Damage:** Alle Kampfschäden gleichzeitig (v0.1: kein First-Strike-Analog). Geblockte Angreifer teilen ihre Power in Deklarationsreihenfolge auf die Blocker auf (mind. letale Menge — Toughness minus markierter Schaden — bevor der nächste Blocker Schaden erhält); ungeblockte Angreifer treffen den Spieler. Schaden wird als **markierter Schaden** auf Units notiert (verschwindet im Cleanup) bzw. als Lebensverlust beim Spieler. Tod durch letalen Schaden regelt die SBA-Prüfung, nicht der Combat-Code.
+- **Combat Damage (v0.2.3 überarbeitet, Details in 6d):** Bis zu **zwei Schadensrunden** — eine frühe Runde nur für Kampfteilnehmer mit `firstStrike`, dann die reguläre Runde für alle übrigen; innerhalb einer Runde alle Schäden gleichzeitig. Geblockte Angreifer bedienen ihre Blocker in der vom **Angreifer** gewählten Reihenfolge (`orderBlockers`-Decision bei Mehrfachblock, revidierte Entscheidung 9.8) mit jeweils der letalen Menge (bei `deathtouch`: 1); ohne `trample` erhält der letzte Blocker den gesamten Rest (kein Durchschlagen), mit `trample` trifft der Überschuss den verteidigenden Spieler. Ungeblockte Angreifer treffen den Spieler. Schaden wird als **markierter Schaden** auf Units notiert (verschwindet im Cleanup, ebenso das deathtouch-Flag) bzw. als Lebensverlust beim Spieler. Tod durch letalen Schaden regelt weiterhin ausschließlich die SBA-Prüfung (bei firstStrike inkl. Zwischen-SBA-Durchlauf zwischen den Runden, 6d), nicht der Combat-Code.
+
+### 6a. Priority-Fenster im Kampf (v0.2.2 bestätigt)
+
+Alle fünf Combat-Steps haben ein Priority-Fenster; es gilt die normale Schleife aus Abschnitt 3 **ohne Kampf-Sonderfall** (SBA-Check → Pending-Trigger stacken → Priority vergeben). Präzisierung, wann die Fenster öffnen:
+
+- **Begin Combat / End Combat:** Fenster öffnet zu Step-Beginn (End Combat: nachdem alle Kampfzuordnungen entfernt wurden).
+- **Declare Attackers / Declare Blockers:** Die Deklaration ist eine Turn-Based Action, die Spieler-Input braucht — während die Engine auf die `declareAttackers`-/`declareBlockers`-Aktion wartet, hat **niemand** Priority (`priorityPlayer` ist unbesetzt). Das Priority-Fenster öffnet unmittelbar **nach** der Deklaration (Angriffs-/Block-Trigger feuern zuerst, dann erhält der aktive Spieler Priority). **v0.2.3:** Wurde mindestens ein Angreifer mehrfach geblockt, schiebt sich zwischen Block-Deklaration und Priority-Fenster die `orderBlockers`-Decision des Angreifers (6d).
+- **Combat Damage:** Die Schadensverrechnung ist die Turn-Based Action am **Beginn** des Steps; das Priority-Fenster öffnet erst danach (dort werden dann via SBA die Toten abgeräumt und Todes-Trigger gestackt). **v0.2.3:** Die Turn-Based Action umfasst ggf. zwei interne Schadensrunden (6d) — es bleibt EINE Turn-Based Action, das Fenster öffnet erst nach beiden Runden.
+
+Konsequenz: Das **letzte Antwortfenster vor dem Schaden ist das Fenster des Declare-Blockers-Steps**. Kill-, Pump- oder Debuff-Instants auf bereits deklarierte Angreifer/Blocker werden genau dort gecastet — die Folgen regelt 6b/6c.
+
+Sonderfall ohne Angreifer (bereits Abschnitt 2): Wird kein Angreifer deklariert, springt der Zug von Declare Attackers direkt zu End Combat (Declare Blockers und Combat Damage entfallen samt ihrer Fenster; das Fenster nach der leeren Deklaration und das End-Combat-Fenster existieren weiterhin).
+
+### 6b. Zonenwechsel zwischen Deklaration und Kampfschaden (v0.2.2, explizit)
+
+Verlässt ein Kampfteilnehmer nach der Deklaration das Battlefield (Kill-Spell, Bounce, Opfern, …), gilt:
+
+1. **Seine eigene Kampfzuordnung verschwindet mit ihm** — `PermanentState` (inkl. `combat`) wird beim Verlassen des Battlefields verworfen (Abschnitt 8 / `CardInstance.permanentState`). Kommt die Karte später zurück, ist sie ein neues, am Kampf unbeteiligtes Objekt.
+2. **„Geblockt bleibt geblockt":** Ein Angreifer, der geblockt wurde, bleibt geblockt, auch wenn alle seine Blocker vor dem Combat-Damage-Step sterben. Ohne `trample` fügt er dann **niemandem** Kampfschaden zu und erhält keinen — insbesondere schlägt er **nicht** beim verteidigenden Spieler durch. **Mit `trample` (v0.2.3, 6d):** Sind sämtliche Blocker vor der jeweiligen Schadensrunde entfernt, teilt er stattdessen seinen **gesamten** Schaden dem verteidigenden Spieler zu (MTG-konform). Überleben andere Blocker desselben Angreifers, verteilt er seinen Schaden regulär auf diese (tote Blocker werden bei der Zuteilung übersprungen, verbrauchen also keinen Schaden — ihre letale Menge ist 0, bei trample fließt entsprechend mehr zum Spieler durch).
+3. **Blocker ohne Angreifer:** Ein Blocker, dessen Angreifer das Battlefield verlassen hat, fügt niemandem Kampfschaden zu und erhält keinen Kampfschaden.
+4. **Tappen/Enttappen nach der Deklaration ändert Kampfzuordnungen nicht** (MTG-konform; für `guardian` oben bereits festgehalten, gilt aber allgemein). Ein nach der Deklaration getappter Angreifer/Blocker teilt seinen Schaden normal aus und ein enttappter Angreifer bleibt Angreifer.
+
+Das entspricht dem MTG-Vorbild (Blocked-Status bleibt bestehen; entfernte Kampfteilnehmer verrechnen keinen Kampfschaden) und ist in `combat.ts#dealCombatDamage` bereits so implementiert (defensive Prüfungen auf fehlenden `permanentState`) — der Combat-End-to-End-Test soll genau diese vier Punkte abdecken.
+
+### 6c. 0/negative Power oder Toughness im Kampf (v0.2.2 bestätigt)
+
+- **Schadensbeträge ≤ 0 sind kein Schaden.** Eine Unit mit effektiver Power ≤ 0 (z.B. nach Debuff im Declare-Blockers-Fenster) markiert keinen Schaden, verursacht keinen Lebensverlust, löst keinen lifelink-Lebensgewinn aus, feuert keine „Schaden verursacht/erlitten"-Trigger und erzeugt kein `damageDealt`-Event. (Analog MTG: „deals 0 damage" ist kein Schadensereignis.)
+- **Toughness ≤ 0 oder letaler Schaden:** regeln ausschließlich die bestehenden SBAs 3/4 (Abschnitt 7), die vor jeder Priority-Vergabe laufen — also z.B. unmittelbar nach dem Resolven des Debuff-Spells, noch im Declare-Blockers-Fenster. Die so gestorbene Unit wird dann nach 6b behandelt. **Es gibt keine Kampf-Sonderregel**; der Combat-Code selbst tötet nie.
+
+### 6d. Kampfschaden im Detail: Reihenfolge, trample, firstStrike, deathtouch (v0.2.3)
+
+Drei neue Keywords (Typ `Keyword` in `src/model/abilities.ts`; die internen IDs bleiben bewusst
+nah am MTG-Vorbild, damit die Mechanik unverwechselbar ist — Anzeigenamen/Flavor darf der
+Card-Designer frei wählen):
+
+- **`trample`** (Trample-Analog, nur im Angriff wirksam): Überschussschaden über die letale
+  Menge aller zugeordneten Blocker hinaus trifft den verteidigenden Spieler statt zu verpuffen.
+- **`firstStrike`** (First-Strike-Analog): teilt Kampfschaden in einer zusätzlichen frühen
+  Schadensrunde aus — und in der regulären Runde **nicht** mehr (kein Double-Strike-Analog,
+  Abschnitt 10).
+- **`deathtouch`** (Deathtouch-Analog): Jeder Schaden > 0 dieser Quelle gilt als letal —
+  sowohl für SBA 4 (Abschnitt 7, neues Flag `PermanentState.deathtouchDamage`) als auch für
+  die Berechnung der „letalen Menge" bei der Schadenszuteilung. Gilt für **jeden** Schaden der
+  Quelle (auch Effekt-Schaden via `dealDamage` von einer deathtouch-Unit als Quelle), nicht nur
+  Kampfschaden — MTG-konform und einfacher als eine Kampf-Sonderregel.
+
+**(1) Schadensreihenfolge bei Mehrfachblock — der Angreifer wählt (Revision von 9.8):**
+Unmittelbar nach der `declareBlockers`-Deklaration, **vor** dem Priority-Fenster des Steps:
+Hat mindestens ein Angreifer ≥ 2 Blocker, setzt die Engine
+`pendingDecision = { kind: "orderBlockers", ... }` — **eine** Decision für alle mehrfach
+geblockten Angreifer gemeinsam (Angreifer mit 0/1 Blockern sind nicht enthalten). Der
+**angreifende** Spieler legt pro gelistetem Angreifer eine Permutation seiner Blocker fest;
+das Ergebnis wird in `CombatAssignment.blockedBy` gespeichert (das Feld bleibt unverändert,
+nur die Quelle der Ordnung wechselt vom Verteidiger zum Angreifer). Die Decision liegt
+**außerhalb** einer Priority-Vergabe → `resumePriorityTo` wird nicht gesetzt (9.7); nach
+`resolveDecision` läuft die normale Vor-Priority-Schleife (SBAs, Block-Trigger stacken, ggf.
+weitere Decisions), dann erhält der aktive Spieler Priority. Die Reihenfolge wird **einmal**
+festgelegt und gilt unverändert für beide Schadensrunden; sie wird nicht neu gewählt, wenn
+Blocker vorher sterben (tote Blocker werden bei der Zuteilung übersprungen, 6b).
+
+**(2) Schadensrunden (firstStrike):** Die Turn-Based Action des Combat-Damage-Steps besteht
+intern aus bis zu zwei Runden. Das Phasenmodell (Abschnitt 2) ändert sich **nicht** — kein
+neuer Step, kein zusätzliches Priority-Fenster (Trade-off in 9.9):
+
+1. **Frühe Runde** — nur, falls mindestens ein Kampfteilnehmer `firstStrike` hat (sonst
+   entfällt sie ersatzlos und alles verhält sich wie bisher): Alle Kampfteilnehmer **mit**
+   firstStrike teilen ihren Kampfschaden gleichzeitig aus (Zuteilung nach (3)).
+2. **Zwischen-SBA-Durchlauf:** Die Engine führt die SBA-Schleife (Abschnitt 7) aus, **ohne**
+   Priority zu vergeben; dabei gefeuerte Trigger bleiben in der Pending-Queue und werden erst
+   im Priority-Fenster des Steps gestackt. So sterben Units mit letalem Schaden aus der frühen
+   Runde, **bevor** sie zurückschlagen — und der Grundsatz „der Combat-Code selbst tötet nie"
+   (6c) bleibt gewahrt.
+3. **Reguläre Runde:** Alle verbliebenen Kampfteilnehmer **ohne** firstStrike teilen
+   gleichzeitig aus; firstStrike-Units teilen hier nichts mehr aus. Für in der frühen Runde
+   gestorbene/entfernte Teilnehmer gilt 6b.
+
+Danach öffnet wie bisher das Priority-Fenster des Steps (6a) — erst dort werden Tote der
+regulären Runde abgeräumt und alle im Step gefeuerten Trigger gestackt.
+
+**(3) Zuteilungsalgorithmus eines geblockten Angreifers (pro Runde, deterministisch):**
+
+- **Letale Menge pro Blocker** = `1`, falls der Angreifer `deathtouch` hat; sonst
+  Toughness des Blockers − markierter Schaden − bereits in dieser Zuteilung zugewiesener
+  Schaden (mindestens 0). Tote/entfernte Blocker haben letale Menge 0 und werden übersprungen.
+- Der Angreifer bedient seine Blocker in `blockedBy`-Reihenfolge mit jeweils **genau** der
+  letalen Menge (bzw. dem Rest seiner Power, falls weniger übrig).
+- **Ohne `trample`:** Der letzte lebende Blocker erhält zusätzlich den gesamten Rest; nichts
+  trifft den Spieler.
+- **Mit `trample`:** Nachdem alle Blocker ihre letale Menge erhalten haben, geht der Rest an
+  den verteidigenden Spieler. Vereinfachung (9.9): Die Zuteilung ist automatisch — der
+  Angreifer kann **nicht** freiwillig mehr als letal an einen Blocker geben. Sonderfall: Sind
+  sämtliche Blocker entfernt, geht die gesamte Power an den Spieler (6b(2)).
+- **Blocker** teilen ihre Power unverändert vollständig dem geblockten Angreifer zu (kein
+  Aufteilen); `trample` auf Blockern hat keine Wirkung.
+
+**(4) Kombinatorik (verbindlich durchdekliniert):**
+
+- **firstStrike + deathtouch:** Der Träger tötet bereits in der frühen Runde (jeder Schaden
+  ≥ 1 ist letal, Tod im Zwischen-SBA-Durchlauf); das Opfer schlägt in der regulären Runde
+  **nicht** mehr zurück.
+- **firstStrike + trample:** Der Überschuss schlägt bereits in der frühen Runde beim Spieler
+  durch. Sterben alle Blocker an der frühen Runde, teilt der Angreifer in der regulären Runde
+  **nichts** mehr aus (firstStrike-Regel) — es gibt keinen „zweiten Durchschlag".
+- **trample + deathtouch:** Letale Menge = 1 pro Blocker, fast die gesamte Power schlägt
+  durch. Bewusst sehr stark — Card-Designer: diese Kombination teuer bepreisen oder meiden.
+- **deathtouch + Reihenfolgewahl:** Da 1 pro Blocker letal ist, tötet ein deathtouch-Angreifer
+  mit Power ≥ Blockerzahl **alle** Blocker; die orderBlockers-Wahl entscheidet nur noch bei
+  Power < Blockerzahl, **wer** stirbt.
+- **firstStrike-Blocker gegen (trample-)Angreifer ohne firstStrike:** Der Blocker schlägt
+  zuerst; stirbt der Angreifer im Zwischen-SBA-Durchlauf, teilt er keinerlei Schaden aus —
+  auch keinen trample-Durchschlag.
+- **firstStrike + lifelink / Schadens-Trigger:** Jede Runde ist ein normales Schadensereignis
+  — lifelink-Lebensgewinn, `onDealtCombatDamageToPlayer`-Trigger und `damageDealt`-Events
+  entstehen pro Runde; Trigger werden erst im Priority-Fenster gestackt. (`onDamageReceived`
+  ist aktuell nur reserviert und feuert nirgends — siehe Abschnitt 5/10; sobald verdrahtet,
+  gilt dieselbe Pro-Runde-Regel.)
+- **6c bleibt unverändert:** Schaden ≤ 0 ist kein Schaden — eine deathtouch-Quelle mit
+  effektiver Power ≤ 0 setzt also auch **kein** deathtouch-Flag.
+- **firstStrike/deathtouch/trample + guardian/vigilant/airborne/reach:** keine Interaktion
+  (Deklarations- und Blockregeln bleiben unberührt; die neuen Keywords wirken erst bei der
+  Schadensverrechnung).
 
 ---
 
@@ -186,7 +333,7 @@ Der Stack ist eine LIFO-Zone. Objekte auf dem Stack:
 1. Ein Spieler mit ≤ 0 Leben verliert das Spiel.
 2. Ein Spieler, der aus leerer Library ziehen musste, verliert das Spiel (geprüft als SBA, markiert beim Ziehversuch).
 3. Eine Unit mit Toughness ≤ 0 wird in den Graveyard gelegt (das ist kein „Schaden", regeneriert nicht).
-4. Eine Unit mit markiertem Schaden ≥ Toughness stirbt (letaler Schaden).
+4. Eine Unit mit markiertem Schaden ≥ Toughness stirbt (letaler Schaden). **v0.2.3 (deathtouch):** Ebenso stirbt eine Unit, die seit dem letzten Cleanup Schaden > 0 von einer Quelle mit `deathtouch` erhalten hat — Zustandsflag `PermanentState.deathtouchDamage`, gesetzt beim Schadensereignis, zurückgesetzt im Cleanup zusammen mit dem markierten Schaden.
 5. Eine Aura, deren angelegtes Objekt fehlt oder illegal geworden ist, geht in den Graveyard.
 6. `+1/+1`- und `-1/-1`-Marken auf demselben Permanent annihilieren sich paarweise.
 7. Ein Token, das das Battlefield verlässt, hört auf zu existieren (wird endgültig entfernt statt Zonenwechsel).
@@ -201,7 +348,7 @@ Siehe `PermanentState` in `src/model/game-state.ts`:
 
 - **tapped:** Getappte Permanents können nicht angreifen und keine Fähigkeiten mit Tap-Kosten aktivieren.
 - **Summoning Sickness:** Units können im Zug ihres Ankommens weder angreifen noch Tap-Kosten-Fähigkeiten aktivieren (Ausnahme: `swift`). Gilt nicht für Nicht-Units.
-- **markierter Schaden:** Sammelt sich bis Cleanup, siehe SBAs 4.
+- **markierter Schaden:** Sammelt sich bis Cleanup, siehe SBAs 4. Dazu gehört seit v0.2.3 das Flag `deathtouchDamage` (Schaden von einer deathtouch-Quelle erhalten) — gleiche Lebensdauer wie markierter Schaden, Wirkung siehe SBA 4.
 - **Counters/Marken:** Generisches `counters: Record<string, number>`; standardisiert sind `plus1plus1`, `minus1minus1`, `charge`. Card-Designer dürfen neue Marken-Namen einführen, müssen deren Semantik aber über Fähigkeiten definieren (Marken selbst tun nichts).
 - **Attachments:** Auren (und später Equipment-artige Relics) referenzieren ihr Ziel über `attachedTo`; das Ziel führt eine `attachments`-Liste. Konsistenz sichert SBA 5.
 
@@ -261,9 +408,42 @@ Unterbricht eine PendingDecision eine anstehende Priority-Vergabe, darf der ursp
 
 *Regel:* Die Engine setzt `resumePriorityTo` auf den vorgesehenen Empfänger, sobald eine Priority-Vergabe durch eine Decision pausiert. Nach `resolveDecision` läuft die normale Vor-Priority-Schleife weiter (SBAs, weitere Trigger — die erneut pausieren dürfen; das Feld bleibt dabei unverändert stehen). Erst wenn die Priority tatsächlich vergeben wird, geht sie an `resumePriorityTo`, und das Feld wird geleert. Decisions außerhalb einer Priority-Vergabe (künftige Kosten-/Resolution-Entscheidungen wie `chooseDiscard`/`orderScry`) setzen das Feld nicht — dort geht der Ablauf nach der Auflösung normal weiter, als hätte es die Pause nicht gegeben. Der bisherige Fallback „immer activePlayer" ist damit abgelöst.
 
+### 9.8 Mehrfachblock: Wer bestimmt die Schadensreihenfolge? (v0.2.2)
+
+**Problem:** Blocken mehrere Blocker denselben Angreifer, teilt der Angreifer seine Power der Reihe nach auf (mind. letal pro Blocker, Abschnitt 6). Im MTG-Vorbild legt der **Angreifer** beim Declare-Blockers-Step die Damage Assignment Order fest. Unsere Implementierung (`combat.ts#declareBlockers`/`dealCombatDamage`) nutzt stattdessen die Reihenfolge der `blocks`-Paare in der `declareBlockers`-Aktion — faktisch wählt also der **Verteidiger**. Der Kommentar an `CombatAssignment.blockedBy` („Deklarationsreihenfolge") ist damit technisch korrekt, ließ aber offen, wessen Wahl das ist.
+
+**Optionen:**
+- (A) **Verteidiger-Reihenfolge als dokumentierte Vereinfachung (Entscheidung für v0.2.2):** kein zusätzlicher Interaktionsschritt, keine neue Decision-Variante, Engine/UI bleiben wie sie sind. Preis: eine milde Regelverzerrung zugunsten des Verteidigers — er kann seinen zähesten Blocker „nach vorn" stellen und so die übrigen schützen (eine zweite Verteidiger-Wahl zusätzlich zur Blockwahl selbst).
+- (B) Angreifer wählt die Reihenfolge, abgebildet über den Pending-Decision-Kanal (9.7): neue `PendingDecision`-Variante `orderBlockers` (Angreifer ordnet unmittelbar nach der Block-Deklaration, **vor** dem Priority-Fenster des Declare-Blockers-Steps; Ergebnis landet weiterhin in `CombatAssignment.blockedBy` — das Feld bleibt richtig, nur die Quelle der Ordnung wechselt). MTG-konform, kostet aber eine neue Decision-Variante in Modell, Engine und UI plus einen zusätzlichen Interaktions-Roundtrip in jedem Mehrfachblock.
+
+**Entscheidung v0.2.2: (A) jetzt, (B) vertagt nach Abschnitt 10 — als Paket mit dem Trample-Analog.** Begründung damals: Ohne Trample-/Deathtouch-Analog entscheidet die Reihenfolge ausschließlich, **welche** Blocker sterben, wenn die Angreifer-Power nicht für alle reicht — ein seltener Fall mit begrenzter Wirkung. Strategisch tragend wird die Reihenfolge erst mit `trample` oder einem Deathtouch-Analog.
+
+> **REVIDIERT in v0.2.3 (bewusste Kehrtwende, nicht stillschweigend):** Mit der Einführung von `trample` und `deathtouch` (6d, 9.9) ist genau die Bedingung eingetreten, unter der (A) unhaltbar wird — trample ohne angreifergewählte Reihenfolge hat kaum Substanz. Es gilt jetzt **Option (B)**: Der Angreifer wählt die Reihenfolge über die PendingDecision-Variante `orderBlockers` (Ablauf in 6d(1), Datenmodell in `src/model/game-state.ts`). Die v0.2.2-Zusicherung „Tests dürfen sich auf die Verteidiger-Reihenfolge als spezifiziertes Verhalten verlassen" ist damit **aufgehoben**; bestehende Engine-/Frontend-Tests, die Mehrfachblock über die Deklarationsreihenfolge prüfen, müssen auf die Decision umgestellt werden. Für Einfach-Blocks (0/1 Blocker) ändert sich nichts — dort gibt es keine Decision.
+
+### 9.9 Kampf-Keyword-Paket v0.2.3: trample, firstStrike, deathtouch + orderBlockers
+
+**Anlass:** Die Kartenpool-Erweiterung (27 → 100+) braucht mehr Kampf-Designraum; 9.8/Abschnitt 10 hatten Trample-Analog und Angreifer-Reihenfolge bereits als gemeinsames Paket vorgemerkt.
+
+**Scope-Entscheidung — alle vier Punkte jetzt, statt Teilvertagung:** Erwogen wurde, `firstStrike` und/oder `deathtouch` weiter zu vertagen und nur trample + orderBlockers zu liefern. Dagegen sprach: (a) die vier Mechaniken hängen kombinatorisch zusammen — die „letale Menge" der Zuteilung ist mit und ohne deathtouch verschieden, eine spätere deathtouch-Einführung hätte den frisch geschriebenen Zuteilungscode gleich wieder angefasst; (b) die Kombinatorik ist mit den drei Vereinfachungen unten beherrschbar und in 6d(4) vollständig durchdekliniert; (c) der Card-Designer braucht die Keyword-Liste **vor** der Pool-Erweiterung, jede Vertagung blockiert dort Designraum. Bewusst **nicht** eingeführt: Double Strike (Abschnitt 10) — es verdoppelt die Rundenlogik-Sonderfälle für genau eine weitere Karte-Mechanik.
+
+**Einzelentscheidungen und Trade-offs:**
+
+1. **Reihenfolge:** Option (B) aus 9.8 (Angreifer wählt, Pending-Decision-Kanal) — Revision von 9.8, dort dokumentiert. Kein neuer Mechanismus: `orderBlockers` ist eine reguläre `PendingDecision`-Variante analog `chooseTriggerTargets`.
+2. **firstStrike-Abbildung:** (A) echter zusätzlicher Combat-Damage-Step im Phasenmodell mit eigenem Priority-Fenster (MTG-treu, CR-510-artig) vs. (B) **interne zweite Schadensrunde in derselben Turn-Based Action** mit Zwischen-SBA-Durchlauf ohne Priority. **Entscheidung: (B).** Preis: keine Instant-Antwort *zwischen* den Runden (in MTG gelegentlich relevant: Pump/Removal nach First-Strike-Schaden, vor regulärem Schaden). Gewinn: `TurnStep`-Typ, Frontend-Phasenanzeige und Priority-Logik bleiben unverändert; für ein Hobby-Projekt das deutlich bessere Verhältnis. (A) ist später additiv nachrüstbar (eigener Step nur bei Bedarf, Abschnitt 10).
+3. **trample-Zuteilung:** (A) Spielerwahl der exakten Verteilung (MTG erlaubt, mehr als letal zuzuweisen; bräuchte eine weitere Decision-Variante und UI) vs. (B) **deterministisch: exakt letale Menge pro Blocker, Rest zum Spieler**. **Entscheidung: (B).** Preis: kein absichtliches Über-Zuweisen — das wird erst mit Mechaniken wie Regeneration/Unzerstörbarkeit/Schadensumleitung relevant, die es bei uns nicht gibt. Bei Bedarf später als Decision nachrüstbar (Abschnitt 10).
+4. **deathtouch-Abbildung:** Neues Zustandsflag `PermanentState.deathtouchDamage` statt Ableitung aus dem Event-Log — der Zustand ist die Wahrheit (9.1), SBAs sind zustandsbasiert. Reset im Cleanup zusammen mit `damageMarked`. Geltungsbereich: **jeder** Schaden der Quelle, nicht nur Kampfschaden (MTG-konform und im Engine-Code einfacher als eine Kampf-Sonderregel, weil das Flag zentral im Schadens-Code gesetzt wird).
+5. **Eine `orderBlockers`-Decision für alle mehrfach geblockten Angreifer** (statt einer Decision pro Angreifer): weniger Interaktions-Roundtrips, ein Dialog im Frontend. Validierung der Antwort: exakt die gelisteten Angreifer, je eine Permutation exakt der gelisteten Blocker — sonst Ablehnung.
+
+**Vertragshinweise:** `getLegalActions` liefert bei `orderBlockers` mindestens **einen** gültigen `resolveDecision`-Kandidaten (z.B. die Deklarationsreihenfolge) und enumeriert Permutationen **nicht** (gleiche Linie wie der Enumerations-Vertrag am `RulesEngine`-Interface). Card-Designer: `trample + deathtouch` nur bewusst und teuer (6d(4)); Karten, deren Wert an der Antwort *zwischen* den Schadensrunden hinge, bitte nicht entwerfen (Fenster existiert nicht, Punkt 2).
+
 ---
 
-## 10. Offene Punkte (v0.2 aktualisiert)
+## 10. Offene Punkte (v0.2.3 aktualisiert)
+
+**In v0.2.3 entschieden (aus dieser Liste gestrichen):**
+- ~~Trample-Analog~~ → Keyword `trample`, Regeln in 6b(2)/6d, Entscheidung 9.9.
+- ~~Angreifergewählte Schadensreihenfolge bei Mehrfachblock~~ → `PendingDecision`-Variante `orderBlockers`, Ablauf 6d(1); Entscheidung 9.8 explizit revidiert (Option B umgesetzt).
+- ~~First-Strike-/Deathtouch-Analoga~~ → Keywords `firstStrike`/`deathtouch`, Regeln in 6d, SBA 4 erweitert (Abschnitt 7), Entscheidung 9.9.
 
 **In v0.2 entschieden (aus dieser Liste gestrichen):**
 - ~~X-Kosten~~ → Abschnitt 4 (Ablauf) und `ManaCost.x`-Kommentar; v0.2-Einschränkung: nur auf Spells.
@@ -274,9 +454,16 @@ Unterbricht eine PendingDecision eine anstehende Priority-Vergabe, darf der ursp
 - Konvention „Relics möglichst farblos": **bestätigt** als Design-Linie (Relics = farbübergreifend nutzbare Werkzeuge, MTG-Artefakt-Vorbild). Farbige Relics sind als bewusste, begründete Ausnahme erlaubt (z.B. stark farbidentitätsgebundene Effekte), sollten aber selten bleiben.
 
 **Weiterhin offen (bewusst verschoben):**
+- **`onDamageReceived` verdrahten** (Fund des Card-Designers beim Phase-B-Audit, bestätigt): Die `TriggerCondition`-Variante ist im Modell deklariert, wird aber nirgends gefeuert — anders als die 9.7-Auto-Defaults ist das keine dokumentierte Vereinfachung gewesen, sondern eine Lücke; jetzt explizit als „reserviert" markiert (Abschnitt 5) und hierher vertagt. Bei Implementierung zu klären/beachten:
+  - Anknüpfpunkte: `dealCombatDamageRound` in `combat.ts` (analog zu den `onDealtCombatDamageToPlayer`-Aufrufen, pro Schadensrunde) **und** `effects.ts#dealDamageToPermanent`, damit Kampf- und Nicht-Kampf-Schaden konsistent triggern. Bevorzugt: einheitlich am zentralen Schadensereignis feuern statt an zwei Stellen, falls die Codestruktur das hergibt.
+  - Semantik festlegen: Schaden ≤ 0 feuert nicht (konsistent mit 6c); Trigger feuert auch bei letalem Schaden (Quelle stirbt danach in der SBA-Prüfung, Trigger bleibt in der Pending-Queue — MTG-analog); `what: "self"` betrifft nur Permanents, Spielerschaden ist ein separater, noch nicht modellierter Trigger.
+  - Erst umsetzen, wenn eine konkrete Karte ihn braucht (Enrage-artiges Design-Muster) — dann Übergabe an den Engine-Engineer inkl. Tests für firstStrike-Doppelrunde und deathtouch-Interaktion.
 - Mulligan-Regel (weiterhin: keine)
 - Mehr als 2 Spieler
-- First-Strike-/Deathtouch-Analoga, Kontrollwechsel, Kopier-Effekte, Keyword-Entzug
+- Kontrollwechsel, Kopier-Effekte, Keyword-Entzug
+- Double-Strike-Analog (teilt in **beiden** Schadensrunden aus; bewusst nicht in v0.2.3, siehe 9.9)
+- Priority-Fenster zwischen den beiden Schadensrunden (9.9 Punkt 2, Option A — additiv nachrüstbar als eigener Step, falls Antwortspielraum nach First-Strike-Schaden je gebraucht wird)
+- trample-Über-Zuteilung (Spielerwahl „mehr als letal an einen Blocker", 9.9 Punkt 3 — erst mit Regenerations-/Unzerstörbarkeits-artigen Mechaniken relevant)
 - Spielerwahl bei der Reihenfolge mehrerer eigener gleichzeitiger Trigger (deterministische Timestamp-Ordnung bleibt v0.2-Verhalten; Kandidat für den Pending-Decision-Kanal aus 9.7)
 - Modal-Effekte („wähle eines —"; ebenfalls Kandidat für 9.7)
 - X-Kosten auf aktivierten Fähigkeiten (Mana-Sinks mit X); erfordert `chosenX` an `activateAbility`

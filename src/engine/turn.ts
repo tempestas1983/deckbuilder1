@@ -290,6 +290,9 @@ export function finishCleanup(state: GameState, pool: CardPool, events: GameEven
       const ps = state.cards[instanceId]?.permanentState;
       if (!ps) continue;
       ps.damageMarked = 0;
+      // v0.2.3 (deathtouch, rules-engine.md 6d/7/8): gleiche Lebensdauer wie
+      // markierter Schaden - Reset im Cleanup.
+      ps.deathtouchDamage = false;
       ps.temporaryModifiers = ps.temporaryModifiers.filter((m) => m.duration !== "endOfTurn");
     }
   }

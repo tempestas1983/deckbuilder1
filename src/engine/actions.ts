@@ -22,11 +22,20 @@ import type {
 import { getDefinition, getDefinitionForInstance } from "./card-defs";
 import { findZone, leaveBattlefield, moveCard } from "./zones";
 import { canPayCost, payCost } from "./mana";
+import { computeSpellCostDelta } from "./stats";
 import { areAllTargetsLegal } from "./targets";
 import { pushActivatedAbilityToStack, pushSpellToStack } from "./stack";
 import { executeEffects } from "./effects";
 import { fireEnterBattlefieldTriggers, fireSpellCastTriggers, pushResolvedTriggerToStack } from "./triggers";
-import { declareAttackers, declareBlockers, guardianUnitsRequiringBlock, isLegalAttacker, isLegalBlock } from "./combat";
+import {
+  applyOrderBlockers,
+  buildOrderBlockersDecision,
+  declareAttackers,
+  declareBlockers,
+  guardianUnitsRequiringBlock,
+  isLegalAttacker,
+  isLegalBlock,
+} from "./combat";
 import { runStateBasedActionsLoop } from "./sba";
 import { checkStateBeforePriority, finishCleanup, handleBothPassed, openPriorityWindow, resumePriorityAfterDecision } from "./turn";
 import { canActivateAbilityNow, canCastNow, canPlayTerrainNow, hasPriority } from "./legality";
@@ -72,7 +81,8 @@ function validate(state: GameState, pool: CardPool, action: PlayerAction): strin
       if (def.cost.x && (action.chosenX === undefined || action.chosenX < 0)) {
         return "X-Kosten: chosenX fehlt oder ist negativ.";
       }
-      if (!canPayCost(state.players[action.player].manaPool, def.cost, action.chosenX)) {
+      const costDelta = computeSpellCostDelta(state, pool, action.player);
+      if (!canPayCost(state.players[action.player].manaPool, def.cost, action.chosenX, costDelta)) {
         return "Nicht genug Mana im Pool.";
       }
       return undefined;
@@ -216,6 +226,32 @@ function validateResolveDecision(
       }
       return undefined;
     }
+    case "orderBlockers": {
+      if (choice.kind !== "orderBlockers") return "Falscher Antworttyp.";
+      // rules-engine.md 9.9 Punkt 5: exakt die gelisteten Angreifer, je eine
+      // Permutation exakt der gelisteten Blocker - sonst Ablehnung.
+      const declared = decision.attackers;
+      if (choice.orders.length !== declared.length) return "Falsche Anzahl geordneter Angreifer.";
+      const declaredByAttacker = new Map(declared.map((d) => [d.attacker, d.blockers]));
+      const seenAttackers = new Set<string>();
+      for (const order of choice.orders) {
+        if (seenAttackers.has(order.attacker)) return "Angreifer doppelt in der Reihenfolge angegeben.";
+        seenAttackers.add(order.attacker);
+        const expectedBlockers = declaredByAttacker.get(order.attacker);
+        if (!expectedBlockers) return `Angreifer nicht Teil der Entscheidung: ${order.attacker}`;
+        if (order.blockers.length !== expectedBlockers.length) {
+          return `Falsche Anzahl Blocker für Angreifer ${order.attacker}.`;
+        }
+        const expected = new Set(expectedBlockers);
+        const seenBlockers = new Set<string>();
+        for (const blockerId of order.blockers) {
+          if (seenBlockers.has(blockerId)) return "Blocker doppelt in der Reihenfolge angegeben.";
+          seenBlockers.add(blockerId);
+          if (!expected.has(blockerId)) return `Blocker nicht Teil des ursprünglichen Blocks: ${blockerId}`;
+        }
+      }
+      return undefined;
+    }
     default:
       // chooseManaColor/chooseDiscard/orderScry: v0.2 setzt diese PendingDecisions
       // noch nie (Auto-Defaults bleiben, siehe rules-engine.md 9.7) - dieser Zweig
@@ -263,7 +299,8 @@ function perform(state: GameState, pool: CardPool, events: GameEvent[], action: 
     case "castSpell": {
       const def = getDefinitionForInstance(pool, state, action.cardInstanceId);
       if (def.type === "terrain") return; // durch validate() bereits ausgeschlossen
-      payCost(state.players[action.player].manaPool, def.cost, action.chosenX);
+      const costDelta = computeSpellCostDelta(state, pool, action.player);
+      payCost(state.players[action.player].manaPool, def.cost, action.chosenX, costDelta);
       pushSpellToStack(state, events, action.cardInstanceId, action.player, action.chosenTargets, action.chosenX);
       const effectiveSpeed = def.type === "spell" ? def.speed : undefined;
       fireSpellCastTriggers(state, pool, action.player, effectiveSpeed);
@@ -340,6 +377,17 @@ function perform(state: GameState, pool: CardPool, events: GameEvent[], action: 
     }
     case "declareBlockers": {
       declareBlockers(state, pool, events, action.blocks);
+      // v0.2.3 (rules-engine.md 6d(1), Revision von 9.8): Hat mindestens ein
+      // Angreifer >= 2 Blocker, entscheidet der ANGREIFER die Reihenfolge,
+      // bevor das Priority-Fenster des Steps öffnet. Liegt außerhalb einer
+      // Priority-Vergabe -> resumePriorityTo bleibt unangetastet (9.7).
+      const orderDecision = buildOrderBlockersDecision(state, state.activePlayer);
+      if (orderDecision) {
+        state.pendingDecision = orderDecision;
+        state.priorityPlayer = undefined;
+        events.push({ kind: "decisionRequired", player: orderDecision.player, decisionKind: "orderBlockers" });
+        return;
+      }
       openPriorityWindow(state, pool, events, state.activePlayer);
       return;
     }
@@ -366,12 +414,26 @@ function perform(state: GameState, pool: CardPool, events: GameEvent[], action: 
           action.choice.chosenTargets,
         );
         events.push({ kind: "decisionResolved", player: decision.player, decisionKind: "chooseTriggerTargets" });
+        state.pendingDecision = undefined;
+        // Weitere wartende Trigger könnten noch eine Entscheidung brauchen (erneute
+        // Pause, resumePriorityTo bleibt dabei stehen) oder es kann Priority an
+        // resumePriorityTo vergeben werden (rules-engine.md 9.7, letzter Absatz).
+        resumePriorityAfterDecision(state, pool, events);
+        return;
+      }
+      if (decision.kind === "orderBlockers" && action.choice.kind === "orderBlockers") {
+        applyOrderBlockers(state, action.choice.orders);
+        events.push({ kind: "decisionResolved", player: decision.player, decisionKind: "orderBlockers" });
+        state.pendingDecision = undefined;
+        // v0.2.3 (rules-engine.md 6d(1)/9.7): Decision lag AUSSERHALB einer
+        // Priority-Vergabe (resumePriorityTo wurde nicht gesetzt) - nach der
+        // Auflösung läuft der Ablauf normal weiter, als hätte es die Pause
+        // nicht gegeben: das reguläre Priority-Fenster des Declare-Blockers-
+        // Steps öffnet jetzt für den aktiven Spieler.
+        openPriorityWindow(state, pool, events, state.activePlayer);
+        return;
       }
       state.pendingDecision = undefined;
-      // Weitere wartende Trigger könnten noch eine Entscheidung brauchen (erneute
-      // Pause, resumePriorityTo bleibt dabei stehen) oder es kann Priority an
-      // resumePriorityTo vergeben werden (rules-engine.md 9.7, letzter Absatz).
-      resumePriorityAfterDecision(state, pool, events);
       return;
     }
     case "concede": {

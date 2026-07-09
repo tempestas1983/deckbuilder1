@@ -8,13 +8,19 @@ import type { ManaColor, ManaCost, ManaPool } from "../model";
 
 const COLORS: ManaColor[] = ["flame", "tide", "wild", "light", "void"];
 
-/** Löst die X-Kosten in eine konkrete Gesamtkostenrechnung auf. */
-export function totalGenericCost(cost: ManaCost, chosenX: number | undefined): number {
+/**
+ * Löst die X-Kosten in eine konkrete Gesamtkostenrechnung auf.
+ * `genericDelta` (optional, Default 0) ist die Summe aller `costChange`-
+ * Static-Modifier, die auf diesen Cast wirken (siehe `stats.ts#computeSpellCostDelta`).
+ * Nur die GENERISCHEN Kosten werden verändert, nie Farbanteile; das Ergebnis
+ * wird bei 0 gekappt (kein negativer Gesamtpreis, analog zu MTG-Kostenreduktion).
+ */
+export function totalGenericCost(cost: ManaCost, chosenX: number | undefined, genericDelta = 0): number {
   const x = cost.x ? chosenX ?? 0 : 0;
-  return (cost.generic ?? 0) + x;
+  return Math.max(0, (cost.generic ?? 0) + x + genericDelta);
 }
 
-export function canPayCost(pool: ManaPool, cost: ManaCost, chosenX: number | undefined): boolean {
+export function canPayCost(pool: ManaPool, cost: ManaCost, chosenX: number | undefined, genericDelta = 0): boolean {
   if (cost.x && (chosenX === undefined || chosenX < 0)) return false;
   for (const color of COLORS) {
     const need = cost[color] ?? 0;
@@ -25,7 +31,7 @@ export function canPayCost(pool: ManaPool, cost: ManaCost, chosenX: number | und
     leftover += pool[color] - (cost[color] ?? 0);
   }
   leftover += pool.colorless;
-  return leftover >= totalGenericCost(cost, chosenX);
+  return leftover >= totalGenericCost(cost, chosenX, genericDelta);
 }
 
 /**
@@ -33,15 +39,15 @@ export function canPayCost(pool: ManaPool, cost: ManaCost, chosenX: number | und
  * canPayCost geprüft haben - diese Funktion wirft, wenn nicht bezahlbar,
  * um stille Inkonsistenzen zu vermeiden.
  */
-export function payCost(pool: ManaPool, cost: ManaCost, chosenX: number | undefined): void {
-  if (!canPayCost(pool, cost, chosenX)) {
+export function payCost(pool: ManaPool, cost: ManaCost, chosenX: number | undefined, genericDelta = 0): void {
+  if (!canPayCost(pool, cost, chosenX, genericDelta)) {
     throw new Error("payCost: Kosten nicht bezahlbar (canPayCost vorher prüfen)");
   }
   for (const color of COLORS) {
     const need = cost[color] ?? 0;
     pool[color] -= need;
   }
-  let genericRemaining = totalGenericCost(cost, chosenX);
+  let genericRemaining = totalGenericCost(cost, chosenX, genericDelta);
   // Generische Kosten zuerst aus Farblos, dann aus übrig gebliebenem farbigem Mana.
   const takeColorless = Math.min(pool.colorless, genericRemaining);
   pool.colorless -= takeColorless;

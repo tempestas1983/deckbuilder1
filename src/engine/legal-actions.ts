@@ -33,6 +33,7 @@
 import type { CardPool, ChosenTarget, GameState, PendingDecision, PlayerAction, PlayerId } from "../model";
 import { getDefinition, getDefinitionForInstance } from "./card-defs";
 import { canPayCost } from "./mana";
+import { computeSpellCostDelta } from "./stats";
 import { canActivateAbilityNow, canCastNow, canPlayTerrainNow, hasPriority } from "./legality";
 import { enumerateLegalTargets } from "./targets";
 import { guardianUnitsRequiringBlock, isLegalAttacker, isLegalBlock } from "./combat";
@@ -48,17 +49,18 @@ function castSpellCandidates(state: GameState, pool: CardPool, player: PlayerId)
     if (!canCastNow(state, player, def)) continue;
     if (def.cost.x) continue; // TODO: X-Kosten werden nicht enumeriert, siehe Datei-Kommentar.
 
+    const costDelta = computeSpellCostDelta(state, pool, player);
     const targetSpecs =
       def.type === "spell" ? def.targets : def.type === "enchantment" && def.enchantKind === "aura" ? [def.auraTarget!] : undefined;
 
     if (!targetSpecs || targetSpecs.length === 0) {
-      if (canPayCost(state.players[player].manaPool, def.cost, undefined)) {
+      if (canPayCost(state.players[player].manaPool, def.cost, undefined, costDelta)) {
         result.push({ kind: "castSpell", player, cardInstanceId, chosenTargets: [] });
       }
       continue;
     }
     if (targetSpecs.length === 1) {
-      if (!canPayCost(state.players[player].manaPool, def.cost, undefined)) continue;
+      if (!canPayCost(state.players[player].manaPool, def.cost, undefined, costDelta)) continue;
       const options = enumerateLegalTargets(state, pool, targetSpecs[0]!, player);
       for (const target of options) {
         result.push({ kind: "castSpell", player, cardInstanceId, chosenTargets: [target] });
@@ -162,6 +164,22 @@ function resolveDecisionCandidates(
   player: PlayerId,
 ): PlayerAction[] {
   if (decision.player !== player) return [];
+  if (decision.kind === "orderBlockers") {
+    // rules-engine.md 9.9 (Vertragshinweis): mindestens EIN gültiger
+    // Kandidat genügt - Permutationen werden NICHT enumeriert. Die
+    // Deklarationsreihenfolge (unveränderte blockers-Liste je Angreifer) ist
+    // immer eine gültige Permutation.
+    return [
+      {
+        kind: "resolveDecision",
+        player,
+        choice: {
+          kind: "orderBlockers",
+          orders: decision.attackers.map((a) => ({ attacker: a.attacker, blockers: [...a.blockers] })),
+        },
+      },
+    ];
+  }
   if (decision.kind !== "chooseTriggerTargets") {
     // chooseManaColor/chooseDiscard/orderScry: v0.2 setzt diese noch nie (siehe
     // triggers.ts/effects.ts-Kommentare) - kein Kandidat nötig, aktuell unerreichbar.

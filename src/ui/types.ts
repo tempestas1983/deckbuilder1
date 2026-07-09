@@ -28,7 +28,24 @@ export type UiMode =
       pairs: Array<{ blocker: InstanceId; attacker: InstanceId }>;
       selectedBlocker?: InstanceId;
     }
-  | { kind: "discarding"; player: PlayerId; required: number; selected: InstanceId[] };
+  | { kind: "discarding"; player: PlayerId; required: number; selected: InstanceId[] }
+  /**
+   * pendingDecision.kind === "orderBlockers" (rules-engine.md 6d(1)):
+   * strukturell ANDERS als "targeting" - getLegalActions liefert hier nur
+   * EINEN Kandidaten (die Deklarationsreihenfolge) statt klickbarer
+   * Einzelziele, weil die Wahl eine Permutation ist. Dieser UiMode hält
+   * daher einen eigenen, lokal sortierbaren Zustand (Kopie der von der
+   * Engine vorgeschlagenen Reihenfolge je Angreifer), der per
+   * hoch/runter-Buttons verändert und dann über eine einzige
+   * resolveDecision-Aktion (choice.orders) bestätigt wird. Ohne Umsortieren
+   * entspricht ein sofortiger Klick auf "bestätigen" exakt dem von
+   * getLegalActions gelieferten Default-Kandidaten.
+   */
+  | {
+      kind: "orderingBlockers";
+      player: PlayerId;
+      attackers: Array<{ attacker: InstanceId; blockers: InstanceId[] }>;
+    };
 
 export function targetKeyOf(target: ChosenTarget): string {
   switch (target.kind) {

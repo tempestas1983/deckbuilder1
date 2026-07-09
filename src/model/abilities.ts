@@ -208,6 +208,27 @@ export type Effect =
  *              (unter Beachtung von Evasion). Vorher getappt = keine Pflicht;
  *              nachträgliches Tappen entfernt einen deklarierten Block nicht.
  *              Im Angriff wirkungslos. Enforcement: declareBlockers-Validierung.
+ *
+ * v0.2.3 (Kampf-Keyword-Paket, rules-engine.md 6d + 9.9; interne IDs bewusst
+ * nah am MTG-Vorbild, Anzeigenamen darf der Card-Designer flavoren):
+ * - trample:     (nur im Angriff) Überschuss-Kampfschaden über die letale
+ *                Menge aller zugeordneten Blocker hinaus trifft den
+ *                verteidigenden Spieler. Zuteilung deterministisch: exakt
+ *                letale Menge pro Blocker (bei deathtouch: 1) in
+ *                blockedBy-Reihenfolge, Rest zum Spieler. Sind alle Blocker
+ *                entfernt, geht die GESAMTE Power an den Spieler (6b(2)).
+ *                Auf Blockern wirkungslos.
+ * - firstStrike: teilt Kampfschaden in der frühen Schadensrunde aus und in
+ *                der regulären Runde NICHT mehr (kein Double-Strike-Analog).
+ *                Kein eigener Step: interne zweite Runde innerhalb der
+ *                Combat-Damage-Turn-Based-Action mit Zwischen-SBA-Durchlauf
+ *                ohne Priority (rules-engine.md 6d(2)).
+ * - deathtouch:  Jeder Schaden > 0 dieser Quelle gilt als letal — setzt
+ *                PermanentState.deathtouchDamage (SBA 4) und senkt die
+ *                "letale Menge" bei der Schadenszuteilung auf 1. Gilt für
+ *                JEDEN Schaden der Quelle (auch dealDamage-Effekte einer
+ *                deathtouch-Unit), nicht nur Kampfschaden. Schaden <= 0
+ *                bleibt kein Schaden (6c) und setzt kein Flag.
  */
 export type Keyword =
   | "swift"
@@ -215,7 +236,10 @@ export type Keyword =
   | "reach"
   | "vigilant"
   | "lifelink"
-  | "guardian";
+  | "guardian"
+  | "trample"
+  | "firstStrike"
+  | "deathtouch";
 
 // ---------------------------------------------------------------------------
 // Trigger

@@ -80,6 +80,14 @@ export interface PermanentState {
   summoningSick: boolean;
   /** Markierter Schaden, wird im Cleanup entfernt; Tod via SBA 4. */
   damageMarked: number;
+  /**
+   * v0.2.3 (deathtouch, rules-engine.md 6d/7): true, sobald das Permanent
+   * seit dem letzten Cleanup Schaden > 0 von einer Quelle mit Keyword
+   * "deathtouch" erhalten hat (Kampf- UND Effekt-Schaden). SBA 4 behandelt
+   * das als letalen Schaden. Reset im Cleanup zusammen mit damageMarked.
+   * Optional: fehlend = false.
+   */
+  deathtouchDamage?: boolean;
   /** Marken, z.B. { plus1plus1: 2, charge: 1 }. Standard-Typen: rules-engine.md 8. */
   counters: Record<string, number>;
   /** Für Auren: das Objekt, an dem dieses Permanent anliegt. */
@@ -108,7 +116,15 @@ export interface CombatAssignment {
   role: "attacker" | "blocker";
   /** Für Blocker: welcher Angreifer geblockt wird. */
   blocking?: InstanceId;
-  /** Für Angreifer: zugeordnete Blocker in Deklarationsreihenfolge. */
+  /**
+   * Für Angreifer: zugeordnete Blocker in Schadensreihenfolge.
+   * v0.2.3 (rules-engine.md 6d(1), Revision von 9.8): Bei >= 2 Blockern ist
+   * das die vom ANGREIFER via PendingDecision "orderBlockers" gewählte
+   * Reihenfolge (die Engine überschreibt die Deklarationsreihenfolge nach
+   * resolveDecision); bei 0/1 Blockern die Deklarationsreihenfolge. Die
+   * Reihenfolge wird einmal festgelegt und gilt für beide Schadensrunden;
+   * tote Blocker werden bei der Zuteilung übersprungen, nicht entfernt.
+   */
   blockedBy?: InstanceId[];
 }
 
@@ -189,10 +205,12 @@ export interface PendingTrigger {
  *   gültigen resolveDecision-Kandidaten liefern, bei chooseTriggerTargets
  *   alle legalen Einzelziele).
  *
- * v0.1-Pflicht ist nur "chooseTriggerTargets" (MTG-Konformität der
- * Trigger-Zielwahl). Die übrigen Varianten sind bereits definiert, damit die
- * Engine scry / addMana("any") / discardCards-Zusatzkosten schrittweise von
- * ihren dokumentierten Auto-Defaults auf echte Spielerwahl umstellen kann,
+ * Umsetzungspflicht: "chooseTriggerTargets" (seit v0.2, MTG-Konformität der
+ * Trigger-Zielwahl) und "orderBlockers" (seit v0.2.3, Teil des
+ * Kampf-Keyword-Pakets — ohne sie ist trample nicht sinnvoll spielbar).
+ * Die übrigen Varianten sind bereits definiert, damit die Engine
+ * scry / addMana("any") / discardCards-Zusatzkosten schrittweise von ihren
+ * dokumentierten Auto-Defaults auf echte Spielerwahl umstellen kann,
  * ohne dass sich der Vertrag erneut ändert.
  */
 export type PendingDecision =
@@ -218,6 +236,28 @@ export type PendingDecision =
       kind: "orderScry"; // scry-Effekt: Reihenfolge/oben-oder-unten
       player: PlayerId;
       cardInstanceIds: InstanceId[];
+    }
+  | {
+      /**
+       * v0.2.3 (rules-engine.md 6d(1), Revision von Entscheidung 9.8):
+       * Angreifer legt bei Mehrfachblock die Schadensreihenfolge fest.
+       * Von der Engine gesetzt unmittelbar nach der declareBlockers-
+       * Deklaration und VOR dem Priority-Fenster des Steps, sobald
+       * mindestens ein Angreifer >= 2 Blocker hat — EINE Decision für alle
+       * mehrfach geblockten Angreifer (Angreifer mit 0/1 Blockern fehlen).
+       * Liegt außerhalb einer Priority-Vergabe: resumePriorityTo wird NICHT
+       * gesetzt. getLegalActions liefert mindestens einen gültigen
+       * Kandidaten (z.B. Deklarationsreihenfolge), enumeriert Permutationen
+       * aber nicht.
+       */
+      kind: "orderBlockers";
+      /** Der angreifende (= aktive) Spieler. */
+      player: PlayerId;
+      /**
+       * Alle Angreifer mit >= 2 Blockern; blockers in der bisherigen
+       * (Deklarations-)Reihenfolge als Vorschlagsbasis.
+       */
+      attackers: Array<{ attacker: InstanceId; blockers: InstanceId[] }>;
     };
 
 /** Antwort des Spielers auf die jeweilige PendingDecision (gleicher kind). */
@@ -230,6 +270,17 @@ export type DecisionChoice =
       /** Neue Reihenfolge für oben (Index 0 = oberste) + nach unten gelegte Karten. */
       keepOnTop: InstanceId[];
       putOnBottom: InstanceId[];
+    }
+  | {
+      kind: "orderBlockers";
+      /**
+       * Pro Angreifer aus der Decision die gewählte Schadensreihenfolge
+       * (Index 0 = erhält zuerst Schaden). Validierung (rules-engine.md 9.9):
+       * exakt die in der Decision gelisteten Angreifer, je eine Permutation
+       * exakt der gelisteten Blocker — sonst wird die Aktion abgelehnt.
+       * Ergebnis wird in CombatAssignment.blockedBy übernommen.
+       */
+      orders: Array<{ attacker: InstanceId; blockers: InstanceId[] }>;
     };
 
 // ---------------------------------------------------------------------------
@@ -357,7 +408,11 @@ export type PlayerAction =
   | {
       kind: "declareBlockers";
       player: PlayerId;
-      /** blocker -> geblockter Angreifer. */
+      /**
+       * blocker -> geblockter Angreifer. Die Reihenfolge der Paare ist seit
+       * v0.2.3 NICHT mehr schadensrelevant: Bei Mehrfachblock ordnet der
+       * Angreifer via PendingDecision "orderBlockers" (rules-engine.md 6d(1)).
+       */
       blocks: Array<{ blocker: InstanceId; attacker: InstanceId }>;
     }
   | {

@@ -147,6 +147,32 @@ body {
   padding: 1px 6px;
 }
 
+.order-blockers-attacker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.order-blockers-attacker-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.order-blockers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.order-blockers-entry {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+}
+
 .board {
   display: flex;
   flex-direction: column;

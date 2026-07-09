@@ -41,6 +41,9 @@ export const KEYWORD_LABEL: Record<string, string> = {
   vigilant: "Wachsam",
   lifelink: "Lebensverbindung",
   guardian: "Wächter",
+  trample: "Trampeln",
+  firstStrike: "Erstschlag",
+  deathtouch: "Todesberührung",
 };
 
 export function cardDef(pool: CardPool, state: GameState, instanceId: InstanceId): CardDefinition {

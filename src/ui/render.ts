@@ -34,6 +34,7 @@ import {
   attackersPanel,
   blockersPanel,
   discardPanel,
+  orderBlockersPanel,
   targetingBanner,
   xInputPanel,
 } from "./components/actionPanels";
@@ -61,7 +62,21 @@ function otherOf(p: PlayerId): PlayerId {
 function autoEnterForcedModes(state: GameState): void {
   if (state.winner !== undefined) return;
   const mode = getUiMode();
-  if (state.pendingDecision) return; // eigener Weg über candidatesByTargetKey, siehe unten
+  if (state.pendingDecision) {
+    // "orderBlockers" ist strukturell anders als "chooseTriggerTargets": keine
+    // klickbaren Board-Kandidaten (getLegalActions liefert hier laut Vertrag
+    // nur EINEN Kandidaten, keine Permutationen), daher ein eigener UiMode mit
+    // lokal sortierbarem Zustand statt des generischen candidatesByTargetKey-
+    // Wegs (der bleibt für chooseTriggerTargets zuständig, siehe unten).
+    if (state.pendingDecision.kind === "orderBlockers" && mode.kind !== "orderingBlockers") {
+      setUiMode({
+        kind: "orderingBlockers",
+        player: state.pendingDecision.player,
+        attackers: state.pendingDecision.attackers.map((a) => ({ attacker: a.attacker, blockers: [...a.blockers] })),
+      });
+    }
+    return; // chooseTriggerTargets: eigener Weg über candidatesByTargetKey, siehe unten
+  }
 
   if (state.step === "declareAttackers" && state.priorityPlayer === undefined) {
     if (mode.kind !== "declaringAttackers") {
@@ -86,7 +101,12 @@ function autoEnterForcedModes(state: GameState): void {
     }
     return;
   }
-  if (mode.kind === "declaringAttackers" || mode.kind === "declaringBlockers" || mode.kind === "discarding") {
+  if (
+    mode.kind === "declaringAttackers" ||
+    mode.kind === "declaringBlockers" ||
+    mode.kind === "discarding" ||
+    mode.kind === "orderingBlockers"
+  ) {
     setUiMode({ kind: "idle" });
   }
 }
@@ -161,6 +181,31 @@ function pendingDecisionCandidates(state: GameState): PlayerAction[] {
 
 function actionBanner(state: GameState, mode: UiMode): HTMLElement[] {
   if (state.pendingDecision) {
+    if (state.pendingDecision.kind === "orderBlockers" && mode.kind === "orderingBlockers") {
+      return [
+        orderBlockersPanel(
+          mode.attackers,
+          (id) => cardDef(getPool(), state, id).name,
+          (attackerIndex, blockerIndex, direction) => {
+            const nextAttackers = mode.attackers.map((a, i) => {
+              if (i !== attackerIndex) return a;
+              const blockers = [...a.blockers];
+              const swapWith = direction === "up" ? blockerIndex - 1 : blockerIndex + 1;
+              if (swapWith < 0 || swapWith >= blockers.length) return a;
+              [blockers[blockerIndex], blockers[swapWith]] = [blockers[swapWith]!, blockers[blockerIndex]!];
+              return { ...a, blockers };
+            });
+            setUiMode({ ...mode, attackers: nextAttackers });
+          },
+          () =>
+            dispatch({
+              kind: "resolveDecision",
+              player: mode.player,
+              choice: { kind: "orderBlockers", orders: mode.attackers },
+            }),
+        ),
+      ];
+    }
     return [
       targetingBanner(
         `Zielwahl erforderlich (${state.pendingDecision.player}, ${state.pendingDecision.kind}) - Ziel auf dem Spielbrett antippen.`,

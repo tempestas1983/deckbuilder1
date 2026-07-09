@@ -102,6 +102,48 @@ function isInScope(
   }
 }
 
+/**
+ * Summe aller `costChange`-Static-Modifier, die das Casten eines Spells durch
+ * `casterPlayerId` gerade verteuern/verbilligen (rules-engine.md 9.3,
+ * `abilities.ts#StaticAbility` modifier `kind: "costChange"`). Wirkt NUR auf
+ * die generischen Kosten von Spells (`ManaCost.generic` + ggf. X), niemals auf
+ * Farbanteile oder Fähigkeitskosten (`activateAbility`) - siehe Kommentar am
+ * Modell-Typ ("Kosten von Spells").
+ *
+ * Anmerkung zu `StaticAbility.scope`: Für `costChange` ist bereits über
+ * `modifier.appliesTo` ("ownSpells"/"opponentSpells", relativ zum Controller
+ * der Quelle) eindeutig festgelegt, wessen Casts betroffen sind - ein
+ * zusätzlicher `scope`-Filter (self/attachedTo/ownUnits/opponentUnits/
+ * allUnits) hat für Spells keinen sinnvollen Gegenstand (kein Zielpermanent).
+ * Diese Funktion ignoriert `scope` daher bewusst für `costChange`-Modifier;
+ * die Quellkarte muss trotzdem irgendeinen `scope`-Wert angeben (TS-Pflichtfeld).
+ * Rückfrage an den Game-Architect steht aus, ob `scope` hier künftig eine
+ * andere Bedeutung bekommen soll - siehe docs/engine-status.md.
+ */
+export function computeSpellCostDelta(
+  state: GameState,
+  pool: CardPool,
+  casterPlayerId: PlayerId,
+): number {
+  let delta = 0;
+  for (const sourceId of allBattlefieldPermanents(state)) {
+    const sourceCard = state.cards[sourceId];
+    if (!sourceCard || !sourceCard.permanentState) continue;
+    const def = getDefinition(pool, sourceCard.definitionId);
+    const abilities = "abilities" in def ? def.abilities ?? [] : [];
+    for (const ability of abilities) {
+      if (ability.kind !== "static" || ability.modifier.kind !== "costChange") continue;
+      const isOwnController = sourceCard.controller === casterPlayerId;
+      if (ability.modifier.appliesTo === "ownSpells" && isOwnController) {
+        delta += ability.modifier.genericDelta;
+      } else if (ability.modifier.appliesTo === "opponentSpells" && !isOwnController) {
+        delta += ability.modifier.genericDelta;
+      }
+    }
+  }
+  return delta;
+}
+
 /** Effektive Power/Toughness einer Unit-Permanent-Instanz. */
 export function computeEffectiveStats(
   state: GameState,

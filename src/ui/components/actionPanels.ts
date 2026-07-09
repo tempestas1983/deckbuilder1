@@ -73,6 +73,65 @@ export function blockersPanel(
   ]);
 }
 
+/**
+ * orderBlockers-PendingDecision (rules-engine.md 6d(1)): pro mehrfach
+ * geblocktem Angreifer eine Blocker-Liste mit hoch/runter-Buttons statt
+ * Drag&Drop - Index 0 wird zuerst mit Schaden bedient. `onMove` bekommt den
+ * Index des Angreifers (Position in `attackers`) und des zu verschiebenden
+ * Blockers innerhalb dieses Angreifers. Ein Klick auf "Reihenfolge
+ * bestätigen" funktioniert ohne jede Umsortierung (Default = die von der
+ * Engine vorgeschlagene Deklarationsreihenfolge).
+ */
+export function orderBlockersPanel(
+  attackers: Array<{ attacker: string; blockers: string[] }>,
+  labelFor: (instanceId: string) => string,
+  onMove: (attackerIndex: number, blockerIndex: number, direction: "up" | "down") => void,
+  onConfirm: () => void,
+): HTMLElement {
+  const attackerBlocks = attackers.map((a, attackerIndex) =>
+    h("div", { class: "order-blockers-attacker" }, [
+      h("div", { class: "order-blockers-attacker-name" }, [text(`${labelFor(a.attacker)} wird geblockt von:`)]),
+      h(
+        "div",
+        { class: "order-blockers-list" },
+        a.blockers.map((blockerId, blockerIndex) =>
+          h("div", { class: "order-blockers-entry" }, [
+            text(`${blockerIndex + 1}. ${labelFor(blockerId)}`),
+            h(
+              "button",
+              {
+                class: "btn btn-small",
+                disabled: blockerIndex === 0,
+                onclick: () => onMove(attackerIndex, blockerIndex, "up"),
+              },
+              [text("▲")],
+            ),
+            h(
+              "button",
+              {
+                class: "btn btn-small",
+                disabled: blockerIndex === a.blockers.length - 1,
+                onclick: () => onMove(attackerIndex, blockerIndex, "down"),
+              },
+              [text("▼")],
+            ),
+          ]),
+        ),
+      ),
+    ]),
+  );
+
+  return h("div", { class: "action-banner combat-panel order-blockers-panel" }, [
+    h("span", {}, [
+      text(
+        "Schadensreihenfolge festlegen (Angreifer): Position 1 wird zuerst bedient - relevant für trample und Blocker-Überleben.",
+      ),
+    ]),
+    h("div", { class: "order-blockers-attacker-list" }, attackerBlocks),
+    h("button", { class: "btn btn-play", onclick: onConfirm }, [text("Reihenfolge bestätigen")]),
+  ]);
+}
+
 export function discardPanel(required: number, selectedCount: number, onConfirm: () => void): HTMLElement {
   return h("div", { class: "action-banner" }, [
     h("span", {}, [

@@ -1,14 +1,18 @@
 /**
- * Kampf (rules-engine.md Abschnitt 6). v0.2-Umfang: Angreifer/Blocker
- * deklarieren, gleichzeitiger Kampfschaden, airborne/reach-Evasion,
- * lifelink, `guardian`-Blockpflicht (final spezifiziert, siehe
- * `guardianUnitsRequiringBlock` unten). NICHT umgesetzt:
+ * Kampf (rules-engine.md Abschnitt 6). Angreifer/Blocker deklarieren,
+ * airborne/reach-Evasion, lifelink, `guardian`-Blockpflicht (final
+ * spezifiziert, siehe `guardianUnitsRequiringBlock` unten). v0.2.3
+ * (Kampf-Keyword-Paket, rules-engine.md 6d/9.9): `trample`, `firstStrike`,
+ * `deathtouch` + angreifer-gewählte Mehrfachblock-Reihenfolge
+ * (`PendingDecision "orderBlockers"`, Revision von 9.8). NICHT umgesetzt:
  * - Mehrfachangriffe auf verschiedene Ziele (v0.1: Angriffsziel ist immer der
  *   gegnerische Spieler).
+ * - Double Strike (bewusst vertagt, rules-engine.md 9.9/10).
  */
 
-import type { CardPool, GameEvent, GameState, InstanceId, PlayerId } from "../model";
+import type { CardPool, GameEvent, GameState, InstanceId, PendingDecision, PlayerId } from "../model";
 import { getDefinitionForInstance } from "./card-defs";
+import { runStateBasedActionsLoop } from "./sba";
 import { computeEffectiveKeywords, computeEffectiveStats } from "./stats";
 import { fireSelfCombatTrigger } from "./triggers";
 import { otherPlayer } from "./util";
@@ -125,63 +129,157 @@ export function declareBlockers(
 }
 
 /**
- * Kampfschaden (Turn-Based Action des Combat-Damage-Steps, kein Stack-
- * Objekt). Alle Schäden gleichzeitig, kein First-Strike-Analog (rules-
- * engine.md 6).
+ * v0.2.3 (rules-engine.md 6d(1), Revision von 9.8): Baut die
+ * `orderBlockers`-PendingDecision, falls mindestens ein Angreifer >= 2
+ * Blocker hat - sonst `undefined` (kein zusätzlicher Interaktionsschritt bei
+ * Einfachblocks). Wird unmittelbar nach `declareBlockers`, VOR dem
+ * Priority-Fenster des Steps, aufgerufen (siehe actions.ts).
  */
-export function dealCombatDamage(state: GameState, pool: CardPool, events: GameEvent[], activePlayer: PlayerId): void {
-  const defender = otherPlayer(state, activePlayer);
+export function buildOrderBlockersDecision(state: GameState, activePlayer: PlayerId): PendingDecision | undefined {
   const attackers = currentAttackers(state, activePlayer);
+  const multiBlocked: Array<{ attacker: InstanceId; blockers: InstanceId[] }> = [];
+  for (const attackerId of attackers) {
+    const blockedBy = state.cards[attackerId]?.permanentState?.combat?.blockedBy ?? [];
+    if (blockedBy.length >= 2) {
+      multiBlocked.push({ attacker: attackerId, blockers: [...blockedBy] });
+    }
+  }
+  if (multiBlocked.length === 0) return undefined;
+  return { kind: "orderBlockers", player: activePlayer, attackers: multiBlocked };
+}
 
-  // Schaden wird erst am Ende aller Berechnungen angewendet, damit "gleichzeitig" stimmt.
-  // Einzeleinträge (statt nur aggregierter Summen) behalten die Quelle für Events/Lifelink.
+/**
+ * Wendet die vom Angreifer via `orderBlockers`-Decision gewählte Reihenfolge
+ * an (überschreibt `CombatAssignment.blockedBy` je Angreifer). Validierung
+ * der Antwort ist bereits in actions.ts#validateResolveDecision erfolgt.
+ */
+export function applyOrderBlockers(
+  state: GameState,
+  orders: Array<{ attacker: InstanceId; blockers: InstanceId[] }>,
+): void {
+  for (const order of orders) {
+    const ps = state.cards[order.attacker]?.permanentState;
+    if (ps?.combat) ps.combat.blockedBy = [...order.blockers];
+  }
+}
+
+function hasKeyword(state: GameState, pool: CardPool, instanceId: InstanceId, keyword: "firstStrike" | "trample" | "deathtouch"): boolean {
+  return computeEffectiveKeywords(state, pool, instanceId).has(keyword);
+}
+
+/**
+ * Eine Schadensrunde (rules-engine.md 6d(2)/(3)): Alle Teilnehmer, für die
+ * `participates` true liefert, teilen ihren Kampfschaden gleichzeitig aus.
+ * Angreifer- und Blocker-Richtung sind unabhängig (ein Angreifer ohne
+ * firstStrike kann in Runde 1 trotzdem Schaden von einem firstStrike-Blocker
+ * erhalten, teilt selbst aber erst in Runde 2 aus). Innerhalb einer Runde
+ * wird erst vollständig berechnet, dann angewendet ("gleichzeitig" - ein in
+ * dieser Runde sterbender Blocker beeinflusst nicht die Berechnung für
+ * andere Teilnehmer derselben Runde).
+ */
+function dealCombatDamageRound(
+  state: GameState,
+  pool: CardPool,
+  events: GameEvent[],
+  defender: PlayerId,
+  attackers: InstanceId[],
+  participates: (id: InstanceId) => boolean,
+): void {
   const permanentDamageInstances: Array<{ id: InstanceId; amount: number; sourceId: InstanceId }> = [];
   const playerDamageInstances: Array<{ id: PlayerId; amount: number; sourceId: InstanceId }> = [];
   const permanentDamageSoFar = new Map<InstanceId, number>();
   const lifelinkGains = new Map<PlayerId, number>();
 
+  // §6c: Schaden <= 0 ist kein Schaden - insbesondere kein lifelink-Gewinn.
+  // Der lifelink-Zähler wird deshalb nur für amount > 0 akkumuliert, auch
+  // wenn die Roh-Beträge (u.a. für die spätere amount<=0-Filterung beim
+  // Anwenden) weiterhin unverändert in den *Instances-Arrays landen.
   const addPermanentDamage = (id: InstanceId, amount: number, sourceController: PlayerId, sourceId: InstanceId) => {
     permanentDamageInstances.push({ id, amount, sourceId });
     permanentDamageSoFar.set(id, (permanentDamageSoFar.get(id) ?? 0) + amount);
-    if (computeEffectiveKeywords(state, pool, sourceId).has("lifelink")) {
+    if (amount > 0 && computeEffectiveKeywords(state, pool, sourceId).has("lifelink")) {
       lifelinkGains.set(sourceController, (lifelinkGains.get(sourceController) ?? 0) + amount);
     }
   };
   const addPlayerDamage = (id: PlayerId, amount: number, sourceController: PlayerId, sourceId: InstanceId) => {
     playerDamageInstances.push({ id, amount, sourceId });
-    if (computeEffectiveKeywords(state, pool, sourceId).has("lifelink")) {
+    if (amount > 0 && computeEffectiveKeywords(state, pool, sourceId).has("lifelink")) {
       lifelinkGains.set(sourceController, (lifelinkGains.get(sourceController) ?? 0) + amount);
     }
   };
 
   for (const attackerId of attackers) {
-    const attackerCard = state.cards[attackerId]!;
-    const ps = attackerCard.permanentState!;
-    const { power } = computeEffectiveStats(state, pool, attackerId);
+    const attackerCard = state.cards[attackerId];
+    // §6b(3): Der Angreifer selbst hat das Battlefield verlassen -> weder er
+    // noch seine (ehemaligen) Blocker verrechnen in dieser Runde irgendetwas.
+    if (!attackerCard?.permanentState) continue;
+    const ps = attackerCard.permanentState;
     const blockedBy = ps.combat?.blockedBy ?? [];
 
-    if (blockedBy.length === 0) {
-      addPlayerDamage(defender, power, attackerCard.controller, attackerId);
-      fireSelfCombatTrigger(state, pool, attackerId, "onDealtCombatDamageToPlayer");
-    } else {
-      let remaining = power;
-      blockedBy.forEach((blockerId, index) => {
-        const isLast = index === blockedBy.length - 1;
-        const blockerPs = state.cards[blockerId]?.permanentState;
-        if (!blockerPs) return;
-        const { toughness: blockerToughness } = computeEffectiveStats(state, pool, blockerId);
-        const lethalNeeded = Math.max(0, blockerToughness - blockerPs.damageMarked - (permanentDamageSoFar.get(blockerId) ?? 0));
-        const assign = isLast ? remaining : Math.min(remaining, lethalNeeded);
-        remaining -= assign;
-        if (assign > 0) addPermanentDamage(blockerId, assign, attackerCard.controller, attackerId);
-      });
-      // Jeder Blocker schlägt mit voller Power gleichzeitig zurück.
-      for (const blockerId of blockedBy) {
-        const blockerCard = state.cards[blockerId];
-        if (!blockerCard?.permanentState) continue;
-        const { power: blockerPower } = computeEffectiveStats(state, pool, blockerId);
-        addPermanentDamage(attackerId, blockerPower, blockerCard.controller, blockerId);
+    // --- Angreifer teilt aus (nur falls er in dieser Runde an der Reihe ist) ---
+    if (participates(attackerId)) {
+      const { power } = computeEffectiveStats(state, pool, attackerId);
+      const hasTrample = hasKeyword(state, pool, attackerId, "trample");
+      const hasDeathtouch = hasKeyword(state, pool, attackerId, "deathtouch");
+
+      if (blockedBy.length === 0) {
+        addPlayerDamage(defender, power, attackerCard.controller, attackerId);
+        // §6c: Schaden <= 0 ist kein Schadensereignis - kein Trigger.
+        if (power > 0) fireSelfCombatTrigger(state, pool, attackerId, "onDealtCombatDamageToPlayer");
+      } else {
+        // §9.8/§6b: "isLast" muss den tatsächlich LETZTEN NOCH LEBENDEN
+        // Blocker meinen, nicht den nominal letzten Array-Eintrag - stirbt der
+        // (array-)letzte Blocker vor dieser Runde, muss der Restschaden beim
+        // tatsächlich letzten überlebenden Blocker landen (ohne trample).
+        const aliveBlockerIds = blockedBy.filter((id) => state.cards[id]?.permanentState !== undefined);
+
+        if (aliveBlockerIds.length === 0) {
+          // §6b(2), v0.2.3 revidiert: "geblockt bleibt geblockt" - ohne
+          // trample verpufft der Schaden weiterhin komplett; MIT trample
+          // schlägt die GESAMTE Power beim Verteidiger durch.
+          if (hasTrample && power > 0) {
+            addPlayerDamage(defender, power, attackerCard.controller, attackerId);
+            fireSelfCombatTrigger(state, pool, attackerId, "onDealtCombatDamageToPlayer");
+          }
+        } else {
+          let remaining = power;
+          const lastAliveBlockerId = aliveBlockerIds[aliveBlockerIds.length - 1];
+          blockedBy.forEach((blockerId) => {
+            const blockerPs = state.cards[blockerId]?.permanentState;
+            if (!blockerPs) return; // toter/entfernter Blocker: 0 zugewiesen, übersprungen (§6b)
+            const { toughness: blockerToughness } = computeEffectiveStats(state, pool, blockerId);
+            // §6d(3): letale Menge = 1 bei deathtouch, sonst Toughness minus
+            // bereits vorhandenem/zugewiesenem Schaden.
+            const lethalNeeded = hasDeathtouch
+              ? 1
+              : Math.max(0, blockerToughness - blockerPs.damageMarked - (permanentDamageSoFar.get(blockerId) ?? 0));
+            let assign: number;
+            if (hasTrample) {
+              // §6d(3) mit trample: deterministisch exakt letale Menge, kein
+              // freiwilliges Überzuteilen (9.9 Punkt 3).
+              assign = Math.min(remaining, lethalNeeded);
+            } else {
+              const isLast = blockerId === lastAliveBlockerId;
+              assign = isLast ? remaining : Math.min(remaining, lethalNeeded);
+            }
+            remaining -= assign;
+            if (assign > 0) addPermanentDamage(blockerId, assign, attackerCard.controller, attackerId);
+          });
+          if (hasTrample && remaining > 0) {
+            addPlayerDamage(defender, remaining, attackerCard.controller, attackerId);
+            fireSelfCombatTrigger(state, pool, attackerId, "onDealtCombatDamageToPlayer");
+          }
+        }
       }
+    }
+
+    // --- Blocker schlagen zurück (nur die, die in dieser Runde an der Reihe sind) ---
+    for (const blockerId of blockedBy) {
+      if (!participates(blockerId)) continue;
+      const blockerCard = state.cards[blockerId];
+      if (!blockerCard?.permanentState) continue;
+      const { power: blockerPower } = computeEffectiveStats(state, pool, blockerId);
+      addPermanentDamage(attackerId, blockerPower, blockerCard.controller, blockerId);
     }
   }
 
@@ -189,6 +287,11 @@ export function dealCombatDamage(state: GameState, pool: CardPool, events: GameE
     const ps = state.cards[id]?.permanentState;
     if (!ps || amount <= 0) continue;
     ps.damageMarked += amount;
+    // §6d/§7 SBA 4 (deathtouch): jeder Schaden > 0 einer deathtouch-Quelle
+    // markiert das Ziel als "letal getroffen", unabhängig von Toughness.
+    if (computeEffectiveKeywords(state, pool, sourceId).has("deathtouch")) {
+      ps.deathtouchDamage = true;
+    }
     events.push({ kind: "damageDealt", to: id, amount, source: sourceId });
   }
   for (const { id, amount, sourceId } of playerDamageInstances) {
@@ -200,6 +303,37 @@ export function dealCombatDamage(state: GameState, pool: CardPool, events: GameE
   for (const [playerId, amount] of lifelinkGains) {
     state.players[playerId].life += amount;
     events.push({ kind: "lifeChanged", player: playerId, delta: amount, newTotal: state.players[playerId].life });
+  }
+}
+
+/**
+ * Kampfschaden (Turn-Based Action des Combat-Damage-Steps, kein Stack-
+ * Objekt). rules-engine.md 6d(2): Bis zu ZWEI interne Schadensrunden -
+ * bleibt EINE Turn-Based Action, kein neuer Step, kein zusätzliches
+ * Priority-Fenster. Gibt es keinen firstStrike-Teilnehmer, entfällt die
+ * frühe Runde ersatzlos (Verhalten bleibt wie vor v0.2.3).
+ */
+export function dealCombatDamage(state: GameState, pool: CardPool, events: GameEvent[], activePlayer: PlayerId): void {
+  const defender = otherPlayer(state, activePlayer);
+  const attackers = currentAttackers(state, activePlayer);
+
+  const allParticipantIds: InstanceId[] = [];
+  for (const attackerId of attackers) {
+    allParticipantIds.push(attackerId);
+    const blockedBy = state.cards[attackerId]?.permanentState?.combat?.blockedBy ?? [];
+    allParticipantIds.push(...blockedBy);
+  }
+  const anyFirstStrike = allParticipantIds.some((id) => hasKeyword(state, pool, id, "firstStrike"));
+
+  if (anyFirstStrike) {
+    dealCombatDamageRound(state, pool, events, defender, attackers, (id) => hasKeyword(state, pool, id, "firstStrike"));
+    // §6d(2) Zwischen-SBA-Durchlauf: OHNE Priority zu vergeben, Trigger
+    // bleiben in der Pending-Queue (werden erst im Priority-Fenster des
+    // Steps gestackt) - runStateBasedActionsLoop stackt selbst nie Trigger.
+    runStateBasedActionsLoop(state, pool, events);
+    dealCombatDamageRound(state, pool, events, defender, attackers, (id) => !hasKeyword(state, pool, id, "firstStrike"));
+  } else {
+    dealCombatDamageRound(state, pool, events, defender, attackers, () => true);
   }
 }
 

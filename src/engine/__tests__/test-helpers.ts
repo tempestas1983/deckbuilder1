@@ -80,6 +80,43 @@ export function putOnBattlefield(
   return inst.instanceId;
 }
 
+/**
+ * v0.2.3 (rules-engine.md 6d(1), Revision von 9.8): Löst eine ausstehende
+ * `orderBlockers`-Decision mit einer expliziten Reihenfolge auf.
+ */
+export function resolveOrderBlockers(
+  engine: RulesEngine,
+  state: GameState,
+  orders: Array<{ attacker: InstanceId; blockers: InstanceId[] }>,
+): GameState {
+  const decision = state.pendingDecision;
+  if (!decision || decision.kind !== "orderBlockers") {
+    throw new Error("resolveOrderBlockers: keine orderBlockers-Decision ausstehend.");
+  }
+  return applyOk(engine, state, {
+    kind: "resolveDecision",
+    player: decision.player,
+    choice: { kind: "orderBlockers", orders },
+  });
+}
+
+/**
+ * Löst eine ausstehende `orderBlockers`-Decision mit der (unveränderten)
+ * Deklarationsreihenfolge auf - bequem für Tests, denen die konkrete
+ * Reihenfolge egal ist (nur DASS sie beantwortet werden muss, ist relevant).
+ */
+export function resolveOrderBlockersAsDeclared(engine: RulesEngine, state: GameState): GameState {
+  const decision = state.pendingDecision;
+  if (!decision || decision.kind !== "orderBlockers") {
+    throw new Error("resolveOrderBlockersAsDeclared: keine orderBlockers-Decision ausstehend.");
+  }
+  return resolveOrderBlockers(
+    engine,
+    state,
+    decision.attackers.map((a) => ({ attacker: a.attacker, blockers: [...a.blockers] })),
+  );
+}
+
 export function makeNotSummoningSick(state: GameState, instanceId: InstanceId): void {
   const ps = state.cards[instanceId]?.permanentState;
   if (ps) ps.summoningSick = false;
