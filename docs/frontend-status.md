@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.8 (frontend-engineer) — 2026-07-10
+Status: v0.1.10 (frontend-engineer) — 2026-07-10
 Grundlage: `docs/rules-engine.md` (v0.3.1, Entscheidungen 9.10-9.13 + Nachtrag),
 `docs/engine-status.md` (v0.3.2 zum Zeitpunkt dieses v0.1.8-Stands, 135
 Engine-/UI-/KI-Tests zum Zeitpunkt der v0.3.2-Übernahme — der
@@ -10,8 +10,34 @@ jeweiligen Zeitpunkt, s. dortige Abschnitte; **documenter-Korrektur
 (Datenmodell, unverändert konsumiert), `src/engine/*` (`createRulesEngine`),
 `src/cards/starter-set.ts` (113 Karten, u.a. die drei neuen v0.3-Testkarten
 `core.void-covenant`, `core.current-diplomat`, `core.cinderwrack-engine`),
-`docs/ai-status.md` (KI-Gegner v1, `src/ai/simpleBot.ts`, öffentliche
-Funktion `chooseAction(engine, pool, state, player)`).
+`docs/ai-status.md` (**seit v0.1.9**: KI-Gegner v2, `src/ai/difficulty.ts`,
+öffentliche Funktion `chooseActionForDifficulty(engine, pool, state, player,
+difficulty)` mit drei Stufen `easy`/`medium`/`hard`; `chooseAction`
+(`src/ai/simpleBot.ts`, v1 = Stufe "medium") bleibt weiterhin exportiert).
+
+**v0.1.10 auf einen Blick** (Details im gleichnamigen Abschnitt unten): rein
+visuelle Überarbeitung — Karten sehen jetzt wie klassische Kartenspiel-Karten
+aus statt wie Text-Kästchen: vollständiger, farbcodierter Kartenrahmen (statt
+nur Top-Border), Kopfzeile mit Name + farbigen Mana-„Pips" als Kostenanzeige,
+eine reine Farbverlaufsfläche als „Bildbereich" (bewusst OHNE Artwork/
+Bild-Assets, s. Auftrag), Typzeile, Regeltext-Box (+ Status-Badges auf dem
+Battlefield) und ein abgesetzter P/T-Kasten unten rechts bei Einheiten.
+Gilt jetzt einheitlich für Handkarten (`handCard.ts`), Battlefield-/
+Graveyard-/Stack-Kacheln (`cardTile.ts`) und den Kartenpool im Deckbau
+(`deckBuilder.ts`, der dafür von einer Tabellenzeilen-Liste auf ein
+Flex-Wrap-Kartenraster umgebaut wurde). Keine Spiellogik-/Engine-Änderung,
+keine neuen Bild-Assets — reines CSS/HTML. `npm run build`/`npm test`
+weiterhin sauber (151/151).
+
+**v0.1.9 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Anbindung der drei vom ai-opponent-engineer bereitgestellten
+Bot-Schwierigkeitsstufen (`easy`/`medium`/`hard`, `src/ai/difficulty.ts`) —
+ein Schwierigkeits-Dropdown im Deckbau-Screen von Spieler 2 (nur sichtbar,
+wenn die KI-Steuerung für ihn aktiv ist), ein pro Spieler gespeicherter
+`botDifficulty`-Zustand in `store.ts` (Persistenz analog zu
+`isBotControlled`), Umstellung von `runBotStep` auf
+`chooseActionForDifficulty`, sowie ein zweites Badge im Spieler-Panel, das
+die aktive Stufe während der Partie anzeigt.
 
 **v0.1.8 auf einen Blick** (Details im gleichnamigen Abschnitt unten): zwei
 unabhängige Komfort-Features, kein Engine-/Model-Zutun nötig — ein
@@ -93,7 +119,7 @@ npm run dev        # Vite-Dev-Server (Hot Reload), http://localhost:5173
 npm run build:ui    # Produktions-Build nach dist-ui/
 npm run preview     # Vorschau des Produktions-Builds
 npm run build       # unverändert: tsc --noEmit (Engine + jetzt auch UI-Code)
-npm test            # Vitest (141 Tests gesamt zum v0.1.8-Stand, s. jeweilige Abschnitte)
+npm test            # Vitest (149 Tests gesamt zum v0.1.9-Stand, s. jeweilige Abschnitte)
 ```
 
 `tsconfig.json` wurde um `"DOM"`/`"DOM.Iterable"` in `lib` erweitert (damit
@@ -128,17 +154,17 @@ anklickbare Aktionen angezeigt.
 | Datei | Zweck |
 |---|---|
 | `main.ts` | Einstiegspunkt, startet Store + Render-Loop (**seit v0.1.5**: kein automatischer `initGame`-Aufruf mehr, App startet im Deckbau-Screen) |
-| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten) |
+| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten); **seit v0.1.9** zusätzlich `botDifficulty: Record<PlayerId, BotDifficulty>` + `getBotDifficulty`/`setBotDifficulty` (Persistenz analog zu `isBotControlled`), `runBotStep` ruft jetzt `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])` (aus `../ai`) statt des bisherigen `chooseAction` |
 | `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine); **seit v0.1.6** neuer `CastSource`-Typ (spell/ability) + `UiMode`-Zweige `modeSelect`/verallgemeinerte `xInput`/`xTarget` (s. eigener Abschnitt unten); **seit v0.1.7 unverändert** — die KI-Zuordnung lebt bewusst nur in `store.ts` (s. dortige Begründung im Code-Kommentar, analog zur v0.1.5-`AppPhase`-Entscheidung) |
 | `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen; **seit v0.1.7** zusätzlich Basis für „Zufälliges KI-Deck + weiter" im Deckbau-Screen von Spieler 2 |
 | `deckValidation.ts` | **Neu in v0.1.5**: reine UI-Validierung einer Deckliste (min. 40 Karten, max. 4 Kopien pro Nicht-Terrain-id, s. `src/model/cards.ts#Decklist`-Kommentar) — die Engine validiert das selbst nicht |
 | `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten); **seit v0.1.5** zusätzlich `dominantColorKey` (Manafarbe als Schlüssel statt CSS-Klasse, für den Deckbau-Farbfilter) |
 | `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI; **seit v0.1.6** zusätzlich die `CastSource`-Helfer (`sourceName`/`sourceModes`/`sourceHasXCost`/`sourceTargets`/`buildCastAction`/`activateAbilityCandidatesFor`), die castSpell und activateAbility für den gemeinsamen Modus-/X-/Ziel-Flow vereinheitlichen |
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
-| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })` |
-| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests) |
-| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede` |
-| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten) |
+| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })`; **seit v0.1.9** reicht `renderDeckBuilder` zusätzlich `getBotDifficulty`/`setBotDifficulty` an `deckBuilderScreen` durch und `playerArea` reicht `botDifficultyLabel` (nur gesetzt, wenn `isBotControlled(playerId)`) an `playerPanel` durch |
+| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests); **seit v0.1.9** `deckBuilder.ts` mit Schwierigkeits-Dropdown (`.deckbuilder-ai-difficulty-select`, nur bei aktiver KI-Steuerung), `playerPanel.ts` mit optionalem zweiten Bot-Badge (`botDifficultyLabel`-Option, `.badge-bot-difficulty`); **seit v0.1.10** neuer gemeinsamer Baustein `manaCost.ts` (`manaCostBadge`, baut die Mana-Pip-Kopfzeile aus `cardInfo.ts#manaCostPips`), `handCard.ts`/`cardTile.ts`/`deckBuilder.ts` (`poolRow`) komplett auf das neue `card-frame-*`-Kartenrahmen-Layout umgebaut (s. eigener Abschnitt unten) |
+| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten) |
+| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten); **seit v0.1.9** zusätzlich `vs-bot-difficulty.test.ts` (Schwierigkeitsstufen-Dropdown + komplette Partie mit Stufe „hard", s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `selectValue` (`<select>`-Interaktion) |
 
 ## Was funktioniert
 
@@ -1245,6 +1271,252 @@ Form.
 `confirmDeck`-Speicherung). Keine Änderungen an `src/engine/*`,
 `src/model/*`, `src/ai/*`, `src/cards/*`.
 
+## Bot-Schwierigkeitsstufen-Anbindung (v0.1.9, 2026-07-10)
+
+Auftrag: der ai-opponent-engineer (fable-5) hat drei echte Bot-Stärken
+(`easy`/`medium`/`hard`) hinter `chooseActionForDifficulty(engine, pool,
+state, player, difficulty)` fertiggestellt (`src/ai/difficulty.ts`,
+re-exportiert über `src/ai/index.ts`, siehe `docs/ai-status.md` Abschnitt 9)
+— dieser Schritt bindet das rein UI-seitig an (Punkt 10 der „Nächste
+Schritte"-Liste, s.u.), ohne `src/ai/*` selbst anzufassen.
+
+### 1. Store: `botDifficulty`-Zustand + Umstellung von `runBotStep`
+
+`src/ui/store.ts`:
+
+- Neuer Zustand `botDifficulty: Record<PlayerId, BotDifficulty>`, Default
+  `DEFAULT_BOT_DIFFICULTY` ("medium") für beide Spieler — exakt analog zum
+  bestehenden `botControlledPlayers`/`isBotControlled`/`setBotControlled`-
+  Muster: `getBotDifficulty(player)`/`setBotDifficulty(player, difficulty)`
+  als öffentliche Getter/Setter, **dieselbe Persistenz-Semantik** (bleibt
+  über „Neues Spiel" (`backToDeckbuilder`) hinweg erhalten, nur ein frischer
+  App-Start/Modul-Neuladen setzt zurück auf den Default — kein Sonderfall
+  extra gebaut, ergibt sich automatisch daraus, dass `botDifficulty` wie
+  `botControlledPlayers` ein modul-scoped `let` ist, das `backToDeckbuilder`
+  nicht zurücksetzt).
+- Der Wert ist bewusst **unabhängig** von `isBotControlled(player)` gesetzt/
+  gespeichert (auch wenn ein Spieler gerade nicht bot-gesteuert ist, behält
+  er "seine" zuletzt gewählte Stufe) — genutzt wird er aber ausschließlich,
+  wenn der Spieler tatsächlich bot-gesteuert ist (s. `runBotStep`).
+- `runBotStep`: `chooseAction(engine, pool, state, actor)` durch
+  `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])`
+  ersetzt (Import jetzt aus `../ai` statt `../ai/simpleBot`). Der Rest von
+  `runBotStep` (Fehlerbehandlung, `notify()`, Loop-Fortsetzung) ist
+  unverändert — die Funktion bleibt laut Vertrag „liefert IMMER eine legale
+  Aktion" für alle drei Stufen (docs/ai-status.md Abschnitt 9.1).
+
+### 2. Deckbau-Screen: Schwierigkeits-Dropdown
+
+`src/ui/components/deckBuilder.ts`:
+
+- Neue `DeckBuilderOptions`-Felder `botDifficulty: BotDifficulty` +
+  `onChangeBotDifficulty: (next: BotDifficulty) => void` (reine Props/
+  Callback-Durchreichung, wie der Rest der Komponente — keine eigene Logik).
+- Ein `<select>` (`.deckbuilder-ai-difficulty-select`) mit den drei Optionen
+  aus `BOT_DIFFICULTIES` (Werte) / `BOT_DIFFICULTY_LABELS` (deutsche
+  Anzeigenamen „Leicht"/„Mittel"/„Schwer") wird **nur gerendert, wenn
+  `opts.botControlled` true ist** — neben dem bestehenden „Zufälliges
+  KI-Deck + weiter"-Button innerhalb des schon vorhandenen
+  `.deckbuilder-ai-toggle`-Containers (kein neuer Container, gleiche visuelle
+  Gruppe wie der KI-Umschalter selbst). Ein echtes `change`-Event ruft
+  `onChangeBotDifficulty` mit dem neuen Wert auf.
+- `src/ui/render.ts#renderDeckBuilder` reicht `getBotDifficulty(player)`/
+  `(next) => setBotDifficulty(player, next)` durch — identisches Muster zu
+  `botControlled`/`onToggleBotControl` direkt darüber.
+
+### 3. Optional: Anzeige der aktiven Stufe im Spielbrett-Header
+
+Umgesetzt, da es sich organisch einfügte: `playerPanel.ts` bekommt eine neue
+optionale `botDifficultyLabel`-Option, die — **nur wenn `botControlled` true
+ist** — ein zweites, eigenes Badge (`.badge-bot-difficulty`, z.B. „Schwer")
+neben dem bestehenden `.badge-bot`-„KI"-Badge zeigt. Bewusst ein **separates**
+Badge statt den Text von `.badge-bot` selbst zu erweitern (z.B. zu
+„KI (Schwer)") — der bestehende `vs-bot.test.ts`-Vertrag prüft
+`.badge-bot`-Text exakt auf `"KI"`; ein zweites Badge hält diesen Test
+unverändert stabil, ohne ihn anfassen zu müssen. `render.ts#playerArea` setzt
+`botDifficultyLabel` nur, wenn `isBotControlled(playerId)` zutrifft
+(`BOT_DIFFICULTY_LABELS[getBotDifficulty(playerId)]`), sonst `undefined` (kein
+Badge).
+
+### Modellkonflikt-Check
+
+**Kein Modell-/Architektur-Konflikt gefunden.** `chooseActionForDifficulty`
+hat exakt denselben Nutzungsvertrag wie das bisherige `chooseAction` (nur für
+den tatsächlich handelnden Spieler aufrufen, liefert immer eine legale
+Aktion) — `store.ts` musste dafür nichts an seiner bestehenden
+`actingPlayer`/`triggerBotLoop`/`scheduleBotStepIfNeeded`-Logik ändern, nur
+den einen Aufruf in `runBotStep` austauschen. Keine Änderungen an
+`src/engine/*`, `src/model/*`, `src/ai/*`, `src/cards/*`.
+
+### Verifikation (v0.1.9)
+
+- `npm run build` (`tsc --noEmit` über Engine + KI + UI) — sauber.
+- `npm test` (`vitest run`) — **149/149 grün** (148 Bestandstests unverändert
+  + 1 neuer, dauerhafter UI-Test:
+  `src/ui/__tests__/vs-bot-difficulty.test.ts`).
+- `npm run build:ui` (Vite-Produktionsbuild) — erfolgreich (143,9 kB JS /
+  8,4 kB CSS, minimal gewachsen gegenüber v0.1.8).
+- **`src/ui/__tests__/vs-bot-difficulty.test.ts`** (neu, dauerhaft, gleiches
+  Muster wie `vs-bot.test.ts`, aber mit einem anderen `Math.random`-Seed
+  (20260710) für eine unabhängig reproduzierbare Partie): ab echtem
+  App-Start, Deckbau Spieler 1 normal, Deckbau Spieler 2 → KI-Umschalter
+  aktivieren → Schwierigkeits-Dropdown ist davor NICHT im DOM, danach schon
+  → echter Klick/Change stellt „hard" ein (`getBotDifficulty("player2")`
+  bestätigt das direkt am Store, nicht nur am DOM-Zustand) →
+  „Zufälliges KI-Deck + weiter" → komplette Partie über echte Klicks
+  (Spieler 1) + automatisches Bot-Spiel (Spieler 2, Stufe „hard") bis
+  Spielende bzw. ein großzügiges 600-Iterationen-Limit, `console.error`-Spy
+  bleibt während der gesamten Partie unaufgerufen (der eigentliche Beleg,
+  dass `chooseActionForDifficulty` mit der im UI gewählten Stufe läuft, statt
+  weiterhin unbemerkt die Default-Heuristik zu verwenden) — plus eine
+  Prüfung, dass `getBotDifficulty("player2")` über die ganze Partie „hard"
+  bleibt, und dass die Board-Header-Badges (`.badge-bot`/
+  `.badge-bot-difficulty`) korrekt „KI"/„Schwer" für Spieler 2 und **kein**
+  Differenz-Badge für Spieler 1 zeigen.
+- `npx vite build` (Produktions-Build außerhalb von `npm run build:ui`
+  ebenfalls geprüft) sowie ein kurzer Boot-Smoke-Test des Vite-Dev-Servers
+  (`npx vite`, `curl` gegen `http://localhost:.../`, HTTP 200, Server danach
+  wieder beendet) — bestätigt nur, dass der Dev-Server mit den Änderungen
+  fehlerfrei startet und ausliefert, ist aber **keine** Bedienung der
+  eigentlichen Dropdown-Interaktion im Browser.
+  - **Einschränkung:** In dieser Session standen keine
+    Browser-/Computer-Use-Werkzeuge zur Verfügung, um das Dropdown tatsächlich
+    per echtem Mausklick in einem laufenden Browser zu bedienen (wie schon in
+    mehreren früheren Runden, v0.1.3 ff., dokumentiert). Die eigentliche
+    end-to-end-Verifikation der Klick-/Change-Interaktion lief daher
+    ausschließlich über echte `element.dispatchEvent(new
+    Event("click"/"change"))`-Aufrufe auf das von `render()` erzeugte DOM in
+    `jsdom` (s.o.) — dieselbe Kette wie in allen bisherigen
+    Golden-Path-Verifikationen dieses Projekts, aber kein tatsächlicher
+    Browser-Test. Bitte bei Gelegenheit mit echten Browser-Werkzeugen
+    nachverifizieren.
+
+**Ergebnis:** Neue Datei: `src/ui/__tests__/vs-bot-difficulty.test.ts`.
+Geänderte Dateien: `src/ui/store.ts` (`botDifficulty`-Zustand,
+`getBotDifficulty`/`setBotDifficulty`, `runBotStep` nutzt
+`chooseActionForDifficulty`), `src/ui/components/deckBuilder.ts`
+(Schwierigkeits-Dropdown), `src/ui/render.ts` (`renderDeckBuilder`/
+`playerArea` reichen die neuen Store-Funktionen/Optionen durch),
+`src/ui/components/playerPanel.ts` (`botDifficultyLabel`-Option + neues
+Badge), `src/ui/style.css` (`.badge-bot-difficulty`,
+`.deckbuilder-ai-difficulty-label`/`-select`), `src/ui/__tests__/testHelpers.ts`
+(neuer Helfer `selectValue`, analog zu `setChecked`). Keine Änderungen an
+`src/engine/*`, `src/model/*`, `src/ai/*`, `src/cards/*`.
+
+## Klassisches Kartenrahmen-Layout ohne Artwork (v0.1.10, 2026-07-10)
+
+Auftrag: Karten wirkten bisher überall (Hand, Battlefield/Graveyard/Stack,
+Kartenpool im Deckbau) nur wie schlichte Text-Kästchen (Name/Typ/Kosten, ein
+farbiger Top-Border je Manafarbe). Ziel: ein klassisches, MTG-artiges
+Kartenrahmen-Layout aus purem CSS/HTML — Kopfzeile (Name/Kosten), ein
+„Bildbereich" als reine Farbfläche/Farbverlauf je Manafarbe (bewusst OHNE
+Artwork/Bild-Assets, ausdrücklicher Nutzerwunsch), Typzeile, Regeltext-Box,
+P/T-Kasten unten rechts bei Einheiten, vollständiger statt nur Top-Border-
+Rahmen nach Manafarbe — überall dort, wo Karten dargestellt werden, bei
+weiterhin kompakter Größe (voller Board-/Hand-/Pool-Umfang bleibt benutzbar)
+und unveränderter Interaktionslogik (Klicks zum Spielen/Anvisieren/
+Deckbau-Zähler).
+
+### Umsetzung
+
+- **`src/ui/cardInfo.ts`**: neue reine Anzeige-Funktion `manaCostPips(cost)`
+  liefert eine Liste von „Pips" (ein Kreissymbol pro Kostenanteil — EIN Pip
+  je Farbe mit Zahl statt einem Pip pro Mana-Punkt, damit teure Karten die
+  Kartengröße nicht sprengen — plus ein Pip für generische Kosten und eins
+  für X). `formatManaCost` bleibt unverändert bestehen und wird als
+  vollständiger Text-`title`-Tooltip auf dem Kosten-Element weiterverwendet
+  (Barrierefreiheit/Hover-Info), keine Duplikation der Formatierungslogik.
+- **`src/ui/components/manaCost.ts`** (neu): `manaCostBadge(cost)` baut aus
+  `manaCostPips` die eigentlichen DOM-Elemente (`.card-frame-cost` +
+  `.mana-pip.mana-<farbe>`-Spans) — ein gemeinsamer Baustein, damit
+  `handCard.ts`/`cardTile.ts`/`deckBuilder.ts` dieselbe DOM-Bau-Logik nicht
+  dreifach duplizieren.
+- **`src/ui/components/handCard.ts`**: baut jetzt `.card-frame-header` (Name
+  + `manaCostBadge`) und `.card-frame-frame` (`.card-frame-art`,
+  `.card-frame-type`, optional `.card-frame-text-box` mit Regeltext, optional
+  `.card-frame-pt` bei Einheiten) statt der bisherigen Reihe einzelner
+  `.hand-card-*`-Zeilen. Die Aktions-Buttons ("Spielen"/"Terrain legen"/...)
+  bleiben unverändert außerhalb des Kartenrahmens, direkt darunter.
+  `handCardDiscardToggle` (Cleanup-Abwurf) folgt demselben Muster (ohne
+  Regeltext/P/T, da hier nur Name/Kosten + Auswahl-Hinweis nötig sind).
+- **`src/ui/components/cardTile.ts`**: gleiches Muster für
+  Battlefield/Graveyard/Stack — die bisherigen einzelnen Status-Zeilen
+  (Counter, getappt, Beschwörungskrankheit, angelegt, Combat-Rolle, Keywords)
+  werden jetzt als kleine Badges in einer neuen `.card-frame-status`-Zeile
+  innerhalb der Regeltext-Box gesammelt, statt als separate Textzeilen unter
+  der Karte. Tapped-Optik (`opacity`/`rotate` über `.card-tile.tapped`)
+  unverändert.
+- **`src/ui/components/deckBuilder.ts`**: `poolRow` baut jetzt statt einer
+  reinen Tabellenzeile ebenfalls einen vollständigen Kartenrahmen (Name +
+  Kosten-Pips, Farbfläche, Typzeile, Regeltext falls vorhanden, P/T bei
+  Einheiten) — die +/- Zähler-Steuerung sitzt darunter an der Stelle der
+  Aktions-Buttons einer Handkarte. `.deckbuilder-pool` wechselt entsprechend
+  von einer vertikalen Zeilenliste (mit Zebra-Streifen) zu einem
+  Flex-Wrap-Kartenraster (weiterhin `max-height` + `overflow-y: auto`, jetzt
+  65vh statt 60vh, da die Karten mehr vertikalen Platz brauchen als reine
+  Zeilen) — bleibt bei 113 Pool-Karten benutzbar/scrollbar.
+- **`src/ui/style.css`**: komplett neuer, gemeinsamer Kartenrahmen-Block
+  (`.hand-card, .card-tile, .deck-pool-row { ... }` teilen sich Rahmen/
+  Kopfzeile/Bildfläche/Typzeile/Regeltext/P/T-Kasten-Regeln über die neuen
+  `.card-frame-*`-Klassen), drei unterschiedliche, aber weiterhin kompakte
+  Breiten (Handkarte 158px, Battlefield-Kachel 118px, Pool-Karte 132px —
+  gegenüber vorher 150px/110px kaum größer). Rahmenfarbe pro Manafarbe jetzt
+  als **vollständiger** 2px-Rahmen (`border-color`) statt nur 4px-Top-Border.
+  Neue `--mana-*-dark`-CSS-Variablen (ein dunklerer Ton je Manafarbe) speisen
+  den Verlaufshintergrund von `.card-frame-art` (`linear-gradient` von der
+  Manafarbe zu ihrem dunklen Gegenstück) — das ist die geforderte
+  „Bildfläche ohne Bild". `.card-frame-text` begrenzt Regeltext per
+  `-webkit-line-clamp` auf 5 Zeilen (verhindert, dass einzelne sehr lange
+  Kartentexte die Kompaktheit sprengen). `.card-frame-pt` ist absolut im
+  jeweiligen `.card-frame-frame` positioniert (unten rechts, `pointer-events:
+  none` — überlagert die Regeltext-Box wie bei klassischen Kartenspielen,
+  blockiert aber keine Klicks). Reines dunkles Theme (`color-scheme: dark`,
+  unverändert seit v0.1) — das Projekt hat weiterhin **kein** eigenes
+  Hell-Theme/keinen Umschalter (`prefers-color-scheme`/`data-theme` kommt an
+  keiner Stelle vor), daher wurden alle neuen Farbwerte ausschließlich gegen
+  das bestehende dunkle Theme abgestimmt; ein künftiges Hell-Theme müsste die
+  `--mana-*`/`--mana-*-dark`-Variablen und `--panel`/`--panel-2`-Kontraste
+  gesondert prüfen.
+
+### Bewusst unveränderte Klassen (Testkompatibilität)
+
+Alle von den permanenten UI-Tests per `querySelector` gesuchten Klassen
+blieben unverändert erhalten (nur die interne Struktur *innerhalb* der
+Karten wurde neu gebaut): `.hand-card`, `.hand-card-name` (jetzt zusätzlich
+`card-frame-name`), `.card-tile` (inkl. `.targetable`/`.selected`/
+`.hinted`/`.tapped`), `.card-tile-name` (zusätzlich `card-frame-name`),
+`.deck-pool-row` (inkl. `data-card-id`), `.deck-pool-row-count`,
+`.deck-pool-plus-btn`/`.deck-pool-minus-btn`, `.discard-toggle`/`.selected`,
+`.btn-pass`/`.btn.btn-play`/`.btn.btn-cancel`. Keine bestehende Testdatei
+musste angepasst werden.
+
+### Verifikation
+
+- `npm run build` (`tsc --noEmit`) sauber.
+- `npm test` (`vitest run`) weiterhin **151/151 grün**, inkl. aller
+  DOM-basierten Golden-Path-/Combat-/Deckbau-/Bot-Tests, die reale
+  `render()`-Ausgaben inspizieren — keine Regression durch die reine
+  CSS/HTML-Umstrukturierung.
+- `npm run build:ui` (Vite-Produktionsbuild) erfolgreich (10.34 kB CSS
+  gzip 2.43 kB, 145.19 kB JS gzip 34.19 kB — CSS-Zuwachs durch das neue
+  Kartenrahmen-Layout, JS nahezu unverändert, da nur Markup-Struktur, keine
+  neue Logik).
+- Boot-Smoke-Test: `npm run dev` gestartet, `GET /` liefert `200`, kein
+  Absturz/keine Vite-Fehlermeldung im Log.
+- **Einschränkung:** Kein echter Browser-/Screenshot-Test in dieser Session
+  (nur Datei-/Shell-Werkzeuge verfügbar, wie schon in mehreren früheren
+  Runden dokumentiert) — die visuelle Abnahme (Farbverläufe, Lesbarkeit,
+  Kompaktheit bei vollem Board/vollem Pool) erfolgt laut Auftrag durch den
+  Nutzer selbst per Live-Browser-Screenshot.
+
+**Ergebnis:** Neue Dateien: `src/ui/components/manaCost.ts`. Geänderte
+Dateien: `src/ui/cardInfo.ts` (`manaCostPips`), `src/ui/components/handCard.ts`,
+`src/ui/components/cardTile.ts`, `src/ui/components/deckBuilder.ts`,
+`src/ui/style.css`. Keine Änderungen an `src/engine/*`, `src/model/*`,
+`src/ai/*`, `src/cards/*`, `src/ui/store.ts`, `src/ui/render.ts` (die
+Render-Verdrahtung/Interaktionslogik war nicht Gegenstand dieses Auftrags und
+blieb unangetastet).
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
@@ -1291,14 +1563,12 @@ Form.
 9. ~~**KI-Gegner-Anbindung ("Spieler 2 = KI")**~~ **erledigt in v0.1.7** (s.
    eigener Abschnitt oben) — Umschalter im Deckbau-Screen, automatischer
    Zug-Loop in `store.ts`, „KI"-Badge im Spieler-Panel.
-10. **Bot-Schwierigkeitsstufe/-Timing nicht einstellbar im UI**: `docs/ai-
-    status.md` kündigt für einen späteren Schritt mehrere
-    `chooseAction`-Varianten/Schwierigkeitsstufen an — sobald die existieren,
-    bräuchte der Deckbau-Screen einen zweiten Umschalter (z. B.
-    Dropdown/Radio statt der aktuellen einzelnen Checkbox). `botMoveDelayMs`
-    (store.ts, Default 250 ms) ist aktuell ebenfalls nicht über die UI
-    einstellbar (nur über `setBotMoveDelayMs()` aus Code/Tests) — für ein
-    Hobby-/Lernprojekt aktuell bewusst nicht als Nutzer-Einstellung
+10. ~~**Bot-Schwierigkeitsstufe nicht einstellbar im UI**~~ **erledigt in
+    v0.1.9** (s. eigener Abschnitt oben) — Dropdown im Deckbau-Screen von
+    Spieler 2, `store.ts#botDifficulty` + `chooseActionForDifficulty`.
+    `botMoveDelayMs` (store.ts, Default 250 ms) ist weiterhin **nicht** über
+    die UI einstellbar (nur über `setBotMoveDelayMs()` aus Code/Tests) — für
+    ein Hobby-/Lernprojekt aktuell bewusst nicht als Nutzer-Einstellung
     ausgebaut.
 11. **Bot-vs-Bot-Zuschauermodus**: `store.ts#botControlledPlayers` ist
     bewusst als `Set<PlayerId>` gebaut und würde „beide Spieler sind KI"

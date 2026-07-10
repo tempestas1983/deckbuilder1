@@ -17,8 +17,10 @@
  */
 
 import type { CardDefinition, CardPool, CardType, ManaColor, PlayerId } from "../../model";
-import { COLOR_LABEL, dominantColorKey, formatManaCost, typeLabel } from "../cardInfo";
+import { BOT_DIFFICULTIES, BOT_DIFFICULTY_LABELS, type BotDifficulty } from "../../ai";
+import { COLOR_LABEL, dominantColorClass, dominantColorKey, subtypeLine } from "../cardInfo";
 import { h, text } from "../h";
+import { manaCostBadge } from "./manaCost";
 import { validateDecklist } from "../deckValidation";
 
 const TYPE_OPTIONS: Array<{ value: CardType | "all"; label: string }> = [
@@ -86,6 +88,14 @@ export interface DeckBuilderOptions {
   onToggleBotControl: () => void;
   /** "Zufälliges KI-Deck + weiter": füllt zufällig, markiert bot-gesteuert und bestätigt sofort (überspringt den manuellen Deckbau-Screen für diesen Spieler). */
   onAiQuickstart: () => void;
+  /**
+   * v0.1.9 (Bot-Schwierigkeitsstufen, docs/ai-status.md Abschnitt 9.8): aktuell
+   * gewählte Stufe (store.ts#getBotDifficulty) sowie Setter - nur relevant/
+   * angezeigt, wenn `botControlled` true ist (s. `aiToggle` unten), bleibt aber
+   * unabhängig davon im Store gespeichert.
+   */
+  botDifficulty: BotDifficulty;
+  onChangeBotDifficulty: (next: BotDifficulty) => void;
 }
 
 export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
@@ -142,6 +152,31 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
   // nicht Spieler 1. store.ts#isBotControlled/setBotControlled unterstützen
   // grundsätzlich jeden PlayerId (Set<PlayerId>), diese Einschränkung ist rein
   // hier in der UI.
+  // v0.1.9: Schwierigkeitsstufen-Auswahl (BOT_DIFFICULTIES/BOT_DIFFICULTY_LABELS
+  // aus src/ai, s. docs/ai-status.md Abschnitt 9.8) - nur sichtbar/aktiv,
+  // solange die KI-Steuerung für diesen Spieler aktiv ist.
+  const difficultySelect = opts.botControlled
+    ? h(
+        "label",
+        { class: "deckbuilder-ai-difficulty-label" },
+        [
+          text("Schwierigkeit: "),
+          h(
+            "select",
+            {
+              class: "deckbuilder-ai-difficulty-select",
+              onchange: (ev: Event) => {
+                opts.onChangeBotDifficulty((ev.target as HTMLSelectElement).value as BotDifficulty);
+              },
+            },
+            BOT_DIFFICULTIES.map((d) =>
+              h("option", { value: d, selected: opts.botDifficulty === d }, [text(BOT_DIFFICULTY_LABELS[d])]),
+            ),
+          ),
+        ],
+      )
+    : undefined;
+
   const aiToggle =
     player === "player2"
       ? h("div", { class: "deckbuilder-ai-toggle" }, [
@@ -154,6 +189,7 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
             }),
             text(" Spieler 2 von KI steuern lassen"),
           ]),
+          difficultySelect,
           opts.botControlled
             ? h(
                 "button",
@@ -229,16 +265,32 @@ function poolRow(
     onChange(next);
   };
 
+  // Klassisches Kartenrahmen-Layout (s. handCard.ts/cardTile.ts) statt
+  // reiner Tabellenzeile - die +/- Zählersteuerung tritt an die Stelle der
+  // Aktions-Buttons einer Handkarte.
+  const frameChildren: (Node | string | false | undefined)[] = [
+    h("div", { class: "card-frame-art" }),
+    h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
+  ];
+  if (def.rulesText) {
+    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, [text(def.rulesText)])]));
+  }
+  if (def.type === "unit") {
+    frameChildren.push(h("div", { class: "card-frame-pt" }, [text(`${def.power}/${def.toughness}`)]));
+  }
+
   return h(
     "div",
     {
-      class: "deck-pool-row",
+      class: ["deck-pool-row", dominantColorClass(cost ?? {})].join(" "),
       "data-card-id": def.id,
     },
     [
-      h("span", { class: "deck-pool-row-name" }, [text(def.name)]),
-      h("span", { class: "deck-pool-row-type" }, [text(typeLabel(def))]),
-      h("span", { class: "deck-pool-row-cost" }, [text(cost ? formatManaCost(cost) : "—")]),
+      h("div", { class: "card-frame-header" }, [
+        h("div", { class: "card-frame-name deck-pool-row-name" }, [text(def.name)]),
+        cost ? manaCostBadge(cost) : undefined,
+      ]),
+      h("div", { class: "card-frame-frame" }, frameChildren),
       h("div", { class: "deck-pool-row-controls" }, [
         h("button", { class: "btn btn-small deck-pool-minus-btn", disabled: count <= 0, onclick: decrement }, [text("−")]),
         h("span", { class: "deck-pool-row-count" }, [text(String(count))]),

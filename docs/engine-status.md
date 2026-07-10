@@ -1,6 +1,8 @@
 # Engine-Status
 
-Status: v0.3.2 (engine-engineer) — 2026-07-09
+Status: v0.3.3 (engine-engineer) — 2026-07-10 (Bugfix-Runde, gemeldet vom
+ai-opponent-engineer — s. Abschnitt "v0.3.3" unten; vorheriger Stand: v0.3.2,
+2026-07-09)
 Grundlage: `docs/rules-engine.md` (Regelwerk v0.3, vier vertagte Punkte aus
 Abschnitt 10 geschlossen: `onDamageReceived`, Mulligan, X auf aktivierten
 Fähigkeiten, Modal-Effekte; v0.3.1-Nachtrag zu Entscheidung 9.13), `src/model/*`
@@ -23,6 +25,91 @@ mehr Sache dieses engine-engineer-Dokuments einzeln nachzuführen.
 Dieses Dokument richtet sich an frontend-engineer (worauf aufbauen?), card-designer
 (welche DSL-Primitive funktionieren zuverlässig?) und game-architect (offene
 Klärungspunkte, siehe Abschnitt "Offene Fragen").
+
+## v0.3.3: Bugfix — `dealCombatDamage` crashte, wenn ein TOKEN-Kampfteilnehmer in der firstStrike-Zwischenrunde starb
+
+**Gefunden** vom ai-opponent-engineer (fable-5) beim Stärkevergleich-Testen der
+Bot-Schwierigkeitsstufen (`docs/ai-status.md`, Abschnitt 9.6): 2 von 250
+Bot-vs-Bot-Partien crashten mit einer Exception statt eines legalen
+`error`-Returns:
+
+> `Error: Unbekannte CardInstance-ID: cardXXX` — `getDefinitionForInstance`
+> (`card-defs.ts`) via `computeEffectiveKeywords` (`stats.ts`) via `hasKeyword`
+> (`combat.ts`) via `dealCombatDamage` (`combat.ts`), ausgelöst aus `beginStep`
+> (`turn.ts`) als Turn-Based Action des Combat-Damage-Steps.
+
+Der Fund wurde zunächst nur gemeldet (nicht bot-spezifisch, s.u.), dieser
+Auftrag hat ihn dann tatsächlich im Engine-Code behoben.
+
+**Root Cause (selbst verifiziert, nicht 1:1 der gemeldete Mechanismus —
+Detail-Korrektur unten):** `combat.ts#dealCombatDamage` führt bei mindestens
+einem firstStrike-Teilnehmer zwei Schadensrunden aus (rules-engine.md 6d(2)),
+dazwischen läuft ein Zwischen-SBA-Durchlauf. Stirbt dabei ein TOKEN, wird seine
+Instanz per SBA 7 (`zones.ts#removeTokenPermanently`) ENDGÜLTIG aus
+`state.cards` gelöscht (anders als bei normalen Karten, die beim Verlassen des
+Battlefields nur `permanentState` verlieren, aber als `CardInstance` erhalten
+bleiben — `zones.ts#moveCard`). Die zweite Schadensrunde
+(`dealCombatDamageRound`) hat für die meisten Stellen bereits defensive
+Existenz-Guards (`state.cards[id]?.permanentState`-Checks) — bis auf EINE:
+die "Blocker schlagen zurück"-Schleife rief `participates(blockerId)` (den vom
+Aufrufer übergebenen `!hasKeyword(..., "firstStrike")`-Filter) **vor** dem
+eigenen Existenz-Guard auf. War `blockerId` ein in Runde 1 gestorbenes Token,
+warf `hasKeyword` → `computeEffectiveKeywords` → `getDefinitionForInstance`
+für die bereits gelöschte ID.
+
+**Präzisierung gegenüber dem gemeldeten Mechanismus:** Die gemeldete
+Beispielkonstellation ("Angreifer-Token ohne firstStrike stirbt an einem
+firstStrike-Blocker") crasht bei genauerer Nachverfolgung tatsächlich NICHT —
+stirbt der ANGREIFER, überspringt der bereits vorhandene
+`attackerCard?.permanentState`-Guard am Schleifenkopf die komplette Iteration
+(inklusive der Blocker-Rückschlag-Schleife für genau diesen Angreifer), bevor
+`participates` je aufgerufen wird. Der tatsächliche Crash-Mechanismus ist die
+GESPIEGELTE Konstellation: ein firstStrike-**Angreifer** überlebt (deshalb
+läuft seine Schleifen-Iteration in Runde 2 normal weiter) und tötet einen
+**Blocker**-TOKEN ohne firstStrike bereits in Runde 1 — genau dieser noch
+lebende Angreifer crasht dann in Runde 2 beim Versuch, den (inzwischen
+gelöschten) Blocker auf Rückschlag zu prüfen. Verifiziert per Regressionstest
+(s.u.): mit dem alten Code reproduzierbar exakt derselbe Fehler
+(`Unbekannte CardInstance-ID`), mit dem Fix nicht mehr.
+
+**Fix (`src/engine/combat.ts`):**
+1. `hasKeyword` behandelt eine nicht mehr existierende oder das Battlefield
+   bereits verlassene Instanz jetzt als "kein Keyword aktiv" (`false`) statt
+   ungeprüft `computeEffectiveKeywords` aufzurufen — ein bereits ausgeschiedener
+   Kampfteilnehmer kann per Definition kein aktives Keyword mehr haben.
+2. Zusätzlich (Defense-in-Depth, nicht nur Verlass auf Punkt 1): die
+   "Blocker schlagen zurück"-Schleife in `dealCombatDamageRound` prüft die
+   Existenz des Blockers jetzt VOR dem `participates`-Aufruf, symmetrisch zum
+   bereits vorhandenen Guard auf der Angreifer-Seite.
+
+Beide Änderungen sind rein additiv/defensiv — kein Verhaltensunterschied für
+alle bereits bestehenden (nicht crashenden) Kampf-Szenarien, verifiziert durch
+den vollständig grünen Bestandstest `combat-keywords.test.ts` (16 vorherige
+Tests unverändert grün).
+
+**Regressionstest:** `src/engine/__tests__/combat-keywords.test.ts`, neue
+Describe-Gruppe "v0.3.3-Bugfix" (2 Tests, neue Testkarte `TOKEN_BEAR` —
+2/2-Vanilla-TOKEN — in `src/engine/__tests__/fixtures.ts`):
+- Einzelkampf: firstStrike-Angreifer tötet einen TOKEN-Blocker ohne firstStrike
+  in Runde 1 — Runde 2 darf nicht werfen, der Angreifer bleibt unbeschadet.
+- Mehrkampf: derselbe Fall läuft parallel zu einem zweiten, komplett
+  firstStrike-losen Kampf (gegenseitiger Kill), der durch den firstStrike-
+  Teilnehmer im ersten Kampf ebenfalls in zwei Runden aufgeteilt wird — deckt
+  die vom ai-opponent-engineer erwähnte "während weitere Kämpfe noch laufen"-
+  Konstellation ab und bestätigt, dass der zweite Kampf unbeeinflusst korrekt
+  abläuft.
+Beide Tests wurden gegen den unveränderten (Vor-Fix-)Code gegengeprüft: sie
+schlagen dort mit exakt dem gemeldeten Fehler (`Unbekannte CardInstance-ID`)
+fehl, bevor der Fix angewendet wird.
+
+**Verifikation:** `npm test`: 151 Tests grün (149 Bestand + 2 neue). `npm run
+build` (tsc --noEmit): sauber. Zusätzlich lokal verifiziert (nicht dauerhaft
+Teil des Testfiles, gehört `ai-opponent-engineer`s `difficulty.test.ts`): die
+beiden in `docs/ai-status.md` 9.6 als Crash-Seeds dokumentierten Fälle (Seed 13
+medium-vs-easy, Seed 21 hard-beteiligt) wurden testweise wieder in die
+Seed-Listen aufgenommen und liefen mit dem Fix fehlerfrei durch (danach wieder
+auf den Ursprungszustand zurückgesetzt — Entscheidung, ob/wann die
+Aussparungen dauerhaft entfernt werden, liegt beim ai-opponent-engineer).
 
 ## v0.3.2: Bugfix — `getLegalActions` prüfte bei `activateAbility` nicht alle Zusatzkosten
 

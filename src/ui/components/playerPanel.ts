@@ -14,6 +14,13 @@ export interface PlayerPanelOptions {
   /** v0.1.7 ("Spieler 2 = KI"): zeigt ein "KI"-Badge, s. store.ts#isBotControlled. */
   botControlled?: boolean;
   /**
+   * v0.1.9 (Bot-Schwierigkeitsstufen): Anzeigename der aktiven Stufe
+   * ("Leicht"/"Mittel"/"Schwer", s. src/ai#BOT_DIFFICULTY_LABELS), angehängt
+   * an das "KI"-Badge, z.B. "KI (Schwer)". Nur sinnvoll, wenn `botControlled`
+   * true ist - render.ts setzt es nur dann.
+   */
+  botDifficultyLabel?: string;
+  /**
    * v0.1.8 (concede-Button): Callback für "Aufgeben". Nur gesetzt, wenn der
    * Button für diesen Spieler überhaupt angezeigt werden soll (render.ts
    * entscheidet das - z.B. nicht für bot-gesteuerte Spieler, nicht nach
@@ -27,6 +34,12 @@ export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPa
   const p = state.players[playerId];
   const badges: HTMLElement[] = [];
   if (opts.botControlled) badges.push(h("span", { class: "badge badge-bot" }, [text("KI")]));
+  // v0.1.9: eigenes, separates Badge statt den Text von .badge-bot zu
+  // erweitern - hält den bestehenden vs-bot.test.ts-Vertrag
+  // (`.badge-bot`-Text === "KI") unverändert stabil.
+  if (opts.botControlled && opts.botDifficultyLabel) {
+    badges.push(h("span", { class: "badge badge-bot-difficulty" }, [text(opts.botDifficultyLabel)]));
+  }
   if (state.activePlayer === playerId) badges.push(h("span", { class: "badge badge-active" }, [text("am Zug")]));
   if (state.priorityPlayer === playerId) badges.push(h("span", { class: "badge badge-priority" }, [text("Priority")]));
   if (state.pendingDecision?.player === playerId) {

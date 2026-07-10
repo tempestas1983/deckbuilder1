@@ -54,6 +54,13 @@ export const MODAL_TRIGGER_UNIT = "test.omen-oracle"; // 1/1 für {generic:1}, E
 // wurden (removeCounters/payLife/discardCards - "tap" war immer schon geprüft).
 export const UNAFFORDABLE_COSTS_RELIC = "test.overcosted-trinket";
 
+// Regressionstest-Karte für den combat.ts-Engine-Bug (docs/engine-status.md,
+// v0.3.3): 2/2-TOKEN ohne Keywords, damit ein Kampfteilnehmer in der
+// firstStrike-Zwischenrunde per SBA 7 (zones.ts#removeTokenPermanently)
+// ENDGÜLTIG aus state.cards gelöscht wird, statt (wie eine normale Karte)
+// nur permanentState zu verlieren - genau das ist die Vorbedingung des Bugs.
+export const TOKEN_BEAR = "test.bear-token"; // 2/2 Vanilla-TOKEN für {2}
+
 export function buildTestPool(): CardPool {
   return {
     [FLAME_TERRAIN]: {
@@ -545,6 +552,16 @@ export function buildTestPool(): CardPool {
           text: "Wirf 10 Karten ab: gewinne 1 Leben. (Regressionstest discardCards, abilityIndex 2)",
         },
       ],
+    },
+    [TOKEN_BEAR]: {
+      id: TOKEN_BEAR,
+      name: "Testbärentoken",
+      type: "unit",
+      set: "test",
+      cost: { generic: 2 },
+      power: 2,
+      toughness: 2,
+      isToken: true,
     },
   };
 }

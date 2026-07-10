@@ -39,6 +39,18 @@ export function setChecked(el: HTMLInputElement | null | undefined, checked: boo
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+/**
+ * Setzt den Wert eines `<select>`-Elements EXPLIZIT (gleiches Muster wie
+ * `setChecked` oben) und stößt ein echtes "change"-Event an - genau das
+ * Event, an das die `onchange`-Handler in diesem Projekt gebunden sind (z.B.
+ * `components/deckBuilder.ts`s Bot-Schwierigkeitsstufen-Select).
+ */
+export function selectValue(el: HTMLSelectElement | null | undefined, value: string): void {
+  if (!el) throw new Error("selectValue(): Element nicht gefunden.");
+  el.value = value;
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 export function queryOne<T extends Element = Element>(root: ParentNode, selector: string): T {
   const el = root.querySelector<T>(selector);
   if (!el) throw new Error(`Element nicht gefunden: ${selector}`);

@@ -1,7 +1,8 @@
 /**
- * Kompakte Kartendarstellung für Battlefield/Graveyard/Stack: Name, Kosten,
- * P/T (falls Unit, inkl. Marken/statischer Effekte), Tapped-Status, Counter,
- * Keywords.
+ * Kompakte Kartendarstellung für Battlefield/Graveyard/Stack: klassisches
+ * Kartenrahmen-Layout (Kopfzeile Name/Kosten, Bildfläche als reine Farbfläche
+ * je Manafarbe, Typzeile, Regeltext + Status-Badges, P/T-Kasten bei Einheiten
+ * inkl. Marken/statischer Effekte), Tapped-Status, Counter, Keywords.
  */
 
 import type { CardPool, GameState, InstanceId } from "../../model";
@@ -11,9 +12,10 @@ import {
   dominantColorClass,
   effectiveKeywords,
   effectivePT,
-  formatManaCost,
+  subtypeLine,
 } from "../cardInfo";
 import { h, text } from "../h";
+import { manaCostBadge } from "./manaCost";
 
 export interface CardTileOptions {
   /** true = Element bekommt eine "wählbar"-Optik + onClick. */
@@ -35,41 +37,46 @@ export function cardTile(
   if (!inst) throw new Error(`Unbekannte CardInstance: ${instanceId}`);
   const def = cardDef(pool, state, instanceId);
   const ps = inst.permanentState;
-  const classes = ["card-tile", dominantColorClass("cost" in def ? def.cost : {})];
+  const cost = "cost" in def ? def.cost : undefined;
+  const classes = ["card-tile", dominantColorClass(cost ?? {})];
   if (ps?.tapped) classes.push("tapped");
   if (opts.targetable) classes.push("targetable");
   if (opts.selected) classes.push("selected");
   if (opts.hinted) classes.push("hinted");
 
-  const lines: (Node | string | false | undefined)[] = [
-    h("div", { class: "card-tile-name" }, [text(def.name)]),
-  ];
+  const statusBadges: (Node | string | false | undefined)[] = [];
+  if (ps) {
+    const counters = counterSummary(ps.counters);
+    if (counters) statusBadges.push(h("span", { class: "card-tile-counters" }, [text(counters)]));
+    if (ps.tapped) statusBadges.push(h("span", { class: "card-tile-tapped-badge" }, [text("getappt")]));
+    if (ps.summoningSick) statusBadges.push(h("span", { class: "card-tile-sick-badge" }, [text("Beschwörungskrankheit")]));
+    if (ps.attachedTo) statusBadges.push(h("span", { class: "card-tile-attached" }, [text("angelegt")]));
+    if (ps.combat?.role === "attacker") statusBadges.push(h("span", { class: "card-tile-combat" }, [text("greift an")]));
+    if (ps.combat?.role === "blocker") statusBadges.push(h("span", { class: "card-tile-combat" }, [text("blockt")]));
+  }
+  const kws = effectiveKeywords(state, pool, instanceId);
+  if (kws.length > 0) {
+    statusBadges.push(h("span", { class: "card-tile-keywords" }, [text(kws.join(", "))]));
+  }
 
+  const frameChildren: (Node | string | false | undefined)[] = [
+    h("div", { class: "card-frame-art" }),
+    h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
+  ];
+  if (def.rulesText || statusBadges.length > 0) {
+    frameChildren.push(
+      h("div", { class: "card-frame-text-box" }, [
+        def.rulesText ? h("div", { class: "card-frame-text" }, [text(def.rulesText)]) : undefined,
+        statusBadges.length > 0 ? h("div", { class: "card-frame-status" }, statusBadges) : undefined,
+      ]),
+    );
+  }
   if (def.type === "unit") {
     // Effektive Werte (Marken/statische Effekte) nur auf dem Battlefield sinnvoll
     // (computeEffectiveStats braucht PermanentState) - im Graveyard/Exil zeigen
     // wir die Basiswerte der Karte.
     const { power, toughness } = ps ? effectivePT(state, pool, instanceId) : { power: def.power, toughness: def.toughness };
-    lines.push(h("div", { class: "card-tile-pt" }, [text(`${power}/${toughness}`)]));
-  }
-  if ("cost" in def) {
-    lines.push(h("div", { class: "card-tile-cost" }, [text(formatManaCost(def.cost))]));
-  }
-  const kws = effectiveKeywords(state, pool, instanceId);
-  if (kws.length > 0) {
-    lines.push(h("div", { class: "card-tile-keywords" }, [text(kws.join(", "))]));
-  }
-  if (ps) {
-    const counters = counterSummary(ps.counters);
-    if (counters) lines.push(h("div", { class: "card-tile-counters" }, [text(counters)]));
-    if (ps.tapped) lines.push(h("div", { class: "card-tile-tapped-badge" }, [text("getappt")]));
-    if (ps.summoningSick) lines.push(h("div", { class: "card-tile-sick-badge" }, [text("Beschwörungskrankheit")]));
-    if (ps.attachedTo) lines.push(h("div", { class: "card-tile-attached" }, [text("angelegt")]));
-    if (ps.combat?.role === "attacker") lines.push(h("div", { class: "card-tile-combat" }, [text("greift an")]));
-    if (ps.combat?.role === "blocker") lines.push(h("div", { class: "card-tile-combat" }, [text("blockt")]));
-  }
-  if (def.rulesText) {
-    lines.push(h("div", { class: "card-tile-text" }, [text(def.rulesText)]));
+    frameChildren.push(h("div", { class: "card-frame-pt card-tile-pt" }, [text(`${power}/${toughness}`)]));
   }
 
   return h(
@@ -79,6 +86,12 @@ export function cardTile(
       title: def.rulesText ?? def.name,
       onclick: opts.onClick as ((ev: Event) => void) | undefined,
     },
-    lines,
+    [
+      h("div", { class: "card-frame-header" }, [
+        h("div", { class: "card-frame-name card-tile-name" }, [text(def.name)]),
+        cost ? manaCostBadge(cost) : undefined,
+      ]),
+      h("div", { class: "card-frame-frame" }, frameChildren),
+    ],
   );
 }

@@ -164,7 +164,21 @@ export function applyOrderBlockers(
   }
 }
 
+/**
+ * v0.3.3-Bugfix (docs/engine-status.md): Guard gegen bereits aus dem Kampf
+ * ausgeschiedene Teilnehmer. Stirbt ein TOKEN-Kampfteilnehmer in der
+ * firstStrike-Schadensrunde, löscht der Zwischen-SBA-Durchlauf (SBA 7,
+ * zones.ts#removeTokenPermanently) seine Instanz ENDGÜLTIG aus `state.cards`
+ * - eine normale (Nicht-Token-)Karte verliert beim Verlassen des Battlefields
+ * stattdessen nur `permanentState` (zones.ts#moveCard). Beide Fälle bedeuten
+ * "kein aktiver Kampfteilnehmer mehr" -> kein Keyword aktiv, statt (vor dem
+ * Fix) eine Exception aus `getDefinitionForInstance` für die gelöschte
+ * Token-ID. Ohne diesen Guard wirft die zweite Schadensrunde für JEDEN
+ * `participates`-Aufruf auf eine in der Zwischen-SBA gestorbene Token-Instanz
+ * (siehe `dealCombatDamageRound` unten, Blocker-Rückschlag-Schleife).
+ */
 function hasKeyword(state: GameState, pool: CardPool, instanceId: InstanceId, keyword: "firstStrike" | "trample" | "deathtouch"): boolean {
+  if (!state.cards[instanceId]?.permanentState) return false;
   return computeEffectiveKeywords(state, pool, instanceId).has(keyword);
 }
 
@@ -276,9 +290,15 @@ function dealCombatDamageRound(
 
     // --- Blocker schlagen zurück (nur die, die in dieser Runde an der Reihe sind) ---
     for (const blockerId of blockedBy) {
-      if (!participates(blockerId)) continue;
+      // §6b(3), v0.3.3-Bugfix: Existenz-Guard MUSS vor `participates` laufen -
+      // ein Blocker, der bereits in der firstStrike-Zwischenrunde gestorben
+      // ist (Token -> aus state.cards gelöscht), teilt hier nichts mehr aus.
+      // `participates` selbst ist inzwischen defensiv (s. hasKeyword oben),
+      // aber die Reihenfolge bleibt hier bewusst korrekt, statt sich allein
+      // auf das Guard-Verhalten des Callbacks zu verlassen.
       const blockerCard = state.cards[blockerId];
       if (!blockerCard?.permanentState) continue;
+      if (!participates(blockerId)) continue;
       const { power: blockerPower } = computeEffectiveStats(state, pool, blockerId);
       addPermanentDamage(attackerId, blockerPower, blockerCard.controller, blockerId);
     }

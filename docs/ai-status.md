@@ -1,11 +1,16 @@
-# KI-Gegner-Status (SimpleBot v1)
+# KI-Gegner-Status
 
-Status: v1 (engine-engineer) — 2026-07-09
+Status: **v2 — Schwierigkeitsstufen** (ai-opponent-engineer, fable-5) — 2026-07-10
+(v1-Basis: engine-engineer — 2026-07-09; die v1-Abschnitte 1–8 unten gelten
+unverändert für die mittlere Stufe.)
 Grundlage: `docs/rules-engine.md` (v0.3.1), öffentliche `RulesEngine`-Schnittstelle
 (`src/engine/index.ts` / `src/model/game-state.ts`).
-Code: `src/ai/simpleBot.ts`. Tests: `src/ai/__tests__/simpleBot.test.ts` (Vitest,
-11 Tests: 13 vollständige Bot-vs-Bot-Partien über den echten `core`-Kartenpool,
-109 Karten, alle grün).
+Code v1: `src/ai/simpleBot.ts` (unverändert = Stufe "medium").
+Code v2: `src/ai/difficulty.ts` (öffentliche API), `src/ai/easyBot.ts`,
+`src/ai/hardBot.ts`, `src/ai/boardEval.ts`, `src/ai/index.ts`.
+Tests: `src/ai/__tests__/simpleBot.test.ts` (v1, unverändert) +
+`src/ai/__tests__/difficulty.test.ts` (v2, Stärkevergleich/Verträge).
+Details zu v2: Abschnitt 9 unten.
 
 Dieses Dokument beschreibt den einfachen, regelbasierten KI-Gegner (v1) —
 bewusst simpel gehalten, **kein Balancing-Anspruch**. Es ist das Fundament für
@@ -310,3 +315,211 @@ darauf aufbauen, ohne diese Nahtstelle zu verändern — z.B. durch:
   2000-Aktionen-Sicherheitslimit. Nach dem Engine-Fix und dem Entfernen des
   Bot-seitigen Workarounds erneut mit identischem Ergebnis (gleiche
   Aktionszahlen/Sieger pro Seed) durchlaufen.
+
+---
+
+# v2: Schwierigkeitsstufen (leicht/mittel/schwer)
+
+Status: v2 (ai-opponent-engineer, fable-5) — 2026-07-10
+
+## 9.1 Öffentliche API
+
+`src/ai/difficulty.ts` (re-exportiert über `src/ai/index.ts`):
+
+- `type BotDifficulty = "easy" | "medium" | "hard"`
+- `chooseActionForDifficulty(engine, pool, state, player, difficulty): PlayerAction`
+  — Signatur/Nutzungsvertrag identisch zu v1-`chooseAction` (Abschnitt 1), plus
+  Stufenparameter. Liefert IMMER eine legale Aktion.
+- `BOT_DIFFICULTIES` (aufsteigende Stärke), `BOT_DIFFICULTY_LABELS`
+  (deutsche Anzeigenamen "Leicht"/"Mittel"/"Schwer"), `DEFAULT_BOT_DIFFICULTY`
+  (= "medium").
+
+`chooseAction` (v1) bleibt unverändert exportiert — `src/ui/store.ts`
+funktioniert ohne Änderung weiter (Anbindung der Stufen: Abschnitt 9.6).
+Alle drei Stufen sind reine Konsumenten der öffentlichen
+`RulesEngine`-Schnittstelle (`getLegalActions`/`applyAction`) — keine
+Engine-/Model-Internals; die Kampf-/Discard-Konstruktionsmuster und deren
+Restrisiken aus Abschnitt 3 gelten für alle Stufen unverändert.
+
+## 9.2 Stufe "easy" (`src/ai/easyBot.ts`) — absichtliche Fehler, regelkonform
+
+Kernidee: schwach durch ZUFALL und Naivität, nie durch illegale Aktionen.
+Der Zufall ist **deterministisch aus dem GameState abgeleitet** (mulberry32
+über `rngState.seed/counter`, `nextObjectNumber`, `turnNumber`): dieselbe
+Stellung ergibt immer dieselbe Aktion — reproduzierbare Tests, keine Flakiness
+(per Test verifiziert, s. 9.5).
+
+- Mulligan: behält jede Starthand. PendingDecisions: zufälliger Kandidat
+  (trifft damit auch eigene Permanents mit schädlichen Triggern).
+- Castet nur mit 60 % Wahrscheinlichkeit pro Fenster, dann einen ZUFÄLLIGEN
+  Kandidaten; ignoriert aktivierte Nicht-Mana-Fähigkeiten komplett (bewusst —
+  verhindert nebenbei den "Armee leer tappen"-Degenerationsfall aus Abschnitt 5
+  Fund 1, ohne die v1-Bremse zu brauchen).
+- Angriff: zufällige Teilmenge (50 % pro Unit), keine Blocker-Mathematik.
+- Blocken: selten (25 % pro Unit) und wahllos (auch sinnlose Chumps);
+  guardian-Pflichten werden immer erfüllt (sonst illegal). Discard: zufällig.
+- Beibehaltenes Nicht-Fehler-Verhalten (bewusst): Terrains werden immer
+  gespielt und Mana nur in der eigenen Main-Phase getappt — ohne beides
+  degenerieren Partien zu Deck-Auszehr-Marathons (Abschnitt 5), was weder
+  testbar noch für menschliche Gegner unterhaltsam wäre.
+
+## 9.3 Stufe "medium" — exakt die v1-Heuristik
+
+Delegiert unverändert an `simpleBot.ts#chooseAction` (Abschnitte 1–8).
+Keine Verhaltensänderung gegenüber dem bisherigen UI-Bot.
+
+## 9.4 Stufe "hard" (`src/ai/hardBot.ts` + `src/ai/boardEval.ts`)
+
+Baut auf der v1-Heuristik-STRUKTUR auf (gleiche Prioritätenreihenfolge,
+gleiche Vertrags-Muster), ersetzt aber die Entscheidungsqualität:
+
+1. **Budgetiertes 1-Ply-Lookahead über echte `applyAction`-Simulation**
+   (rules-engine.md 9.1: pure/deterministisch — genau die in Abschnitt 7 v1
+   skizzierte Ausbaurichtung): Jeder Cast-/Activate-Kandidat und jede eigene
+   Trigger-Ziel-/Modus-Wahl wird bis zur "Ruhe" simuliert (Stack leer, keine
+   PendingDecision; beide Seiten passen — Annahme: kein Instant-Speed-
+   Gegenspiel, was für alle aktuellen Bots zutrifft) und der Ergebnis-Zustand
+   mit `evaluateState` bewertet. Gewählt wird nur, was die Stellung um
+   mindestens `MIN_EVAL_GAIN` verbessert — Removal auf eigene Permanents,
+   nutzlose Aktivierungen etc. fallen dadurch automatisch weg. Das schließt
+   die v1-Schwächen 5 (modale Karten) und 6 (grobe Zielwahl).
+2. **Effektive Stats/Keywords inkl. statischer Fremd-Effekte**
+   (`boardEval.ts#effectiveStats`/`hasEffectiveKeyword`): Anthems, Auren,
+   Debuffs und statisch gewährte Keywords ALLER Battlefield-Permanents fließen
+   ein — rein konsumentenseitig aus `CardPool`+`GameState` berechnet (additive
+   Statics, kein Layer-System nötig). Schließt v1-Schwächen 2 und 7 für diese
+   Stufe.
+3. **Board-Bewertung** (`boardEval.ts#evaluateState`): Lebensdifferenz,
+   Unit-Werte (effektive Stats + Keyword-Boni, Gewichte als benannte
+   Konstanten `EVAL_WEIGHTS`), sonstige Permanents, Kartenvorteil (Handgröße),
+   Deck-Tod-Strafe. Symmetrisch und bewusst klein gehalten (Erklärbarkeit).
+4. **Echte Kampf-Mathematik** (`boardEval.ts#fightOutcome` mit
+   firstStrike/deathtouch/markiertem Schaden) plus **Kampf-Simulation**:
+   - Angriff: Alpha-Strike-Erkennung (konservative Mindest-Durchbruch-
+     Rechnung -> letaler Gesamtangriff), sonst Bewertung mehrerer Angreifer-
+     Teilmengen durch komplette Kampf-Simulation mit ZWEI Gegner-Modellen
+     ("blockt gut" = eigene Block-Heuristik aus Gegnersicht / "blockt nur
+     Pflichten") und Mittelwert-Score. Der Mittelwert ist bewusst KEIN
+     Best-Response: ein reines "Gegner blockt perfekt"-Modell entwertet
+     Angriffe systematisch und führt in dieselbe Kampf-Lähmung wie v1-Fund 1.
+   - Verteidigung: mehrere Block-Zuordnungs-Kandidaten (Heuristik mit
+     Free-Kill-/Tausch-/Überlebens-Blocks, Nur-Pflichten, Aggressiv,
+     Gang-Block auf den größten Angreifer) werden komplett durchsimuliert
+     (Schadensrunden, Trigger, SBAs) und der beste gewählt; trample-bewusste
+     Überlebens-Chumps bei drohendem Tod.
+   - Race-Bewusstsein: droht dem eigenen Leben ein letaler Gegenschlag,
+     bleiben die zähesten Nicht-vigilant-Units als Blocker zu Hause.
+5. **Performance-Budget** (UI darf nicht einfrieren): max. 400 simulierte
+   `applyAction`-Aufrufe pro Entscheidung, max. 12 simulierte Kandidaten
+   (statisch vorsortiert), max. 40–60 Rollout-Schritte; bei erschöpftem
+   Budget statischer Fallback (nie eine illegale Aktion). Gemessen
+   (difficulty.test.ts, Performance-Test): längste Einzelentscheidung über
+   komplette hard-vs-hard-Partien < 15 ms (Assertion: < 1000 ms als
+   großzügige CI-Schranke).
+6. Beibehalten aus v1 (bewusst, nach A/B-Messung): die "kein Vorab-Tappen
+   potenzieller Angreifer"-Bremse (jetzt mit effektiven Keywords) und das
+   INKREMENTELLE Mana-Tappen nur in der eigenen Main-Phase. Eine getestete
+   "erst alle Manaquellen tappen, dann entscheiden"-Regel (Kurven-Optimierung)
+   verschlechterte den Stärkevergleich messbar (29:20 statt 32:17 über 49
+   Partien) und wurde wieder entfernt (Begründung im Code kommentiert).
+
+## 9.5 Verifikation (v2)
+
+- `npm run build` (tsc --noEmit): sauber.
+- `npm test`: 148 Tests grün (141 Bestand inkl. v1-Bot-Tests + 7 neue in
+  `src/ai/__tests__/difficulty.test.ts`).
+- **Stärkevergleich** (deterministisch: feste Seeds, beide Rollenzuordnungen
+  pro Seed gegen den Startspieler-/Münzwurf-Vorteil; Engine UND alle Bots
+  deterministisch -> reproduzierbar, keine Flakiness). Assertions: höhere
+  Stufe gewinnt strikt mehr Partien UND >= 60 % der entschiedenen. Gemessen:
+  - medium vs easy: **20:4** (24 Partien)
+  - hard vs medium: **24:14** (38 Partien)
+  - hard vs easy: **22:2** (24 Partien)
+  - Größere, nicht eingecheckte Stichprobe beim Bauen (25 Seeds = bis zu 50
+    Partien pro Paarung): medium 44:5 easy, hard 32:17 medium, hard 47:3 easy.
+- Vertragstests: easy-vs-easy- und hard-vs-hard-Partien enden regulär ohne
+  eine einzige von der Engine abgelehnte Aktion; easy-Determinismus
+  (Doppelaufruf pro Stellung über eine ganze Partie liefert identische
+  Aktionen); hard-Performance (s.o.).
+
+## 9.6 Gefundener Engine-Bug v2 — GEMELDET, nicht selbst gefixt
+
+Beim Stärkevergleich-Testen über 25 Seeds crasht die Engine (Exception, kein
+`error`-Return) in 2 von 250 Partien:
+
+> `Error: Unbekannte CardInstance-ID: card134` —
+> `getDefinitionForInstance` (card-defs.ts:40) via
+> `computeEffectiveKeywords` (stats.ts:194) via `hasKeyword` (combat.ts:168)
+> via `dealCombatDamage` (combat.ts:330) via `beginStep` (turn.ts:246).
+
+**Mechanismus (aus dem Code abgeleitet):** Stirbt ein TOKEN-Kampfteilnehmer
+in der firstStrike-Schadensrunde, löscht der Zwischen-SBA-Durchlauf seine
+Instanz ENDGÜLTIG aus `state.cards` (SBA 7, zones.ts:103 `delete
+state.cards[instanceId]`). Die reguläre Schadensrunde filtert Teilnehmer
+anschließend mit `(id) => !hasKeyword(state, pool, id, "firstStrike")`
+(combat.ts:330) — `hasKeyword` läuft dabei VOR den Existenz-Guards von
+`dealCombatDamageRound` und wirft für die gelöschte Token-ID.
+`dealCombatDamageRound` selbst behandelt tote Teilnehmer defensiv
+(`state.cards[id]?.permanentState`-Checks) — nur der `participates`-Filter
+tut das nicht.
+
+Wichtig: Der Bug ist NICHT hard-spezifisch — er trifft auch **medium vs easy**
+(Seed 13; hard-Paarungen: Seed 21). Die v1-Testseeds haben die Konstellation
+(Token blockt/kämpft in einem firstStrike-Kampf und stirbt in der frühen
+Runde) schlicht nie erreicht. Kein Bot kann ihn vermeiden: der Crash passiert
+in der Turn-Based Action NACH einem völlig legalen `passPriority`.
+
+Konsumentenseitige Behandlung bis zum Engine-Fix (analog zum v1-Muster in
+Abschnitt 4 — melden statt Engine anfassen):
+
+- `hardBot.ts#safeApplyForSim`: alle SIMULATIONS-`applyAction`-Aufrufe sind
+  try/catch-geschützt (eine hypothetische Linie darf den Bot nie crashen; der
+  Kandidat gilt dann als unbewertbar). Echte Aktionen laufen bewusst NICHT
+  über den Wrapper.
+- Die Seed-Listen in `difficulty.test.ts` sparen die zwei bekannten
+  Crash-Seeds aus (dokumentiert im Testfile). Nach dem Engine-Fix können die
+  Aussparungen entfernt werden.
+
+Empfohlener Fix (Engine-Zuständigkeit): im `participates`-Filter bzw. in
+`hasKeyword` nicht mehr existierende/battlefield-lose Instanzen als
+`false`/nicht teilnehmend behandeln — plus Regressionstest "Token stirbt in
+firstStrike-Runde eines Mehrkampfs".
+
+## 9.7 Bekannte Schwächen (v2) / nächste Schritte
+
+1. **Kein echtes Multi-Ply-Minimax/MCTS** — das Lookahead ist 1-Ply mit
+   Kampf-Sonderbehandlung. Die Infrastruktur (Budget, safeApply, evaluateState)
+   ist dafür vorbereitet.
+2. **Kein Instant-Speed-Spiel** (v1-Schwäche 4 besteht in allen Stufen fort):
+   Mana wird nie im gegnerischen Zug offen gehalten. Da kein Bot Instant-Speed
+   spielt, ist die "beide passen"-Simulationsannahme von hard aktuell exakt.
+3. **X-Kosten und Mehrfach-Zielslots** werden von `getLegalActions` nicht
+   enumeriert und von KEINER Stufe genutzt — hard könnte solche Aktionen
+   (vertragskonform, wie Kampf-Deklarationen) selbst konstruieren; bewusst
+   vertagt.
+4. **Gegner-Modell des Angriffs-Lookaheads** ist ein fixer 50/50-Mittelwert
+   aus "blockt gut"/"blockt kaum" — kein adaptives Modell der tatsächlichen
+   Gegnerstufe.
+5. **Kein Deck-/Matchup-Tuning** der `EVAL_WEIGHTS` (bewusst global und
+   erklärbar gehalten).
+6. Die Blockwahl-Kandidaten enthalten genau EINEN Gang-Block-Vorschlag
+   (2 Blocker auf den größten ungeblockten Angreifer) — keine vollständige
+   Zuordnungssuche.
+
+## 9.8 Benötigte UI-Anbindung (Übergabe an frontend-engineer)
+
+Der Bot-Teil ist fertig und abwärtskompatibel; für die Stufenwahl im UI fehlt
+nur (alles `src/ui/*`, bewusst NICHT von diesem Modul angefasst):
+
+1. `store.ts`: Zustand `botDifficulty: Record<PlayerId, BotDifficulty>`
+   (Default `DEFAULT_BOT_DIFFICULTY`), Getter/Setter analog
+   `isBotControlled`/`setBotControlled` (inkl. derselben Persistenz über
+   "Neues Spiel" hinweg); in `runBotStep` den Aufruf
+   `chooseAction(engine, pool, state, actor)` durch
+   `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])`
+   ersetzen (Import aus `../ai` bzw. `../ai/difficulty`).
+2. Deckbau-Screen (`components/deckBuilder.ts`): neben der bestehenden
+   "Spieler 2 von KI steuern lassen"-Umschaltung ein Dropdown/Segmented-Control
+   mit den drei Stufen — Optionen aus `BOT_DIFFICULTIES`, Anzeigenamen aus
+   `BOT_DIFFICULTY_LABELS`, nur aktiv wenn KI-Steuerung an.
+3. Optional: Anzeige der aktiven Stufe im Spielbrett-Header.

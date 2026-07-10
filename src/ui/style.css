@@ -20,6 +20,17 @@
   --mana-void: #7a4fd9;
   --mana-colorless: #6b7280;
 
+  /* Dunklere Gegenstücke je Manafarbe - nur für die Kartenrahmen-"Bildfläche"
+     (card-frame-art, s.u.), die bewusst OHNE Artwork/Bild-Assets auskommt und
+     stattdessen einen Farbverlauf von der Manafarbe in einen dunkleren Ton
+     zeigt (s. Auftrag "echtes Kartenspiel-Layout ohne Bilder"). */
+  --mana-flame-dark: #6e2a15;
+  --mana-tide-dark: #17395e;
+  --mana-wild-dark: #1f4f26;
+  --mana-light-dark: #5e4a13;
+  --mana-void-dark: #3a2560;
+  --mana-colorless-dark: #33373f;
+
   font-family: "Segoe UI", system-ui, sans-serif;
 }
 
@@ -265,6 +276,11 @@ body {
   color: var(--mana-wild);
 }
 
+.badge-bot-difficulty {
+  border-color: var(--border);
+  color: var(--fg-muted, #9a9aa5);
+}
+
 .player-panel-life,
 .player-panel-mana,
 .player-panel-zones {
@@ -288,41 +304,175 @@ body {
   padding: 6px;
 }
 
-.hand-card {
-  width: 150px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px;
+/* Klassisches Kartenrahmen-Layout (v0.1.10) -----------------------------
+   Gemeinsame Optik für Handkarten (.hand-card), Battlefield-/Graveyard-/
+   Stack-Kacheln (.card-tile) und den Kartenpool im Deckbau (.deck-pool-row):
+   Kopfzeile (Name links/Kosten rechts als Mana-Pips), eine reine Farbfläche
+   als "Bildbereich" (bewusst OHNE Artwork/Bild-Assets, s. Auftrag), Typzeile,
+   Regeltext-Box (+ Status-Badges bei Battlefield-Kacheln), P/T-Kasten unten
+   rechts bei Einheiten. Rahmenfarbe = dominante Manafarbe der Karte
+   (dominantColorClass), jetzt als vollständiger Rahmen statt nur
+   Top-Border. */
+
+.hand-card,
+.card-tile,
+.deck-pool-row {
+  position: relative;
+  border: 2px solid var(--mana-colorless);
+  border-radius: 8px;
   background: var(--panel-2);
-  border-top: 4px solid var(--mana-colorless);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+}
+
+.hand-card.mana-flame, .card-tile.mana-flame, .deck-pool-row.mana-flame { border-color: var(--mana-flame); }
+.hand-card.mana-tide, .card-tile.mana-tide, .deck-pool-row.mana-tide { border-color: var(--mana-tide); }
+.hand-card.mana-wild, .card-tile.mana-wild, .deck-pool-row.mana-wild { border-color: var(--mana-wild); }
+.hand-card.mana-light, .card-tile.mana-light, .deck-pool-row.mana-light { border-color: var(--mana-light); }
+.hand-card.mana-void, .card-tile.mana-void, .deck-pool-row.mana-void { border-color: var(--mana-void); }
+
+.hand-card { width: 158px; font-size: 11px; }
+.card-tile { width: 118px; font-size: 10px; }
+.deck-pool-row { width: 132px; font-size: 10px; }
+
+.card-frame-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.card-frame-name {
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.card-frame-cost {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.mana-pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: #16181d;
+  background: var(--mana-colorless);
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+}
+
+.mana-pip.mana-flame { background: var(--mana-flame); color: #fff; }
+.mana-pip.mana-tide { background: var(--mana-tide); color: #fff; }
+.mana-pip.mana-wild { background: var(--mana-wild); color: #fff; }
+.mana-pip.mana-light { background: var(--mana-light); color: #201a05; }
+.mana-pip.mana-void { background: var(--mana-void); color: #fff; }
+
+.card-frame-frame {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  padding-bottom: 2px;
+  overflow: hidden;
 }
 
-.hand-card.mana-flame { border-top-color: var(--mana-flame); }
-.hand-card.mana-tide { border-top-color: var(--mana-tide); }
-.hand-card.mana-wild { border-top-color: var(--mana-wild); }
-.hand-card.mana-light { border-top-color: var(--mana-light); }
-.hand-card.mana-void { border-top-color: var(--mana-void); }
-
-.hand-card-name {
-  font-weight: 700;
+.card-frame-art {
+  height: 30px;
+  background: linear-gradient(155deg, var(--mana-colorless) 0%, var(--mana-colorless-dark) 100%);
+  border-bottom: 1px solid var(--border);
 }
 
-.hand-card-type,
-.hand-card-cost {
+.hand-card .card-frame-art,
+.deck-pool-row .card-frame-art {
+  height: 42px;
+}
+
+.mana-flame .card-frame-art { background: linear-gradient(155deg, var(--mana-flame) 0%, var(--mana-flame-dark) 100%); }
+.mana-tide .card-frame-art { background: linear-gradient(155deg, var(--mana-tide) 0%, var(--mana-tide-dark) 100%); }
+.mana-wild .card-frame-art { background: linear-gradient(155deg, var(--mana-wild) 0%, var(--mana-wild-dark) 100%); }
+.mana-light .card-frame-art { background: linear-gradient(155deg, var(--mana-light) 0%, var(--mana-light-dark) 100%); }
+.mana-void .card-frame-art { background: linear-gradient(155deg, var(--mana-void) 0%, var(--mana-void-dark) 100%); }
+
+.card-frame-type {
+  padding: 1px 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
-.hand-card-text {
+.card-frame-text-box {
+  padding: 2px 4px 16px;
+  min-height: 14px;
+}
+
+.card-frame-text {
   font-style: italic;
   color: #c8cad2;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-frame-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 3px;
+  font-style: normal;
+}
+
+.card-frame-status > * {
+  color: var(--muted);
+  font-size: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 4px;
+  background: var(--panel-2);
+}
+
+.card-frame-pt {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  min-width: 20px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  pointer-events: none;
+}
+
+.card-tile.tapped {
+  opacity: 0.55;
+  transform: rotate(-2deg);
 }
 
 .hand-card-actions {
-  margin-top: 4px;
+  margin-top: 2px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -338,59 +488,11 @@ body {
 }
 
 .discard-toggle-hint {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
 }
 
-.card-tile {
-  width: 110px;
-  border: 1px solid var(--border);
-  border-top: 4px solid var(--mana-colorless);
-  border-radius: 6px;
-  padding: 5px;
-  background: var(--panel-2);
-  font-size: 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.card-tile.mana-flame { border-top-color: var(--mana-flame); }
-.card-tile.mana-tide { border-top-color: var(--mana-tide); }
-.card-tile.mana-wild { border-top-color: var(--mana-wild); }
-.card-tile.mana-light { border-top-color: var(--mana-light); }
-.card-tile.mana-void { border-top-color: var(--mana-void); }
-
-.card-tile.tapped {
-  opacity: 0.55;
-  transform: rotate(-2deg);
-}
-
-.card-tile-name {
-  font-weight: 700;
-}
-
-.card-tile-pt {
-  font-weight: 600;
-}
-
-.card-tile-cost,
-.card-tile-keywords,
-.card-tile-counters,
-.card-tile-tapped-badge,
-.card-tile-sick-badge,
-.card-tile-attached,
-.card-tile-combat {
-  color: var(--muted);
-}
-
-.card-tile-text {
-  font-style: italic;
-  color: #c8cad2;
-}
-
-.card-tile.targetable,
-.hand-card .btn.targetable {
+.card-tile.targetable {
   cursor: pointer;
 }
 
@@ -523,6 +625,23 @@ body {
   color: var(--mana-wild);
 }
 
+/* Bot-Schwierigkeitsstufe (v0.1.9) ---------------------------------------- */
+
+.deckbuilder-ai-difficulty-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.deckbuilder-ai-difficulty-select {
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: inherit;
+}
+
 .deckbuilder-search-input {
   flex: 1 1 200px;
   padding: 5px 8px;
@@ -560,49 +679,33 @@ body {
   color: #e0b95a;
 }
 
+/* Kartenpool-Grid: statt einer Tabellenzeilen-Liste ein Flex-Wrap-Raster aus
+   kompakten Kartenrahmen (.deck-pool-row nutzt dasselbe .card-frame-*-Layout
+   wie Hand-/Battlefield-Karten, s.o.) - hält den Pool (113 Karten) trotzdem
+   scrollbar/überschaubar (max-height + overflow-y wie zuvor). */
 .deckbuilder-pool {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 60vh;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+  max-height: 65vh;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px;
+  padding: 8px;
   background: var(--panel);
 }
 
-.deck-pool-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.deck-pool-row:nth-child(odd) {
-  background: var(--panel-2);
-}
-
 .deck-pool-row-name {
-  flex: 2;
-  font-weight: 600;
-}
-
-.deck-pool-row-type,
-.deck-pool-row-cost {
-  flex: 1;
-  color: var(--muted);
-  font-size: 12px;
+  font-weight: 700;
 }
 
 .deck-pool-row-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 70px;
-  justify-content: flex-end;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .deck-pool-row-count {

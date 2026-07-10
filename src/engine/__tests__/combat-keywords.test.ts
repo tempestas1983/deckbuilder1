@@ -9,6 +9,7 @@ import {
   FIRST_STRIKE_DEATHTOUCH_UNIT,
   FIRST_STRIKE_TRAMPLE_UNIT,
   FIRST_STRIKE_UNIT,
+  TOKEN_BEAR,
   TRAMPLE_DEATHTOUCH_UNIT,
   TRAMPLE_UNIT,
   buildTestPool,
@@ -434,6 +435,87 @@ describe("Kampf-Keyword-Paket v0.2.3 (rules-engine.md 6d/9.9)", () => {
       expect(state.players.player2.life).toBe(20);
       expect(state.players.player2.battlefield).toContain(blocker);
       expect(state.cards[blocker]!.permanentState!.damageMarked).toBe(0);
+    });
+  });
+
+  describe("v0.3.3-Bugfix: TOKEN-Kampfteilnehmer stirbt in der firstStrike-Zwischenrunde", () => {
+    it("firstStrike-Angreifer tötet einen TOKEN-Blocker ohne firstStrike in Runde 1 - Runde 2 crasht NICHT beim Rückschlag-Check", () => {
+      const pool = buildTestPool();
+      const decks = standardTestDecks();
+      const engine = createRulesEngine(pool);
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
+
+      const attacker = putOnBattlefield(state, FIRST_STRIKE_UNIT, "player1"); // 2/2 firstStrike
+      const blocker = putOnBattlefield(state, TOKEN_BEAR, "player2"); // 2/2 TOKEN, kein firstStrike (letal genau bei 2)
+      makeNotSummoningSick(state, attacker);
+      makeNotSummoningSick(state, blocker);
+
+      state = setUpAttackAndBlock(engine, state, attacker, [{ blocker, attacker }]);
+
+      // Vor dem Fix: `dealCombatDamage` wirft hier eine Exception
+      // ("Unbekannte CardInstance-ID"), weil SBA 7 die Token-Instanz des
+      // Blockers zwischen Runde 1 (firstStrike) und Runde 2 endgültig aus
+      // `state.cards` löscht und Runde 2 anschließend ungeschützt prüft, ob
+      // der (nicht mehr existierende) Blocker zurückschlagen darf.
+      expect(() => {
+        state = bothPass(engine, state); // -> combatDamage + SBA
+      }).not.toThrow();
+
+      // Token stirbt in Runde 1 und wird (SBA 7) endgültig gelöscht - kein
+      // Graveyard-Eintrag, keine state.cards-Instanz mehr.
+      expect(state.players.player2.battlefield).not.toContain(blocker);
+      expect(state.players.player2.graveyard).not.toContain(blocker);
+      expect(state.cards[blocker]).toBeUndefined();
+      // Angreifer überlebt unbeschadet - der tote Token-Blocker konnte in
+      // Runde 2 nicht mehr zurückschlagen.
+      expect(state.players.player1.battlefield).toContain(attacker);
+      expect(state.cards[attacker]!.permanentState!.damageMarked).toBe(0);
+    });
+
+    it("derselbe Fall bleibt fehlerfrei, während ein ZWEITER, firstStrike-loser Kampf parallel noch regulär abläuft", () => {
+      const pool = buildTestPool();
+      const decks = standardTestDecks();
+      const engine = createRulesEngine(pool);
+      let { state } = engine.createGame({ decks, skipMulligans: true, seed: 9, startingPlayer: "player1" });
+
+      // Kampf A: firstStrike-Angreifer tötet TOKEN-Blocker in Runde 1 (Auslöser des Bugs).
+      const attackerA = putOnBattlefield(state, FIRST_STRIKE_UNIT, "player1"); // 2/2 firstStrike
+      const blockerA = putOnBattlefield(state, TOKEN_BEAR, "player2"); // 2/2 TOKEN
+      // Kampf B: ganz normaler, firstStrike-loser gegenseitiger Kill in Runde 2
+      // (löst wegen Kampf A trotzdem zwei Schadensrunden aus - Regressionstest
+      // für "andere Kämpfe laufen noch", während der Bug in Kampf A zuschlägt).
+      const attackerB = putOnBattlefield(state, BEAR, "player1"); // 2/2
+      const blockerB = putOnBattlefield(state, BEAR, "player2"); // 2/2
+      makeNotSummoningSick(state, attackerA);
+      makeNotSummoningSick(state, blockerA);
+      makeNotSummoningSick(state, attackerB);
+      makeNotSummoningSick(state, blockerB);
+
+      let s = advanceToDeclareAttackers(engine, state);
+      s = applyOk(engine, s, { kind: "declareAttackers", player: "player1", attackers: [attackerA, attackerB] });
+      s = bothPass(engine, s); // -> declareBlockers
+      s = applyOk(engine, s, {
+        kind: "declareBlockers",
+        player: "player2",
+        blocks: [
+          { blocker: blockerA, attacker: attackerA },
+          { blocker: blockerB, attacker: attackerB },
+        ],
+      });
+
+      expect(() => {
+        s = bothPass(engine, s); // -> combatDamage + SBA
+      }).not.toThrow();
+
+      // Kampf A: Token-Blocker tot (SBA 7), Angreifer unbeschadet.
+      expect(s.cards[blockerA]).toBeUndefined();
+      expect(s.players.player1.battlefield).toContain(attackerA);
+      expect(s.cards[attackerA]!.permanentState!.damageMarked).toBe(0);
+      // Kampf B: regulärer gegenseitiger Kill in Runde 2, unbeeinflusst vom Bug in Kampf A.
+      expect(s.players.player1.battlefield).not.toContain(attackerB);
+      expect(s.players.player2.battlefield).not.toContain(blockerB);
+      expect(s.players.player1.graveyard).toContain(attackerB);
+      expect(s.players.player2.graveyard).toContain(blockerB);
     });
   });
 

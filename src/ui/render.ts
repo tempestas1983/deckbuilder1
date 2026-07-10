@@ -18,6 +18,7 @@ import {
   copyDeckFromPlayer1,
   dispatch,
   getAppPhase,
+  getBotDifficulty,
   getDecklist,
   getLastError,
   getLog,
@@ -28,9 +29,11 @@ import {
   legalActions,
   resetUiMode,
   setBotControlled,
+  setBotDifficulty,
   setDecklist,
   setUiMode,
 } from "./store";
+import { BOT_DIFFICULTY_LABELS } from "../ai";
 import { cardDef } from "./cardInfo";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
@@ -176,6 +179,10 @@ function renderDeckBuilder(player: PlayerId): HTMLElement {
     // überspringt damit effektiv den manuellen Deckbau-Screen für player2.
     botControlled: isBotControlled(player),
     onToggleBotControl: () => setBotControlled(player, !isBotControlled(player)),
+    // v0.1.9: Schwierigkeitsstufen-Auswahl (docs/ai-status.md Abschnitt 9.8) -
+    // reicht nur getBotDifficulty/setBotDifficulty durch, keine eigene Logik.
+    botDifficulty: getBotDifficulty(player),
+    onChangeBotDifficulty: (next) => setBotDifficulty(player, next),
     onAiQuickstart: () => {
       const randomDeck = buildDemoDeck(pool);
       setBotControlled(player, true);
@@ -476,6 +483,11 @@ function playerArea(
   return h("div", { class: "player-area" }, [
     playerPanel(state, playerId, {
       botControlled: isBotControlled(playerId),
+      // v0.1.9: Anzeige der aktiven Bot-Schwierigkeitsstufe im Spielbrett-
+      // Header (docs/ai-status.md Abschnitt 9.8, Punkt 3, optional) - nur
+      // relevant, wenn der Spieler tatsächlich bot-gesteuert ist (playerPanel
+      // zeigt das "KI"-Badge ohnehin nur dann an, s. dortiger Code).
+      botDifficultyLabel: isBotControlled(playerId) ? BOT_DIFFICULTY_LABELS[getBotDifficulty(playerId)] : undefined,
       targetable: !!playerCandidate || xTargetsPlayer,
       onClick: playerCandidate
         ? () => dispatch(playerCandidate)

@@ -1,13 +1,16 @@
 /**
- * Ausführliche Kartendarstellung für die Hand: Name, Typ/Untertyp, Kosten,
- * Regeltext, P/T (Basiswert - noch kein Battlefield-Kontext), plus
- * Aktions-Buttons ("Spielen"/"Terrain legen"), abgeleitet aus
- * getLegalActions-Kandidaten (keine eigene Legalitätsprüfung).
+ * Ausführliche Kartendarstellung für die Hand: klassisches Kartenspiel-Layout
+ * (Kopfzeile Name/Kosten, Bildfläche als reine Farbfläche je Manafarbe -
+ * bewusst OHNE Artwork/Bild-Assets, s. Auftrag -, Typzeile, Regeltext-Box,
+ * P/T-Kasten bei Einheiten), plus Aktions-Buttons ("Spielen"/"Terrain
+ * legen"), abgeleitet aus getLegalActions-Kandidaten (keine eigene
+ * Legalitätsprüfung).
  */
 
 import type { CardDefinition, InstanceId, PlayerAction } from "../../model";
-import { dominantColorClass, formatManaCost, subtypeLine } from "../cardInfo";
+import { dominantColorClass, subtypeLine } from "../cardInfo";
 import { h, text } from "../h";
+import { manaCostBadge } from "./manaCost";
 
 export interface HandCardOptions {
   castCandidates: PlayerAction[];
@@ -29,6 +32,21 @@ export interface HandCardOptions {
   onPlayTerrain: (action: PlayerAction) => void;
 }
 
+/** Baut den gemeinsamen "Kartenrahmen" (Kopfzeile, Bildfläche, Typzeile, Regeltext, ggf. P/T-Kasten). */
+function cardFrameBody(def: CardDefinition): HTMLElement {
+  const frameChildren: (Node | string | false | undefined)[] = [
+    h("div", { class: "card-frame-art" }),
+    h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
+  ];
+  if (def.rulesText) {
+    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, [text(def.rulesText)])]));
+  }
+  if (def.type === "unit") {
+    frameChildren.push(h("div", { class: "card-frame-pt hand-card-pt" }, [text(`${def.power}/${def.toughness}`)]));
+  }
+  return h("div", { class: "card-frame-frame" }, frameChildren);
+}
+
 export function handCard(
   cardInstanceId: InstanceId,
   def: CardDefinition,
@@ -38,18 +56,12 @@ export function handCard(
   const classes = ["hand-card", dominantColorClass(cost ?? {})];
 
   const children: (Node | string | false | undefined)[] = [
-    h("div", { class: "hand-card-name" }, [text(def.name)]),
-    h("div", { class: "hand-card-type" }, [text(subtypeLine(def))]),
+    h("div", { class: "card-frame-header" }, [
+      h("div", { class: "card-frame-name hand-card-name" }, [text(def.name)]),
+      cost ? manaCostBadge(cost) : undefined,
+    ]),
+    cardFrameBody(def),
   ];
-  if (cost) {
-    children.push(h("div", { class: "hand-card-cost" }, [text(formatManaCost(cost))]));
-  }
-  if (def.type === "unit") {
-    children.push(h("div", { class: "hand-card-pt" }, [text(`${def.power}/${def.toughness}`)]));
-  }
-  if (def.rulesText) {
-    children.push(h("div", { class: "hand-card-text" }, [text(def.rulesText)]));
-  }
 
   const actions: HTMLElement[] = [];
   if (opts.playTerrainCandidate) {
@@ -99,9 +111,14 @@ export function handCardDiscardToggle(
   const classes = ["hand-card", "discard-toggle", dominantColorClass(cost ?? {})];
   if (selected) classes.push("selected");
   return h("div", { class: classes.join(" "), onclick: onToggle }, [
-    h("div", { class: "hand-card-name" }, [text(def.name)]),
-    h("div", { class: "hand-card-type" }, [text(subtypeLine(def))]),
-    cost ? h("div", { class: "hand-card-cost" }, [text(formatManaCost(cost))]) : undefined,
+    h("div", { class: "card-frame-header" }, [
+      h("div", { class: "card-frame-name hand-card-name" }, [text(def.name)]),
+      cost ? manaCostBadge(cost) : undefined,
+    ]),
+    h("div", { class: "card-frame-frame" }, [
+      h("div", { class: "card-frame-art" }),
+      h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
+    ]),
     h("div", { class: "discard-toggle-hint" }, [text(selected ? "wird abgeworfen" : "anklicken zum Abwerfen")]),
   ]);
 }

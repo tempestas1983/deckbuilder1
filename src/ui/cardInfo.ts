@@ -88,6 +88,33 @@ export function formatManaCost(cost: ManaCost | undefined): string {
   return bits.length ? bits.join(" + ") : "kostenlos";
 }
 
+/**
+ * Rein darstellende Aufbereitung einer ManaCost als Liste von "Mana-Pips"
+ * (ein kompaktes Kreissymbol pro Kostenanteil, wie in klassischen
+ * Kartenspiel-Layouts üblich) für die neue Kartenrahmen-Optik (`card-frame-*`
+ * in style.css, siehe handCard.ts/cardTile.ts/deckBuilder.ts). Bewusst EIN
+ * Pip pro Kostenanteil (nicht ein Pip pro Mana-Punkt) - hält die kompakte
+ * Kartengröße auch bei teureren Karten stabil; `formatManaCost` bleibt
+ * daneben als vollständiger Text erhalten (z.B. als `title`-Tooltip).
+ */
+export interface ManaPip {
+  key: string;
+  label: string;
+  colorClass: string;
+}
+
+export function manaCostPips(cost: ManaCost | undefined): ManaPip[] {
+  if (!cost) return [];
+  const pips: ManaPip[] = [];
+  if (cost.generic) pips.push({ key: "generic", label: String(cost.generic), colorClass: "mana-colorless" });
+  if (cost.x) pips.push({ key: "x", label: "X", colorClass: "mana-colorless" });
+  for (const c of COLORS) {
+    const n = cost[c] ?? 0;
+    if (n > 0) pips.push({ key: c, label: String(n), colorClass: COLOR_CLASS[c] });
+  }
+  return pips;
+}
+
 export function typeLabel(def: CardDefinition): string {
   switch (def.type) {
     case "unit":

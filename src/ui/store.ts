@@ -9,7 +9,7 @@
 
 import { createRulesEngine } from "../engine";
 import { starterSet } from "../cards/starter-set";
-import { chooseAction } from "../ai/simpleBot";
+import { chooseActionForDifficulty, DEFAULT_BOT_DIFFICULTY, type BotDifficulty } from "../ai";
 import type { CardPool, GameEvent, GameState, PlayerAction, PlayerId, RulesEngine } from "../model";
 import type { AppPhase, UiMode } from "./types";
 
@@ -235,6 +235,32 @@ export function setBotControlled(player: PlayerId, controlled: boolean): void {
   notify();
 }
 
+// ---------------------------------------------------------------------------
+// KI-Schwierigkeitsstufe (v0.1.9, docs/ai-status.md Abschnitt 9.8): pro
+// Spieler unabhängig wählbar (aus src/ai/difficulty.ts#BOT_DIFFICULTIES),
+// unabhängig davon, ob der Spieler gerade bot-gesteuert ist - der Wert wird
+// nur GENUTZT, wenn isBotControlled(player) true ist (s. runBotStep unten),
+// bleibt aber auch sonst gesetzt (z.B. schon gewählt, bevor der KI-Umschalter
+// aktiviert wird). Persistenz-Entscheidung identisch zu botControlledPlayers
+// oben: bleibt über "Neues Spiel" (backToDeckbuilder) hinweg erhalten, nur
+// ein frischer App-Start (Modul-Neuladen) setzt auf DEFAULT_BOT_DIFFICULTY
+// zurück.
+// ---------------------------------------------------------------------------
+
+let botDifficulty: Record<PlayerId, BotDifficulty> = {
+  player1: DEFAULT_BOT_DIFFICULTY,
+  player2: DEFAULT_BOT_DIFFICULTY,
+};
+
+export function getBotDifficulty(player: PlayerId): BotDifficulty {
+  return botDifficulty[player];
+}
+
+export function setBotDifficulty(player: PlayerId, difficulty: BotDifficulty): void {
+  botDifficulty = { ...botDifficulty, [player]: difficulty };
+  notify();
+}
+
 /**
  * Bestimmt, welcher Spieler gerade tatsächlich handeln muss (Priority, eine
  * an ihn gerichtete PendingDecision, oder eine fällige Combat-/Cleanup-
@@ -322,12 +348,14 @@ function scheduleBotStepIfNeeded(): void {
 }
 
 /**
- * Führt EINEN automatischen KI-Zug aus (chooseAction + applyAction, siehe
- * src/ai/simpleBot.ts) und plant danach - falls weiterhin ein bot-
- * gesteuerter Spieler am Zug ist - den nächsten Schritt. `notify()` läuft
- * nach JEDEM einzelnen Schritt (nicht erst am Ende), damit render() den
- * Spielstand nach jedem Bot-Zug aktualisiert (Auftrag Punkt 3: "man kann dem
- * Bot beim Spielen zusehen").
+ * Führt EINEN automatischen KI-Zug aus (`chooseActionForDifficulty` +
+ * `applyAction`, siehe src/ai/difficulty.ts - **seit v0.1.9** stufenabhängig
+ * über `botDifficulty[actor]` statt immer der v1-Heuristik `chooseAction`,
+ * s. Abschnitt oben) und plant danach - falls weiterhin ein bot-gesteuerter
+ * Spieler am Zug ist - den nächsten Schritt. `notify()` läuft nach JEDEM
+ * einzelnen Schritt (nicht erst am Ende), damit render() den Spielstand nach
+ * jedem Bot-Zug aktualisiert (Auftrag Punkt 3: "man kann dem Bot beim Spielen
+ * zusehen").
  */
 function runBotStep(): void {
   botTimer = undefined;
@@ -335,7 +363,7 @@ function runBotStep(): void {
   if (!actor || !isBotControlled(actor)) return;
   botCycleGuard++;
 
-  const action = chooseAction(engine, pool, state, actor);
+  const action = chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor]);
   const result = engine.applyAction(state, action);
   if (result.error) {
     // Laut docs/ai-status.md sollte chooseAction NIE eine illegale Aktion
