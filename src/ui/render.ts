@@ -466,6 +466,12 @@ function playerArea(
   const playerCandidate = targetMap.get(playerTargetKey);
   const xTargetsPlayer = mode.kind === "xTarget" && xTargetShapeAllowsPlayer(mode.spec);
   const modeForXTarget = mode.kind === "xTarget" ? mode : undefined;
+  // v0.1.8 (concede-Button): nicht anzeigen, wenn das Spiel schon vorbei ist,
+  // der Spieler schon verloren hat, oder er bot-gesteuert ist (der Bot gibt
+  // nicht auf, s. Auftrag) - "concede" selbst ist eine reguläre, von der
+  // Engine schon lange unterstützte PlayerAction (game-state.ts), hier nur
+  // ans UI verdrahtet.
+  const canConcede = state.winner === undefined && !state.players[playerId].hasLost && !isBotControlled(playerId);
 
   return h("div", { class: "player-area" }, [
     playerPanel(state, playerId, {
@@ -485,6 +491,15 @@ function playerArea(
                 ),
               )
           : undefined,
+      onConcede: canConcede
+        ? () => {
+            // Irreversible Aktion -> einfache Bestätigung (kein eigenes
+            // Modal-System nötig, s. Auftrag).
+            if (window.confirm(`${playerId} wirklich aufgeben? Das Spiel gilt danach sofort als verloren.`)) {
+              dispatch({ kind: "concede", player: playerId });
+            }
+          }
+        : undefined,
     }),
     h("div", { class: "zone-label" }, [text("Hand")]),
     handZone(state, pool, playerId, mode),

@@ -13,6 +13,14 @@ export interface PlayerPanelOptions {
   onClick?: () => void;
   /** v0.1.7 ("Spieler 2 = KI"): zeigt ein "KI"-Badge, s. store.ts#isBotControlled. */
   botControlled?: boolean;
+  /**
+   * v0.1.8 (concede-Button): Callback für "Aufgeben". Nur gesetzt, wenn der
+   * Button für diesen Spieler überhaupt angezeigt werden soll (render.ts
+   * entscheidet das - z.B. nicht für bot-gesteuerte Spieler, nicht nach
+   * Spielende) - playerPanel selbst kennt keine solche Regel, rendert nur
+   * "Button vorhanden, wenn Callback vorhanden".
+   */
+  onConcede?: () => void;
 }
 
 export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPanelOptions = {}): HTMLElement {
@@ -45,6 +53,23 @@ export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPa
       h("div", { class: "player-panel-head" }, [
         h("span", { class: "player-panel-name" }, [text(playerId)]),
         ...badges,
+        opts.onConcede
+          ? h(
+              "button",
+              {
+                class: "btn btn-cancel btn-small btn-concede",
+                "data-testid": `concede-${playerId}`,
+                onclick: ((ev: Event) => {
+                  // player-panel selbst kann klickbares Ziel sein (opts.onClick,
+                  // z.B. "Feuerstoß" auf den Gegner) - der Aufgeben-Klick darf das
+                  // nicht mit auslösen.
+                  ev.stopPropagation();
+                  opts.onConcede!();
+                }) as (ev: Event) => void,
+              },
+              [text("Aufgeben")],
+            )
+          : undefined,
       ]),
       h("div", { class: "player-panel-life" }, [text(`❤ ${p.life}`)]),
       h("div", { class: "player-panel-mana" }, [text(manaBits.length ? `Mana: ${manaBits.join(", ")}` : "Mana: leer")]),

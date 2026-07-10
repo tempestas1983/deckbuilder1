@@ -29,14 +29,70 @@ let uiMode: UiMode = { kind: "idle" };
  */
 let appPhase: AppPhase = { kind: "deckbuild", player: "player1" };
 
+// ---------------------------------------------------------------------------
+// Deck-Persistenz über Sessions hinweg (v0.1.8): localStorage-Fallback für
+// die zuletzt bestätigte(n) Deckliste(n), damit ein Seiten-Reload (neues
+// store.ts-Modul, decklists startet leer) nicht wieder von einem leeren Deck
+// beginnt. Bewusst NUR ein Fallback für den Modul-Start (s. decklists-Init
+// unten) - solange die In-Memory-Decklisten innerhalb einer Session bereits
+// etwas enthalten (z.B. nach "Neues Spiel"), bleibt das unverändert die
+// Quelle der Vorbefüllung (bisheriges v0.1.5-Verhalten).
+// ---------------------------------------------------------------------------
+
+const LAST_DECK_STORAGE_KEY: Record<PlayerId, string> = {
+  player1: "deckbuilder1.lastDeck.player1",
+  player2: "deckbuilder1.lastDeck.player2",
+};
+
+/**
+ * Liest die zuletzt gespeicherte Deckliste eines Spielers aus localStorage.
+ * Defensiv: localStorage kann in privaten Browser-Modi/mit deaktivierten
+ * Cookies fehlen oder werfen (SecurityError) - ein Fehler hier darf die App
+ * niemals zum Absturz bringen, sondern führt einfach zu "kein gespeichertes
+ * Deck gefunden" (leeres Deck als Vorbefüllung, wie schon vor v0.1.8).
+ */
+function loadDeckFromLocalStorage(player: PlayerId): Record<string, number> | undefined {
+  try {
+    const raw = window.localStorage.getItem(LAST_DECK_STORAGE_KEY[player]);
+    if (!raw) return undefined;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    // Grobe Formprüfung (nur string->number-Einträge) statt vollem Schema-
+    // Validator - reine UI-Bequemlichkeit, die Engine validiert Decklisten
+    // ohnehin nicht selbst (s. deckValidation.ts-Kommentar an anderer Stelle).
+    const entries = Object.entries(parsed as Record<string, unknown>).filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number",
+    );
+    return Object.fromEntries(entries);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Speichert die Deckliste eines Spielers in localStorage - defensiv, s. loadDeckFromLocalStorage. */
+function saveDeckToLocalStorage(player: PlayerId, list: Record<string, number>): void {
+  try {
+    window.localStorage.setItem(LAST_DECK_STORAGE_KEY[player], JSON.stringify(list));
+  } catch {
+    // localStorage nicht verfügbar/voll/deaktiviert - einfach ignorieren
+    // (Auftrag: "darf die App nicht zum Absturz bringen").
+  }
+}
+
 /**
  * Zuletzt gesammelte Decklisten pro Spieler. Bleiben bewusst über
  * "Neues Spiel" (zurück zum Deckbau, s. backToDeckbuilder) hinweg erhalten,
  * damit der Deckbau-Screen beim erneuten Öffnen als Vorbefüllung dient
  * (bessere UX für wiederholte Testpartien) - kein Hard-Requirement, aber
- * explizit erwünscht laut Auftrag.
+ * explizit erwünscht laut Auftrag. **Seit v0.1.8**: Start-Wert lädt
+ * zusätzlich aus localStorage (Fallback für den allerersten Deckbau-Screen
+ * nach einem Seiten-Reload, s. Abschnitt oben) statt immer mit `{}` zu
+ * beginnen.
  */
-let decklists: Record<PlayerId, Record<string, number>> = { player1: {}, player2: {} };
+let decklists: Record<PlayerId, Record<string, number>> = {
+  player1: loadDeckFromLocalStorage("player1") ?? {},
+  player2: loadDeckFromLocalStorage("player2") ?? {},
+};
 
 const listeners = new Set<() => void>();
 
@@ -109,6 +165,16 @@ export function setDecklist(player: PlayerId, list: Record<string, number>): voi
  * Enablen des Buttons geprüft hat.
  */
 export function confirmDeck(player: PlayerId): void {
+  // v0.1.8: Deck-Persistenz über Sessions hinweg - beim Bestätigen im
+  // Deckbau-Screen wird die Deckliste zusätzlich in localStorage gesichert
+  // (s. Abschnitt oben), damit sie einen Seiten-Reload übersteht. player2
+  // wird bewusst NUR gespeichert, wenn er kein bot-gesteuertes Deck ist (ein
+  // zufälliges KI-Deck ist keine "vom Nutzer gebaute" Deckliste, die es sich
+  // lohnt für die nächste Session vorzubefüllen, s. Auftrag "gerne auch
+  // Spieler 2 falls kein Bot").
+  if (player === "player1" || !isBotControlled(player)) {
+    saveDeckToLocalStorage(player, decklists[player]);
+  }
   if (player === "player1") {
     appPhase = { kind: "deckbuild", player: "player2" };
     notify();

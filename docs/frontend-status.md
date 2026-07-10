@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.7 (frontend-engineer) — 2026-07-09
+Status: v0.1.8 (frontend-engineer) — 2026-07-10
 Grundlage: `docs/rules-engine.md` (v0.3.1, Entscheidungen 9.10-9.13 + Nachtrag),
 `docs/engine-status.md` (v0.3.1, 118 Engine-/UI-Tests zum Zeitpunkt der
 Übernahme — der v0.1.1-v0.1.5-Text unten beschreibt bewusst unverändert den
@@ -8,8 +8,16 @@ Stand zum jeweiligen Zeitpunkt, s. dortige Abschnitte), `src/model/*`
 (Datenmodell, unverändert konsumiert), `src/engine/*` (`createRulesEngine`),
 `src/cards/starter-set.ts` (113 Karten, u.a. die drei neuen v0.3-Testkarten
 `core.void-covenant`, `core.current-diplomat`, `core.cinderwrack-engine`),
-**neu seit v0.1.7:** `docs/ai-status.md` (KI-Gegner v1, `src/ai/simpleBot.ts`,
-öffentliche Funktion `chooseAction(engine, pool, state, player)`).
+`docs/ai-status.md` (KI-Gegner v1, `src/ai/simpleBot.ts`, öffentliche
+Funktion `chooseAction(engine, pool, state, player)`).
+
+**v0.1.8 auf einen Blick** (Details im gleichnamigen Abschnitt unten): zwei
+unabhängige Komfort-Features, kein Engine-/Model-Zutun nötig — ein
+"Aufgeben"-Button pro Spieler (verdrahtet die schon länger existierende
+`concede`-Aktion, mit `window.confirm`-Bestätigung, ausgeblendet für
+bot-gesteuerte Spieler und nach Spielende) sowie eine `localStorage`-
+Persistenz der zuletzt bestätigten Decklisten, die jetzt auch einen echten
+Seiten-Reload übersteht (bisher nur In-Memory über den Session-Store).
 
 **v0.1.7 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 „Spieler 2 = KI"-Anbindung des in `src/ai/simpleBot.ts` bereitgestellten
@@ -83,7 +91,7 @@ npm run dev        # Vite-Dev-Server (Hot Reload), http://localhost:5173
 npm run build:ui    # Produktions-Build nach dist-ui/
 npm run preview     # Vorschau des Produktions-Builds
 npm run build       # unverändert: tsc --noEmit (Engine + jetzt auch UI-Code)
-npm test            # Vitest (83 Engine-Tests + jetzt 2 dauerhafte UI-Tests, s. v0.1.5-Abschnitt)
+npm test            # Vitest (141 Tests gesamt zum v0.1.8-Stand, s. jeweilige Abschnitte)
 ```
 
 `tsconfig.json` wurde um `"DOM"`/`"DOM.Iterable"` in `lib` erweitert (damit
@@ -118,17 +126,17 @@ anklickbare Aktionen angezeigt.
 | Datei | Zweck |
 |---|---|
 | `main.ts` | Einstiegspunkt, startet Store + Render-Loop (**seit v0.1.5**: kein automatischer `initGame`-Aufruf mehr, App startet im Deckbau-Screen) |
-| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests |
+| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten) |
 | `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine); **seit v0.1.6** neuer `CastSource`-Typ (spell/ability) + `UiMode`-Zweige `modeSelect`/verallgemeinerte `xInput`/`xTarget` (s. eigener Abschnitt unten); **seit v0.1.7 unverändert** — die KI-Zuordnung lebt bewusst nur in `store.ts` (s. dortige Begründung im Code-Kommentar, analog zur v0.1.5-`AppPhase`-Entscheidung) |
 | `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen; **seit v0.1.7** zusätzlich Basis für „Zufälliges KI-Deck + weiter" im Deckbau-Screen von Spieler 2 |
 | `deckValidation.ts` | **Neu in v0.1.5**: reine UI-Validierung einer Deckliste (min. 40 Karten, max. 4 Kopien pro Nicht-Terrain-id, s. `src/model/cards.ts#Decklist`-Kommentar) — die Engine validiert das selbst nicht |
 | `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten); **seit v0.1.5** zusätzlich `dominantColorKey` (Manafarbe als Schlüssel statt CSS-Klasse, für den Deckbau-Farbfilter) |
 | `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI; **seit v0.1.6** zusätzlich die `CastSource`-Helfer (`sourceName`/`sourceModes`/`sourceHasXCost`/`sourceTargets`/`buildCastAction`/`activateAbilityCandidatesFor`), die castSpell und activateAbility für den gemeinsamen Modus-/X-/Ziel-Flow vereinheitlichen |
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
-| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge) |
-| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option) |
-| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot` |
-| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion) |
+| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })` |
+| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests) |
+| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede` |
+| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten) |
 
 ## Was funktioniert
 
@@ -176,8 +184,10 @@ anklickbare Aktionen angezeigt.
      `priorityPlayer === undefined`, `hand.length > 7`, wie in
      `docs/engine-status.md` dokumentiert) und zeigt eine Auswahl-UI zum
      Abwerfen der überzähligen Karten.
-   - `Aufgeben`/`concede` ist nicht als dedizierter Button verdrahtet (siehe
-     „Was noch fehlt" unten).
+   - **Aufgeben/`concede`** (**seit v0.1.8**, s. eigener Abschnitt unten): ein
+     Button pro Spieler im Spieler-Panel, mit `window.confirm`-Bestätigung
+     (irreversible Aktion), ausgeblendet für bot-gesteuerte Spieler und nach
+     Spielende.
 4. **PendingDecision-UI** (explizit für frontend-engineer vorgesehen,
    `docs/README.md`): Ist `state.pendingDecision` gesetzt, verzweigt
    `render.ts#actionBanner` je nach `kind`:
@@ -219,19 +229,21 @@ anklickbare Aktionen angezeigt.
   Bot im selben Browser-Tab, s. u.). **Seit v0.1.5** gibt es einen echten
   Deckbau-Screen vor dem Spielstart (s. eigener Abschnitt unten) statt eines
   fest codierten Demo-Decks; der Deckbau selbst bleibt aber bewusst simpel
-  (kein Sideboard, kein Deck-Speichern/-Laden über eine Partie hinaus außer
-  der reinen In-Memory-Vorbefüllung nach „Neues Spiel", keine
-  Deck-Namen/-Verwaltung mehrerer Decks). **Seit v0.1.7 gibt es einen
-  AI-Gegner-Anschluss** (s. eigener Abschnitt unten) — der bisherige Satz
-  „kein AI-Gegner" ist damit überholt; weiterhin **kein Netzwerk-Multiplayer**.
+  (kein Sideboard, keine Deck-Namen/-Verwaltung mehrerer Decks — **seit
+  v0.1.8 aber kein Datenverlust bei Reload mehr**, s. dortiger Abschnitt: die
+  zuletzt bestätigte Deckliste pro Spieler übersteht jetzt auch einen echten
+  Seiten-Reload, nicht mehr nur „Neues Spiel" innerhalb desselben Tabs).
+  **Seit v0.1.7 gibt es einen AI-Gegner-Anschluss** (s. eigener Abschnitt
+  unten) — der bisherige Satz „kein AI-Gegner" ist damit überholt; weiterhin
+  **kein Netzwerk-Multiplayer**.
 - **Opfer-/Zusatzkosten-Feedback**: `additionalCosts` (tap/sacrifice/
   payLife/discard/removeCounters) werden nicht separat abgefragt — die
   Engine wendet sie beim Ausführen an (bzw. wirft Karten automatisch nach
   Auto-Default ab, siehe `docs/rules-engine.md` 9.7); das Frontend zeigt nur
   das Ergebnis über den State/Log, keine eigene Bestätigungs-UI dafür.
-- **`concede` ist nicht verdrahtet**: Die Aktion existiert und wäre trivial
-  ergänzbar (ein Button pro Spieler, immer sichtbar), wurde aber für v0.1
-  ausgelassen, um den Interaktionsumfang überschaubar zu halten.
+- **`concede` ist seit v0.1.8 verdrahtet** (s. eigener Abschnitt unten) — der
+  bisherige Satz hier („nicht verdrahtet, trivial ergänzbar") ist damit
+  überholt.
 - **Mehrfach-Zielslots / mehrere gleichzeitige Trigger-Wahlen**: Der
   Kartenpool enthält aktuell keine Karte mit >1 Zielslot, daher ungetestet;
   der X-Kosten-Mechanismus (`xTarget`-UI-Modus) ist so gebaut, dass er sich
@@ -1073,12 +1085,173 @@ Dateien: `src/ui/store.ts` (KI-Zustand + automatischer Zug-Loop, s. o.),
 Entscheidung Punkt 2 oben). Keine Änderungen an `src/engine/*`,
 `src/model/*`, `src/ai/*`, `src/cards/*`.
 
+## `concede`-Button + localStorage-Deck-Persistenz (v0.1.8, 2026-07-10)
+
+Zwei unabhängige Komfort-Features, beide ohne jedes Engine-/Model-Zutun
+umsetzbar — die Engine kannte `concede` bereits vollständig
+(`src/model/game-state.ts#PlayerAction`, `src/engine/actions.ts`,
+`src/engine/legal-actions.ts`), es fehlte nur die UI-Verdrahtung; die
+Deck-Persistenz ist reine Client-Bequemlichkeit (`localStorage`), die Engine
+ist an Decklisten ohnehin nur über `Record<string, number>` (`createGame`)
+interessiert.
+
+### 1. `concede`-Button
+
+- **`src/ui/components/playerPanel.ts`**: neue optionale
+  `PlayerPanelOptions.onConcede`-Eigenschaft. Ist sie gesetzt, erscheint ein
+  „Aufgeben"-Button (`.btn-concede`, `data-testid="concede-<player>"` für
+  Tests) rechtsbündig in der Kopfzeile des jeweiligen Spieler-Panels, neben
+  den bestehenden Badges. `playerPanel` selbst kennt keine Regel dafür, WANN
+  der Button erscheinen darf — das entscheidet ausschließlich der Aufrufer
+  (`render.ts`, s.u.); die Komponente rendert einfach „Button vorhanden, wenn
+  Callback vorhanden". Der Klick-Handler ruft `event.stopPropagation()` auf,
+  da das gesamte Spieler-Panel bereits ein eigenes `onClick` haben kann
+  (Ziel-Auswahl, z. B. „Feuerstoß" auf den Gegner) — ein Klick auf „Aufgeben"
+  darf das nicht mit auslösen.
+- **`src/ui/render.ts#playerArea`**: baut den `onConcede`-Callback nur, wenn
+  `canConcede` zutrifft — `state.winner === undefined && !hasLost(playerId) &&
+  !isBotControlled(playerId)`. Damit ist der Button (a) nach Spielende für
+  BEIDE Spieler weg (kein Sinn mehr, „aufzugeben"), (b) für einen Spieler weg,
+  der schon verloren hat, und (c) für einen bot-gesteuerten Spieler NIE
+  sichtbar — genau wie im Auftrag verlangt („der Bot gibt nicht auf"). Der
+  Handler selbst zeigt zuerst `window.confirm(...)` und dispatcht nur bei
+  Bestätigung `{ kind: "concede", player }` — eine einfache, dem Auftrag
+  entsprechende Bestätigung ohne eigenes Modal-System (kein neuer UI-Zustand,
+  kein zweiter Klick-Zustand im Store nötig).
+- **`src/ui/style.css`**: eine neue Klasse `.btn-concede` (nur Layout —
+  `margin-left: auto` innerhalb der Flex-Kopfzeile, etwas kompakter als der
+  Standard-`.btn`), keine neue Farbe/Systematik (nutzt weiterhin
+  `.btn.btn-cancel` für die rote Warnfarbe, analog zum bestehenden „Neues
+  Spiel"-Button in der Statuszeile).
+
+**Warum `window.confirm` statt eines zweiten Klicks/eigenen Panels:** Der
+Auftrag erlaubte ausdrücklich beides („zweiter Klick 'wirklich aufgeben?'
+oder ein `window.confirm`-Dialog — halte es simpel"). `window.confirm` kam
+mit weniger neuem Code aus (kein zusätzlicher `UiMode`/Store-Zustand für
+„Bestätigung ausstehend", kein Re-Render-Sonderfall) und ist für eine
+seltene, bewusst störende Sicherheitsabfrage (blockierender Browser-Dialog)
+eher passend als für einen Alltags-Flow — genau der in `docs/frontend-
+status.md` „Nächste Schritte" Punkt 7 (jetzt weiter unten) skizzierte Zweck
+von Bestätigungsdialogen für irreversible Aktionen.
+
+### 2. Deck-Persistenz über `localStorage`
+
+- **`src/ui/store.ts`**: zwei neue private Helfer,
+  `loadDeckFromLocalStorage(player)`/`saveDeckToLocalStorage(player, list)`,
+  unter den Schlüsseln `"deckbuilder1.lastDeck.player1"`/
+  `"deckbuilder1.lastDeck.player2"`. Beide sind defensiv per `try/catch`
+  gekapselt (Auftrag: „darf die App nicht zum Absturz bringen") — ein
+  fehlschlagender Zugriff (privater Browser-Modus, deaktiviertes
+  `localStorage`, volle Quota) führt beim Laden einfach zu `undefined`
+  (→ leeres Deck als Vorbefüllung, wie schon vor v0.1.8) und beim Speichern
+  zu einem stillschweigend übersprungenen Schreibversuch — kein geworfener
+  Fehler verlässt jemals eine der beiden Funktionen.
+  - Der Start-Wert von `decklists` (bisher immer `{ player1: {}, player2: {}
+    }`) lädt jetzt zusätzlich per `loadDeckFromLocalStorage(...) ?? {}` pro
+    Spieler — das ist der geforderte „Fallback, falls der In-Memory-Zustand
+    leer ist": Innerhalb einer laufenden Session (z. B. nach „Neues Spiel")
+    bleibt weiterhin ausschließlich der In-Memory-Zustand maßgeblich (der ist
+    ja nie leer, sobald einmal etwas gebaut wurde); nur ein frisches
+    Modul/ein echter Seiten-Reload liest überhaupt aus `localStorage`.
+  - **`confirmDeck(player)`** speichert jetzt zusätzlich per
+    `saveDeckToLocalStorage`, BEVOR es die `AppPhase` weiterschaltet bzw.
+    `initGame` aufruft — für `player1` immer, für `player2` nur, wenn er zu
+    diesem Zeitpunkt NICHT bot-gesteuert ist (`!isBotControlled(player)`).
+    Letzteres setzt exakt den Auftragswunsch „gerne auch Spieler 2 falls kein
+    Bot" um: Ein per „Zufälliges KI-Deck + weiter" erzeugtes Bot-Deck ist
+    keine vom Nutzer bewusst gebaute Deckliste, die es sich lohnt für die
+    nächste Session vorzubefüllen (und würde ohne diese Ausnahme jedes Mal
+    das zuvor gespeicherte, echte Spieler-2-Deck überschreiben).
+- **Kein Eingriff in `deckBuilder.ts`/`render.ts#renderDeckBuilder` nötig**:
+  Die bestehende Vorbefüllungs-Logik (`getDecklist(player)` als
+  `decklist`-Prop) griff schon vorher direkt auf `store.ts`s `decklists`
+  zu — da jetzt bereits der Start-Wert von `decklists` (s.o.) aus
+  `localStorage` kommt, „sieht" der Deckbau-Screen die Vorbefüllung
+  automatisch, ohne selbst etwas von `localStorage` zu wissen. Das entspricht
+  dem Rollen-Vertrag dieses Projekts (Komponenten kennen nur Props/Callbacks,
+  keine Persistenz-Details).
+- Bewusst **keine Migration/Versionierung** des gespeicherten JSON-Formats
+  (`Record<string, number>`, identisch zur In-Memory-Form) — bei einem
+  künftigen inkompatiblen Format-Wechsel würde `JSON.parse` weiterhin
+  erfolgreich parsen, aber ggf. unbekannte Karten-IDs enthalten;
+  `deckValidation.ts` prüft ohnehin nur Kopienzahlen, keine ID-Existenz, und
+  der Deckbau-Screen zeigt nur Zeilen für tatsächlich im `CardPool`
+  vorhandene IDs (`Object.values(pool)`) — unbekannte IDs in einer
+  gespeicherten Deckliste wären daher harmlos (zählen einfach nicht mit,
+  fallen aber nicht auf; kein Blocker für dieses simple Hobby-Projekt-Maß).
+
+### Modellkonflikt-Check
+
+**Kein Modell-/Architektur-Konflikt gefunden.** `concede` verhielt sich exakt
+wie in `src/model/game-state.ts` dokumentiert (immer legal für den
+betroffenen Spieler, führt sofort zu `playerLost`/`gameEnded`); die
+`localStorage`-Persistenz berührt weder Engine noch Model in irgendeiner
+Form.
+
+### Verifikation (v0.1.8)
+
+- `npm run build` (`tsc --noEmit` über Engine + KI + UI) — sauber.
+- `npm test` (`vitest run`) — **141/141 grün** (136 Bestandstests unverändert
+  + 5 neue, dauerhafte UI-Tests: 2× `concede.test.ts`, 3×
+  `deck-persistence.test.ts`).
+- `npm run build:ui` (Vite-Produktionsbuild) — erfolgreich (123,6 kB JS /
+  8,1 kB CSS, minimal gewachsen).
+- **`src/ui/__tests__/concede.test.ts`** (neu, dauerhaft): ab echtem
+  App-Start (Deckbau beider Spieler per echten Klicks, Hotseat ohne KI,
+  Mulligans behalten), dann zwei Fälle über echte
+  `element.dispatchEvent(new Event("click"))`-Aufrufe: (a) Klick auf
+  `[data-testid="concede-player1"]` + `window.confirm` (gemockt auf `true`)
+  → `state.players.player1.hasLost === true`, `state.winner === "player2"`,
+  `.game-over-banner` zeigt „Sieger: player2", das Log enthält die
+  `playerLost`/`gameEnded`-Zusammenfassungen, und BEIDE Aufgeben-Buttons sind
+  danach aus dem DOM verschwunden; (b) `window.confirm` gemockt auf `false`
+  → State bleibt (Referenzgleichheit geprüft) exakt derselbe, kein
+  `dispatch()` hat stattgefunden, der Button ist weiterhin da. Durchgehend
+  `console.error`-Spy nie aufgerufen.
+- **`src/ui/__tests__/deck-persistence.test.ts`** (neu, dauerhaft): drei
+  Fälle. (1) Haupttest: Deckbau beider Spieler per echten Klicks (Spieler 1
+  „Zufällig füllen" + bestätigen, Spieler 2 „Gleiches Deck übernehmen" +
+  bestätigen) → beide `localStorage`-Keys enthalten das erwartete JSON →
+  **simulierter Reload** über `vi.resetModules()` + frischer `await
+  import("../store")`/`import("../render")` (store.ts hält seinen Zustand
+  modul-scoped, ein frischer Modul-Import entspricht also „Store startet bei
+  null" — `window.localStorage` selbst hängt an `window`, nicht am Modul, und
+  überlebt den Reset unverändert, genau wie ein echter Tab-Reload im
+  Browser) → `getDecklist(player1)`/`getDecklist(player2)` entsprechen exakt
+  den vorher gespeicherten Decklisten, UND der frisch gerenderte
+  Deckbau-Screen zeigt schon vor jedem Klick „Deck gültig" mit aktiviertem
+  Bestätigen-Button (eine Stichproben-Kartenzeile im DOM zeigt die korrekte
+  Kopienzahl). (2) Ein per KI-Quickstart erzeugtes Spieler-2-Deck wird NICHT
+  gespeichert (`localStorage.getItem(...player2) === null`). (3) Ein
+  `localStorage.setItem`-Aufruf, der eine `DOMException` wirft (simuliert
+  privaten Browser-Modus/volle Quota), lässt den Deckbau-Flow unverändert
+  weiterlaufen (`confirmDeck` wirft nicht, `AppPhase` schaltet trotzdem
+  korrekt weiter) — deckt genau die im Auftrag verlangte Fehlerresistenz ab.
+- Wie in v0.1.3–v0.1.7 dokumentiert kein Browser-/Computer-Use-Werkzeug in
+  dieser Session verfügbar — Verifikation lief über echte DOM-Events in
+  `jsdom` (Vitest), dieselbe Kette wie in allen bisherigen
+  Golden-Path-Verifikationen. `jsdom` stellt `localStorage` bereits ohne
+  Zusatz-Setup bereit (wie vom Auftrag vermutet) — kein neues Dev-Setup
+  nötig.
+
+**Ergebnis:** Neue Dateien: `src/ui/__tests__/concede.test.ts`,
+`src/ui/__tests__/deck-persistence.test.ts`. Geänderte Dateien:
+`src/ui/components/playerPanel.ts` (`onConcede`-Option + Button),
+`src/ui/render.ts` (`playerArea`: `canConcede`-Berechnung + Callback),
+`src/ui/style.css` (`.btn-concede`), `src/ui/store.ts`
+(`loadDeckFromLocalStorage`/`saveDeckToLocalStorage`, `decklists`-Startwert,
+`confirmDeck`-Speicherung). Keine Änderungen an `src/engine/*`,
+`src/model/*`, `src/ai/*`, `src/cards/*`.
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
    oben) — `src/ui/__tests__/` mit `jsdom` als Dev-Dependency, dauerhaft im
    Repo.
-2. **`concede`-Button** ergänzen (trivial, aber für Testpartien nützlich).
+2. ~~**`concede`-Button** ergänzen~~ **erledigt in v0.1.8** (s. eigener
+   Abschnitt oben) — Button pro Spieler im Spieler-Panel,
+   `window.confirm`-Bestätigung, ausgeblendet für bot-gesteuerte Spieler/nach
+   Spielende.
 3. **Dauerhafter Klick-Test für den modalen Trigger-Fall**
    (`core.current-diplomat`, `chooseMode`-PendingDecision inkl. Auto-Pick
    und der Ketten-Decision zu `chooseTriggerTargets`) — v0.1.6 deckt den
@@ -1096,13 +1269,18 @@ Entscheidung Punkt 2 oben). Keine Änderungen an `src/engine/*`,
    nur `chooseTriggerTargets` ab, die anderen drei brauchen eigene
    Eingabe-Widgets, da ihre `DecisionChoice`-Form keine `ChosenTarget`-Liste
    ist.
-6. ~~**Deckbau-UI**~~ **erledigt in v0.1.5** (s. eigener Abschnitt oben) —
-   bewusst simpel gehalten (kein Sideboard, kein Deck-Speichern über eine
-   Session hinaus, keine Mehrfach-Deck-Verwaltung); wäre bei Bedarf
-   erweiterbar.
+6. ~~**Deckbau-UI**~~ **erledigt in v0.1.5** (s. eigener Abschnitt oben),
+   ~~**Deck-Speichern über eine Session hinaus**~~ **erledigt in v0.1.8** (s.
+   eigener Abschnitt oben, `localStorage`-Persistenz der zuletzt bestätigten
+   Deckliste) — weiterhin bewusst simpel gehalten (kein Sideboard, keine
+   Mehrfach-Deck-Verwaltung/-Namen); wäre bei Bedarf erweiterbar.
 7. **Bessere Zugänglichkeit/Ergonomie**: aktuell keine Tastatursteuerung,
-   keine Bestätigungsdialoge für irreversible Aktionen (z. B. Opfern),
-   kein „Undo" (entspricht dem Engine-Modell, das keine Rücknahme kennt).
+   ~~keine Bestätigungsdialoge für irreversible Aktionen~~ **seit v0.1.8
+   gibt es einen `window.confirm`-Dialog für `concede`** (s. eigener
+   Abschnitt oben) — andere irreversible Aktionen (z. B. Opfern als
+   Zusatzkosten) haben weiterhin keine eigene Bestätigungs-UI (s. „Bewusste
+   Vereinfachungen" oben, „Opfer-/Zusatzkosten-Feedback"); kein „Undo"
+   (entspricht dem Engine-Modell, das keine Rücknahme kennt).
 8. **Deckbau-Screen für sehr kleine Bildschirme/viele Karten**: aktuell nur
    ein scrollbarer `max-height`-Container ohne Virtualisierung — bei einem
    künftig deutlich größeren Kartenpool (weit über 109) könnte das UI träge

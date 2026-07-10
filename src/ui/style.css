@@ -227,6 +227,12 @@ body {
   font-weight: 700;
 }
 
+.btn-concede {
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
 .badge {
   font-size: 11px;
   padding: 1px 6px;
