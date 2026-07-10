@@ -11,7 +11,14 @@ Event `mulliganTaken`; v0.3.1: additives `chosenMode?: number` auf
 `PendingDecision "chooseTriggerTargets"`).
 Code: `src/engine/*`. Tests: `src/engine/__tests__/*.test.ts` + `src/ui/__tests__/*.test.ts`
 + `src/ai/__tests__/*.test.ts` (Vitest, `npm test`, 135 Tests, alle grün;
-vorher 132 vor dem v0.3.2-Bugfix-Regressionstest).
+vorher 132 vor dem v0.3.2-Bugfix-Regressionstest). **documenter-Sweep
+2026-07-10:** Seither sind auf der `src/ui/__tests__/*`-Seite 6 weitere
+dauerhafte Tests hinzugekommen (v0.1.7 `vs-bot.test.ts`, v0.1.8
+`concede.test.ts`/`deck-persistence.test.ts`, s. `docs/frontend-status.md`)
+— Gesamtstand jetzt **141 Tests** (per Grep gegengezählt: 119 in
+`src/engine/__tests__/*`, 11 in `src/ui/__tests__/*`, 11 in
+`src/ai/__tests__/*` inkl. der 10 seed-parametrisierten Bot-Partien), nicht
+mehr Sache dieses engine-engineer-Dokuments einzeln nachzuführen.
 
 Dieses Dokument richtet sich an frontend-engineer (worauf aufbauen?), card-designer
 (welche DSL-Primitive funktionieren zuverlässig?) und game-architect (offene
@@ -781,7 +788,14 @@ Modellkonflikt [final gelöst in v0.3.1, additives `chosenMode` an
 ## Tests
 
 `src/engine/__tests__/*.test.ts` + `src/ui/__tests__/*.test.ts` (Vitest,
-`npm test`, 118 Tests):
+`npm test`, 119 Engine-Tests zum Zeitpunkt der letzten Aktualisierung dieser
+Liste; **documenter-Sweep 2026-07-10:** diese Aufzählung wurde seit v0.3.1
+nicht mehr vollständig nachgeführt — `legal-actions.test.ts` (v0.3.2, s.
+Abschnitt oben) fehlt unten als eigener Bullet, ergänzt; die vollständigen,
+aktuell 11 dauerhaften `src/ui/__tests__/*`-Dateien und die 11 Tests in
+`src/ai/__tests__/simpleBot.test.ts` sind NICHT einzeln aufgeführt, siehe
+stattdessen `docs/frontend-status.md`/`docs/ai-status.md` für deren jeweils
+eigene, aktuell gehaltene Testübersicht):
 
 - `create-game.test.ts` - Determinismus, Starthand, Draw-Step-Skip,
   Münzwurf/`startingPlayer`-Override.
@@ -845,6 +859,11 @@ Modellkonflikt [final gelöst in v0.3.1, additives `chosenMode` an
   Fähigkeiten (Auto-Pick bei einem wählbaren Modus, `chooseMode`-Decision bei
   mehreren, ungültiger `modeIndex`, seit v0.3.1 die volle Kette `chooseMode`
   -> `chooseTriggerTargets` mit persistiertem `chosenMode`).
+- `legal-actions.test.ts` (v0.3.2, 3 Tests, ergänzt beim documenter-Sweep
+  2026-07-10) - Regressionstests für den `activateAbility`-Zusatzkosten-Bug
+  (`removeCounters`/`payLife`/`discardCards`): Kandidat erscheint NICHT bei
+  unbezahlbaren Kosten, `applyAction` lehnt konsistent ab, Kandidat
+  erscheint UND ist ausführbar, sobald die Kosten erfüllbar sind.
 
 `src/engine/__tests__/fixtures.ts` und `test-helpers.ts` sind NUR für Tests
 gedacht (Mini-Kartenpool, Direkt-Manipulationshilfen wie `putOnBattlefield`) -

@@ -1,21 +1,25 @@
 # Deckbuilder — Projektübersicht
 
-MTG-artiger Deckbuilder als Hobby-/Lernprojekt. Vier Agent-Rollen:
+MTG-artiger Deckbuilder als Hobby-/Lernprojekt. Fünf Agent-Rollen:
 **game-architect** (Regelwerk + Datenmodell), **engine-engineer** (Spiellogik),
-**card-designer** (Kartenpool + Balancing), **frontend-engineer** (UI).
+**card-designer** (Kartenpool + Balancing), **frontend-engineer** (UI),
+**ai-opponent-engineer** (KI-Gegner, `src/ai/*`, s. „Nächste Schritte" für den
+aktuellen Stand). Ein `documenter`-Subagent hält diese Übersicht sowie
+`docs/status.md`/`docs/rules-engine.md` aktuell.
 
-## Aktueller Stand (2026-07-09, Regelwerk v0.2.3 / Modell v0.2.1 / Engine v0.2.4 / Kartenpool 109 Karten / Frontend v0.1.4)
+## Aktueller Stand (2026-07-10, Regelwerk v0.3.1 / Modell v0.2.1 mit v0.3-Erweiterungen / Engine v0.3.2 / Kartenpool 113 Karten / Frontend v0.1.8 / KI-Gegner v1)
 
 | Artefakt | Pfad | Status |
 |---|---|---|
-| Regelwerk (Phasen, Priority, Stack, SBAs, Trade-offs) | `docs/rules-engine.md` | **v0.2.3**, verbindlich — Kampf-Ausbau für die Kartenpool-Erweiterung: neuer §6d mit den Keywords `trample`/`firstStrike`/`deathtouch` inkl. voller Kombinatorik-Tabelle (§6d(4)), §7 (SBA 4 um deathtouch erweitert), §9.8 **bewusst revidiert** (Mehrfachblock-Reihenfolge wird jetzt vom **Angreifer** über die neue PendingDecision `orderBlockers` gewählt, statt wie in v0.2.2 vom Verteidiger), neue Entscheidung §9.9 (Trade-offs des Keyword-Pakets), §10 aktualisiert. **Nachtrag im Rahmen von Phase B** (kein Versionssprung, da reine Klärung ohne Datenmodell-Änderung): Der card-designer fand beim Kartenpool-Audit, dass `TriggerCondition.onDamageReceived` im Modell existiert, aber von der Engine an keiner Stelle gefeuert wird; der game-architect hat entschieden, das **nicht** zu implementieren, sondern als „reserviert, noch nicht verdrahtet" zu dokumentieren (§5 neuer Hinweis-Bullet, §6d(4) Fußnote, §10 neuer offener Punkt mit Implementierungsnotizen für eine spätere Umsetzung bei Bedarf) |
-| Effekt-/Fähigkeiten-DSL | `src/model/abilities.ts` | Typen fertig (v0.2: guardian final, X-Kosten geklärt, targets-los bestätigt; v0.2.3: `Keyword`-Typ um `trample`/`firstStrike`/`deathtouch` erweitert) |
-| Kartendefinitionen (6 Kartentypen, Kosten, Decks) | `src/model/cards.ts` | Typen fertig (v0.2: Aura-attachedTo geklärt) |
-| Spielzustand, Stack, Aktionen, Events, Engine-Interface | `src/model/game-state.ts` | Typen fertig (v0.2: PendingDecision/resolveDecision, CreateGameConfig ohne pool, Factory-Vertrag; v0.2.1: resumePriorityTo; v0.2.3: `PendingDecision`/`DecisionChoice` um `orderBlockers` erweitert, `PermanentState.deathtouchDamage`) |
+| Regelwerk (Phasen, Priority, Stack, SBAs, Trade-offs) | `docs/rules-engine.md` | **v0.3.1**, verbindlich — Kampf-Ausbau für die Kartenpool-Erweiterung: neuer §6d mit den Keywords `trample`/`firstStrike`/`deathtouch` inkl. voller Kombinatorik-Tabelle (§6d(4)), §7 (SBA 4 um deathtouch erweitert), §9.8 **bewusst revidiert** (Mehrfachblock-Reihenfolge wird jetzt vom **Angreifer** über die neue PendingDecision `orderBlockers` gewählt, statt wie in v0.2.2 vom Verteidiger), neue Entscheidung §9.9 (Trade-offs des Keyword-Pakets). **v0.3-Update (vier vertagte Abschnitt-10-Punkte geschlossen, Entscheidungen 9.10–9.13):** `onDamageReceived` verdrahtet (feuert pro Schadensereignis > 0 bei Kampf- UND Effekt-Schaden, `eventSubject` = Schadensquelle — der frühere „reserviert, nicht verwenden"-Status ist aufgehoben); Mulligan-Regel (neuer §1b, klassische Paris-Variante, streng sequentiell, neue PendingDecision `mulligan`); X-Kosten auf aktivierten Fähigkeiten (`chosenX` jetzt auch an `activateAbility`, Verbot für Mana-Fähigkeiten); Modal-Effekte „wähle eines —" (neuer Typ `EffectMode`/`modes` auf `SpellCard`/`ActivatedAbility`/`TriggeredAbility`, Moduswahl vor X/Ziele, neue PendingDecision `chooseMode` nur für Trigger). **v0.3.1-Nachtrag:** Modellkonflikt in der Ketten-Decision `chooseMode` → `chooseTriggerTargets` behoben (additives `chosenMode?: number` an `PendingDecision "chooseTriggerTargets"`). §10 bereinigt — die großen, weiterhin bewusst vertagten Themen (>2 Spieler, Kontrollwechsel/Kopier-Effekte, Double-Strike-Analog, London-Mulligan-Upgrade, „wähle zwei" bei Modal-Effekten u. a.) bleiben dort dokumentiert, nur bei konkretem Kartenbedarf anzugehen |
+| Effekt-/Fähigkeiten-DSL | `src/model/abilities.ts` | Typen fertig (v0.2: guardian final, X-Kosten geklärt, targets-los bestätigt; v0.2.3: `Keyword`-Typ um `trample`/`firstStrike`/`deathtouch` erweitert; v0.3: neuer Typ `EffectMode` + `modes`-Feld für Modal-Effekte) |
+| Kartendefinitionen (6 Kartentypen, Kosten, Decks) | `src/model/cards.ts` | Typen fertig (v0.2: Aura-attachedTo geklärt; v0.3: `SpellCard.modes` für Modal-Effekte) |
+| Spielzustand, Stack, Aktionen, Events, Engine-Interface | `src/model/game-state.ts` | Typen fertig (v0.2: PendingDecision/resolveDecision, CreateGameConfig ohne pool, Factory-Vertrag; v0.2.1: resumePriorityTo; v0.2.3: `PendingDecision`/`DecisionChoice` um `orderBlockers` erweitert, `PermanentState.deathtouchDamage`; v0.3: `PendingDecision`/`DecisionChoice` +`mulligan`/`chooseMode`, `chosenX`/`chosenMode` an Aktionen/Stack-Objekten, `PlayerState.mulligans`, `CreateGameConfig.skipMulligans`, Event `mulliganTaken`; v0.3.1: additives `chosenMode?: number` an `chooseTriggerTargets`) |
 | Zentrale Exports | `src/model/index.ts` | fertig |
-| Engine-Implementierung (Kern: Phasen/Priority/Stack/SBA/Trigger/Decisions/Combat inkl. guardian, X, Kampf-Keyword-Paket, costChange) | `src/engine/*`, Status: `docs/engine-status.md` | **v0.2.4 fertig** (83 Tests grün, per `npm test` verifiziert; Testzahl per Grep gegen den Code gegengeprüft: 83 `it(`/`test(`-Vorkommen in `src/engine/__tests__/*.test.ts`) — Kampf-Keyword-Paket `trample`/`firstStrike`/`deathtouch` + `orderBlockers`-PendingDecision (v0.2.3) weiterhin vollständig; **neu in v0.2.4:** `StaticAbility`-Modifier `costChange` implementiert (`stats.ts#computeSpellCostDelta`, verdrahtet in `mana.ts`/`actions.ts`/`legal-actions.ts` an allen Spell-Kostenprüfungsstellen, bewusst NICHT an `activateAbility`), neue `cost-change.test.ts` (6 Tests); offene Rückfrage des engine-engineers an den game-architect, ob `StaticAbility.scope` bei `costChange` künftig eine Bedeutung bekommen soll (aktuell von der Engine bewusst ignoriert, nur `modifier.appliesTo` zählt) — nicht blockierend. `npm run build` sauber |
-| Kartenpool / Starter-Set (109 Karten + 3 Token-Definitionen) | `src/cards/starter-set.ts`, `docs/cards/starter-set.md` | **v0.5 fertig, Phase B abgeschlossen** — Kartenzahl per Grep gegen den Code verifiziert (112 `id: "core.…"`-Einträge insgesamt, davon 3 mit `isToken:true`, macht 109 reguläre Karten). In drei Batches von 27 auf 109 ausgebaut: Batch 1 (+29, Fokus Kampf-Keywords `trample`/`firstStrike`/`deathtouch`/bestehende Keywords), Batch 2 (+25 + 3 Token-Defs, Fokus `createToken`/`grantKeyword`-als-Effekt/`tapPermanent`/`untapPermanent`-als-Effekt/`removeCounters`/`discardCards`, Typ-Mix ausgeglichen), Batch 3 (+28, Fokus `costChange`/`scry`/`StaticAbility scope: self`/`opponentUnits`/`allUnits`, schließt fast alle übrigen ungenutzten DSL-Primitive). Alle 9 Keywords und nahezu alle DSL-Primitive jetzt im Pool vertreten (Details `docs/cards/starter-set.md`); dabei fand der card-designer die `onDamageReceived`-Lücke (s. Regelwerk-Zeile oben) |
-| UI (Spielbrett, Vite + TypeScript) | `src/ui/*`, Status: `docs/frontend-status.md` | **v0.1.4** — Golden Path + Combat-UI (v0.1.2) + `orderBlockers`-Panel (v0.1.3, per echtem Browser-Test vom documenter bestätigt, s.u.) weiterhin verifiziert; **neu in v0.1.4:** `src/ui/deck.ts#buildDemoDeck` angepasst, damit das Demo-Deck beim jetzt 109 Karten großen Pool nicht auf ~124 Karten/Spieler anwächst — Terrains weiterhin fest 4×, Nicht-Terrain jetzt eine zufällige Stichprobe von bis zu 40 Karten (Fallback auf den vollen Pool bei kleineren Kartenmengen, rückwärtskompatibel zum alten 27-Karten-Stand). Ergebnis bei 109 Pool-Karten: 60 Karten/Spieler (verifiziert per Code-Lesen von `deck.ts` UND per echtem Browser-Test der finalen Demo-Partie durch den documenter: Bibliothek 53 + Hand 7 = 60 Karten/Spieler, keine Konsolenfehler) |
+| Engine-Implementierung (Kern: Phasen/Priority/Stack/SBA/Trigger/Decisions/Combat inkl. guardian, X, Kampf-Keyword-Paket, costChange, Mulligan, Modal-Effekte) | `src/engine/*`, Status: `docs/engine-status.md` | **v0.3.2 fertig** — `costChange` (v0.2.4) sowie alle vier v0.3-Regelwerkspunkte umgesetzt: `damage.ts#applyDamageToPermanent` (`onDamageReceived`, zentraler Helfer für Kampf- UND Effekt-Schaden), `mulligan.ts` (Paris-Mulligan), `chosenX` an `activateAbility`, `modal.ts` (Modal-Effekte inkl. `chooseMode`-Decision). **v0.3.2 (echter Bugfix, gefunden beim Bot-Stresstest des neuen KI-Moduls):** `legal-actions.ts#activateAbilityCandidates` prüfte nur `tap`, nicht alle vier `AdditionalCost`-Varianten auf Bezahlbarkeit — behoben (`additionalCostsPayable`), neue Regressionstests. Engine-Testzahl (nur `src/engine/__tests__/*`) 83 → 119 (per Grep nachgezählt); zusammen mit UI+KI läuft `npm test` auf **141 Tests gesamt**. Offene Rückfrage an den game-architect (unverändert): ob `StaticAbility.scope` bei `costChange` künftig eine Bedeutung bekommen soll — nicht blockierend |
+| Kartenpool / Starter-Set (113 Karten + 3 Token-Definitionen) | `src/cards/starter-set.ts`, `docs/cards/starter-set.md` | **v0.6 fertig** — Kartenzahl per Grep gegen den Code verifiziert (116 `id: "core.…"`-Einträge insgesamt, davon 3 mit `isToken:true`, macht 113 reguläre Karten). Zielgröße (≥100 Karten) seit Phase B (v0.5, 109 Karten) erreicht; **v0.6-Update** fügt 4 Demo-/Abnahmekarten für die vier neuen v0.3-Regelwerksmechaniken hinzu: `core.void-covenant` (modaler Spell), `core.current-diplomat` (modaler ETB-Trigger), `core.thornrage-boar` (`onDamageReceived`-Vergeltung), `core.cinderwrack-engine` (X-Kosten-Fähigkeit) |
+| UI (Spielbrett, Vite + TypeScript) | `src/ui/*`, Status: `docs/frontend-status.md` | **v0.1.8** — Golden Path + Combat-UI weiterhin verifiziert; **v0.1.5:** dauerhafte UI-Regressionstests im Repo (`src/ui/__tests__/`, jsdom als Dev-Dependency) + echter Deckbau-Screen vor Spielstart (sequenziell Spieler 1/2, Validierung, „Zufällig füllen"-Button) statt automatischer Demo-Partie; **v0.1.6:** echte Mulligan-UI, Modus-Wahl-UI für modale Karten/Fähigkeiten/Trigger, X-Kosten-UI auf `activateAbility` verallgemeinert; **v0.1.7:** „Spieler 2 = KI"-Anbindung an `src/ai/simpleBot.ts` (Umschalter im Deckbau-Screen, automatischer Zug-Loop, „KI"-Badge); **v0.1.8:** `concede`-Button pro Spieler (`window.confirm`-Bestätigung) + `localStorage`-Persistenz der zuletzt bestätigten Decklisten über einen Seiten-Reload hinweg. `npm test` läuft laut allen Berichten auf 141/141, `npm run build`/`build:ui` sauber |
+| KI-Gegner (regelbasierter Bot, spielt ausschließlich über die öffentliche `RulesEngine`-Schnittstelle) | `src/ai/simpleBot.ts`, Status: `docs/ai-status.md` | **v1 fertig** — `chooseAction(engine, pool, state, player)` nutzt nur `getLegalActions`/`applyAction`, keine Engine-Interna; einfache Score-Heuristiken ohne Lookahead. Fand beim Bot-vs-Bot-Stresstest über den vollen Kartenpool einen echten Engine-Bug (s. Engine-Zeile oben, v0.3.2) und meldete ihn statt selbst in die Engine einzugreifen. 11 dauerhafte Tests (`src/ai/__tests__/simpleBot.test.ts`, 10 benannte Seeds + 1 Stichprobe über 3 weitere Seeds = 13 vollständige Partien). Bewusst **keine** Schwierigkeitsstufen — Fundament für den neuen `ai-opponent-engineer`-Subagenten, s. „Nächste Schritte" |
 | Projekt-Setup (package.json, tsconfig, Vitest, Vite) | `package.json`, `tsconfig.json`, `vite.config.ts` | fertig |
 | Git-Repo | https://github.com/tempestas1983/deckbuilder1 | Initial-Commit auf `main` gepusht |
 
@@ -34,7 +38,9 @@ JSON-serialisierbare Daten (keine Karten-spezifischen Codefunktionen).
 5. **Engine-Konstruktion per Factory (v0.2):** `createRulesEngine(pool)` bindet den CardPool
    einmalig; `GameState` bleibt poolfrei serialisierbar.
 6. **Pending Decisions (v0.2):** ein generischer Kanal (`pendingDecision` + `resolveDecision`)
-   für alle Spielerentscheidungen mitten in der Abwicklung (Trigger-Ziele, später scry/Farbwahl/Modal).
+   für alle Spielerentscheidungen mitten in der Abwicklung — inzwischen (v0.2.3/v0.3) real genutzt für
+   Trigger-Zielwahl, `orderBlockers`, `mulligan` und `chooseMode`; `chooseManaColor`/`chooseDiscard`/
+   `orderScry` bleiben weiterhin Auto-Default, Migration bei Kartenpool-Bedarf (siehe „Nächste Schritte").
 
 ## Beispielkarte (zur Orientierung für den Card-Designer)
 
@@ -79,99 +85,136 @@ const tidalRebuke: SpellCard = {
 
 ## Nächste Schritte
 
-Regelwerk (v0.2.3), Engine (v0.2.4, 83 Tests), Starter-Kartenset (v0.5, 109
-Karten + 3 Token-Definitionen) und Spielbrett-UI (v0.1.4) sind alle fertig
-und end-to-end verifiziert. **Sowohl Phase A („Kampf ausbauen") als auch
-Phase B („Kartenpool auf 100+ Karten") sind damit abgeschlossen:**
+Regelwerk (v0.3.1), Engine (v0.3.2, 141 Tests gesamt über Engine+UI+KI),
+Starter-Kartenset (v0.6, 113 Karten + 3 Token-Definitionen), Spielbrett-UI
+(v0.1.8) und ein einfacher regelbasierter KI-Gegner (v1) sind alle fertig
+und end-to-end verifiziert. **Phase A („Kampf ausbauen") und Phase B
+(„Kartenpool auf 100+ Karten") waren bereits vorher abgeschlossen; seither
+zusätzlich:**
 
-- **Phase A:** Kampf für den End-to-End-Test gehärtet (v0.2.2) und um vier
-  neue Mechaniken erweitert (v0.2.3) — `trample`, `firstStrike`,
-  `deathtouch` sowie die angreifergewählte Mehrfachblock-Reihenfolge
-  (`orderBlockers`, löst die v0.2.2-Vereinfachung „Verteidiger-Wahl" ab).
-- **Phase B:** Der card-designer hat den Kartenpool in drei Batches von 27
-  auf 109 Karten ausgebaut (`src/cards/starter-set.ts`); der
-  engine-engineer hat dafür als Lückenschluss den `costChange`-Static-
-  Modifier implementiert (v0.2.4); der frontend-engineer hat das
-  Demo-Deck-Sampling angepasst, damit es bei 109 Pool-Karten nicht auf
-  ~124 Karten/Spieler anwächst (v0.1.4, jetzt 60 Karten/Spieler); der
-  game-architect hat eine dabei gefundene Engine-Lücke
-  (`onDamageReceived` feuert nirgends) geprüft und bewusst als „reserviert,
-  noch nicht verdrahtet" vertagt statt sie zu implementieren.
+- **Vier Regelwerks-Punkte aus Abschnitt 10 geschlossen** (v0.3/v0.3.1):
+  `onDamageReceived` verdrahtet, Mulligan-Regel (Paris-Variante), X-Kosten
+  auf aktivierten Fähigkeiten, Modal-Effekte „wähle eines —" (inkl. eines
+  v0.3.1-Nachtrags, der einen Modellkonflikt in der Ketten-Decision
+  `chooseMode` → `chooseTriggerTargets` behebt).
+- **Engine** hat alle vier Punkte umgesetzt (v0.3/v0.3.1) und dabei über
+  Bot-Stresstests einen echten Bugfix gefunden und behoben (v0.3.2:
+  `legal-actions.ts` prüfte bei `activateAbility` nicht alle Zusatzkosten).
+- **Kartenpool** um 4 Demo-/Abnahmekarten für die vier neuen Mechaniken
+  erweitert (v0.6, 109 → 113 Karten).
+- **Frontend** hat in vier Schritten (v0.1.5–v0.1.8) nachgezogen: dauerhafte
+  UI-Tests + echte Deckbau-UI, Mulligan-/Modal-/X-Kosten-UI, KI-Anbindung
+  („Spieler 2 = KI"), `concede`-Button + `localStorage`-Deck-Persistenz.
+- **Neu: ein einfacher, regelbasierter KI-Gegner** (`src/ai/simpleBot.ts`,
+  v1, `docs/ai-status.md`) — spielt ausschließlich über die öffentliche
+  `RulesEngine`-Schnittstelle, bewusst ohne Schwierigkeitsstufen.
+- **Neu: ein fünfter Subagent `ai-opponent-engineer`**
+  (`.claude/agents/ai-opponent-engineer.md`, Modell `claude-fable-5`) für
+  den Ausbau dieses Bots — s. „Nächster geplanter Meilenstein" unten.
 
-Details je Bereich in `docs/engine-status.md`, `docs/cards/starter-set.md`,
-`docs/frontend-status.md`; Kurzfassung des Gesamtstands in `docs/status.md`.
+Details je Bereich in `docs/rules-engine.md`, `docs/engine-status.md`,
+`docs/cards/starter-set.md`, `docs/frontend-status.md`, `docs/ai-status.md`;
+Kurzfassung des Gesamtstands (inkl. dieses Meilensteins) in `docs/status.md`.
 
-**Offene Punkte, keiner davon blockiert das Spielen** (Quelle für die
-game-architect-Punkte: `docs/rules-engine.md` Abschnitt 10, dort im Detail
-inkl. Implementierungsnotizen):
+---
 
-### card-designer
-Kein Hauptauftrag mehr offen — Zielgröße (≥100 Karten) erreicht, praktisch
-alle DSL-Primitive und alle 9 Keywords sind jetzt im Pool vertreten (siehe
-`docs/cards/starter-set.md`, Abschnitte „Keywords: Abdeckung im Pool" und
-„Nicht verwendete DSL-Primitive"). Optionale Kandidaten für einen
-möglichen weiteren Batch, laut card-designer explizit „kein Blocker":
-1. `onAttackDeclared`/`onBlockDeclared`-Trigger (vollständig in der Engine
-   verdrahtet, aber bislang keine Karte nutzt sie).
-2. `EffectRecipient` `eventSubject` (z.B. „wenn eine gegnerische Kreatur
-   stirbt, verbanne sie").
-3. `modifyStats` mit `duration: "permanent"` (bisher nur `endOfTurn`
+### Nächster geplanter Meilenstein: KI-Gegner-Ausbau (noch nicht gestartet)
+
+Der neue **`ai-opponent-engineer`**-Subagent soll `src/ai/*` von der
+aktuellen v1 (eine feste Heuristik, kein Lookahead) zu **drei spürbar
+unterschiedlichen Schwierigkeitsstufen** ausbauen — explizit vom Nutzer
+gewünscht, aber **bewusst für eine künftige Session zurückgestellt**, kein
+Teil dieses Sweeps. Ausgangspunkt sind die in `docs/ai-status.md`
+Abschnitt 6 dokumentierten bekannten v1-Schwächen:
+
+1. Kein Lookahead / keine Board-State-Tiefenanalyse (reine
+   Ein-Schritt-Heuristiken).
+2. Ignoriert statische Fähigkeiten anderer Permanents bei der
+   Stat-/Keyword-Schätzung (Anthems, Debuffs, fremd gewährte Keywords).
+3. Kein Kombo-/Synergieverständnis (Karten werden isoliert bewertet).
+4. Keine Instant-Speed-Taktik (hält nie proaktiv Mana für Reaktionen offen).
+5. Modale Karten werden nur über die „günstigste Option"-Baseline bewertet,
+   nicht über den tatsächlichen Effekt des gewählten Modus.
+6. Grobe Ziel-Optimierung bei Removal (nur Power+Toughness, keine
+   Bedrohlichkeits-/Keyword-Bewertung).
+7. Guardian/Airborne/Reach-Erkennung bei Blockern nutzt nur Basis-Keywords,
+   keine statischen Fremd-Grants.
+8. Grobe Discard-Heuristik ohne Kontextbewertung.
+
+Der Auftrag an `ai-opponent-engineer` umfasst laut Subagent-Definition
+zusätzlich: Performance-Budget für teurere Heuristiken (Minimax/Suche,
+kein spürbares UI-Einfrieren), automatisierte Bot-vs-Bot-Sanity-Checks
+(„höhere Stufe schlägt niedrigere tendenziell"), eine strikte
+Konsumenten-Grenze (nur `getLegalActions`/`applyAction`, keine
+Engine-/Model-Änderungen — echte Schnittstellenlücken werden gemeldet statt
+eigenmächtig eingebaut), sowie kein eigenes UI (ein
+Schwierigkeitsgrad-Regler wird in Absprache mit frontend-engineer an diesen
+übergeben — `docs/frontend-status.md` „Nächste Schritte" Punkt 10 hält
+bereits fest, dass der Deckbau-Screen dafür einen zweiten Umschalter
+bräuchte).
+
+---
+
+### Weitere offene Punkte, keiner davon blockiert das Spielen
+
+**card-designer:** Kein Hauptauftrag mehr offen — Zielgröße (≥100 Karten)
+erreicht, praktisch alle DSL-Primitive und alle 9 Keywords sind im Pool
+vertreten (`docs/cards/starter-set.md`). Optionale Kandidaten für einen
+möglichen weiteren Batch, weiterhin „kein Blocker":
+1. `onAttackDeclared`/`onBlockDeclared`-Trigger (verdrahtet, aber ungenutzt).
+2. `modifyStats` mit `duration: "permanent"` (bisher nur `endOfTurn`
    demonstriert).
-4. Karten mit >1 Zielslot sind weiterhin ungetestet (weder Engine noch UI)
+3. Karten mit >1 Zielslot sind weiterhin ungetestet (weder Engine noch UI)
    — falls gewünscht, zieht das Ausbauarbeit auf beiden Seiten nach sich.
 
-### engine-engineer
-1. **`onDamageReceived` verdrahten, falls eine künftige Karte es braucht**
-   (rules-engine.md 10, mit konkreten Implementierungsnotizen: Anknüpfpunkte
-   `combat.ts#dealCombatDamageRound` und `effects.ts#dealDamageToPermanent`,
-   Semantik Schaden ≤ 0 feuert nicht, Trigger feuert auch bei letalem
-   Schaden) — bewusst vertagt, kein aktueller Bedarf im Pool.
-2. **Offene Rückfrage an game-architect:** Soll `StaticAbility.scope` bei
-   `modifier.kind === "costChange"` künftig eine eigene Bedeutung bekommen
-   (aktuell wird nur `modifier.appliesTo` ausgewertet, `scope` ignoriert),
-   siehe `docs/engine-status.md` „Offene Fragen" Punkt 3 — nicht
-   blockierend.
-3. StaticAbility-Test für `stats`/`grantKeyword` ergänzen (weiterhin ohne
+**engine-engineer:**
+1. **Offene Rückfrage an game-architect (unverändert seit v0.2.4):** Soll
+   `StaticAbility.scope` bei `modifier.kind === "costChange"` künftig eine
+   eigene Bedeutung bekommen (aktuell wird nur `modifier.appliesTo`
+   ausgewertet, `scope` ignoriert) — nicht blockierend.
+2. StaticAbility-Test für `stats`/`grantKeyword` ergänzen (weiterhin ohne
    eigenen Unit-Test, siehe `docs/engine-status.md` Lücke 7).
-4. Migration von `chooseManaColor`/`chooseDiscard`/`orderScry` auf den
+3. Migration von `chooseManaColor`/`chooseDiscard`/`orderScry` auf den
    Pending-Decision-Kanal (rules-engine.md 9.7), sobald Kartenpool das braucht.
-5. Mana-Fähigkeiten mit X-Kosten (rules-engine.md 10, bestätigter offener Punkt).
 
-### frontend-engineer
-1. UI-Tests dauerhaft ins Repo (Vitest+jsdom) statt nur manueller Verifikation.
-2. `concede`-Button ergänzen.
+**frontend-engineer** (aus `docs/frontend-status.md` „Nächste Schritte",
+weiterhin offene Punkte):
+1. Dauerhafter Klick-Test für den modalen Trigger-Fall
+   (`core.current-diplomat`, `chooseMode`-PendingDecision inkl. Auto-Pick
+   und der Ketten-Decision zu `chooseTriggerTargets`) — der Code-Pfad ist
+   seit v0.1.6 verdrahtet, ein eigener dauerhafter Test fehlt noch.
+2. Mehrfach-Zielslot-UI, sobald Karten mit >1 Zielslot existieren (aktuell
+   keine im Pool).
 3. `computeEffectiveStats`/`computeEffectiveKeywords` offiziell in den
    `RulesEngine`-Vertrag heben (aktuell bewusster Re-Use einer als „nicht
-   stabil" markierten Engine-API, siehe `docs/frontend-status.md` Grenzfall).
-4. Mehrfach-Zielslot-Unterstützung in der `xTarget`-UI, sobald Karten das brauchen.
-5. **`vigilant`/`trample`/`firstStrike`/`deathtouch` echt im Browser
-   nachverifizieren** — der Kartenpool enthält jetzt (seit Phase B, Batch 1)
-   echte Karten mit allen vier Keywords, die frühere Blockade („keine
-   Testkarte im Demo-Deck") ist damit aufgehoben; bisher nur gegen
-   Engine-Test-Fixtures im DOM verifiziert (v0.1.3), noch nicht gegen die
-   echten Pool-Karten im echten Demo-Deck (diese landen nur über die
-   Zufallsstichprobe aus `deck.ts` im jeweiligen Spiel, nicht garantiert).
-6. Deckbau-UI (Decklist-Auswahl statt fest codiertem Demo-Deck) — klar
-   außerhalb bisheriger Schritte, aber die nächste naheliegende Ausbaustufe
-   angesichts der jetzt 109 Pool-Karten.
+   stabil" markierten Engine-API).
+4. Migration von `chooseManaColor`/`chooseDiscard`/`orderScry` (s.o.) zieht
+   jeweils eigene Auswahl-UI (Farbwahl-Buttons, Karten-Mehrfachauswahl,
+   Scry-Sortierung) nach sich, sobald die Engine migriert.
+5. **Bot-Schwierigkeitsstufe/-Timing ist noch nicht im UI einstellbar**
+   (`botMoveDelayMs` nur über Code/Tests) — wird relevant, sobald der
+   `ai-opponent-engineer`-Ausbau (s. oben) mehrere Stufen liefert.
 
-### game-architect (Folgearbeit)
-- Verbleibende offene Punkte: rules-engine.md Abschnitt 10 („Weiterhin
-  offen"), aktueller Stand (nicht geraten, direkt aus dem Dokument
-  übernommen): `onDamageReceived`-Verdrahtung bei Bedarf (s.o.,
-  Implementierungsnotizen bereits hinterlegt), Mulligan-Regel (weiterhin
-  keine), mehr als 2 Spieler, Kontrollwechsel/Kopier-Effekte/
-  Keyword-Entzug, Double-Strike-Analog, Priority-Fenster zwischen den
-  beiden Schadensrunden (9.9 Punkt 2), trample-Über-Zuteilung (9.9 Punkt 3,
-  Spielerwahl „mehr als letal an einen Blocker"), Spielerwahl bei der
-  Reihenfolge mehrerer eigener gleichzeitiger Trigger, Modal-Effekte,
-  X-Kosten auf aktivierten Fähigkeiten, vollständig rekursive
-  Cleanup-Sonderregel, Migration von `addMana("any")`/`discardCards`-
-  Zusatzkosten/`scry` auf den Pending-Decision-Kanal, kombinatorische
+**game-architect (Folgearbeit):**
+- Offene Rückfrage vom engine-engineer zu `StaticAbility.scope` bei
+  `costChange` (s.o.) — nicht blockierend.
+- **Bewusst vertagte, größere Regelwerk-Themen** (`docs/rules-engine.md`
+  Abschnitt 10, „Weiterhin offen") — **nur bei konkretem Kartenbedarf
+  anzugehen, kein aktiver Auftrag:** mehr als 2 Spieler; Kontrollwechsel/
+  Kopier-Effekte/Keyword-Entzug; Double-Strike-Analog (teilt in beiden
+  Schadensrunden aus); Priority-Fenster zwischen den beiden Schadensrunden
+  (9.9 Punkt 2); trample-Über-Zuteilung (9.9 Punkt 3, Spielerwahl „mehr als
+  letal an einen Blocker"); Spielerwahl bei der Reihenfolge mehrerer
+  eigener gleichzeitiger Trigger; „Spieler erleidet Schaden"-Trigger (das
+  Spieler-Pendant zu `onDamageReceived`); London-Mulligan als Upgrade der
+  Paris-Variante (9.11 Option B); „wähle zwei"/konfigurierbare Modusanzahl
+  bei Modal-Effekten (9.13 Punkt 4); vollständig rekursive
+  Cleanup-Sonderregel; Migration von `addMana("any")`/`discardCards`-
+  Zusatzkosten/`scry` auf den Pending-Decision-Kanal; kombinatorische
   Enumeration in `getLegalActions` (bewusstes Nicht-Ziel).
 - Zusätzlich offen (aus engine-engineer/frontend-engineer, siehe oben):
   `StaticAbility.scope`-Bedeutung bei `costChange`,
   `computeEffectiveStats`-Vertragsfrage vom frontend-engineer.
-- Nächste erwartbare Anfragen: entweder aus einem optionalen vierten
-  Kartenpool-Batch (card-designer-Kandidaten s.o.) oder aus einem
-  Deckbau-UI-Vorstoß des frontend-engineers.
+
+**ai-opponent-engineer:** s. „Nächster geplanter Meilenstein" oben — der
+eigentliche Hauptauftrag dieser Rolle, noch nicht begonnen.

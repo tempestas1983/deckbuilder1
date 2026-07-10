@@ -2,9 +2,11 @@
 
 Status: v0.1.8 (frontend-engineer) — 2026-07-10
 Grundlage: `docs/rules-engine.md` (v0.3.1, Entscheidungen 9.10-9.13 + Nachtrag),
-`docs/engine-status.md` (v0.3.1, 118 Engine-/UI-Tests zum Zeitpunkt der
-Übernahme — der v0.1.1-v0.1.5-Text unten beschreibt bewusst unverändert den
-Stand zum jeweiligen Zeitpunkt, s. dortige Abschnitte), `src/model/*`
+`docs/engine-status.md` (v0.3.2 zum Zeitpunkt dieses v0.1.8-Stands, 135
+Engine-/UI-/KI-Tests zum Zeitpunkt der v0.3.2-Übernahme — der
+v0.1.1-v0.1.5-Text unten beschreibt bewusst unverändert den Stand zum
+jeweiligen Zeitpunkt, s. dortige Abschnitte; **documenter-Korrektur
+2026-07-10:** hier stand zuvor veraltet „v0.3.1, 118 Tests"), `src/model/*`
 (Datenmodell, unverändert konsumiert), `src/engine/*` (`createRulesEngine`),
 `src/cards/starter-set.ts` (113 Karten, u.a. die drei neuen v0.3-Testkarten
 `core.void-covenant`, `core.current-diplomat`, `core.cinderwrack-engine`),
