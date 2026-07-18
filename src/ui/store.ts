@@ -12,6 +12,8 @@ import { starterSet } from "../cards/starter-set";
 import { chooseActionForDifficulty, DEFAULT_BOT_DIFFICULTY, type BotDifficulty } from "../ai";
 import type { CardPool, GameEvent, GameState, PlayerAction, PlayerId, RulesEngine } from "../model";
 import type { AppPhase, UiMode } from "./types";
+import { TUTORIAL_CORE_TIP_IDS, type TutorialTipId } from "./tutorialContent";
+import { TUTORIAL_DECK_PLAYER1, TUTORIAL_DECK_PLAYER2, TUTORIAL_SEED } from "./tutorialDeck";
 
 const pool: CardPool = starterSet;
 const engine: RulesEngine = createRulesEngine(pool);
@@ -195,6 +197,19 @@ export function copyDeckFromPlayer1(): void {
  * zuletzt benutzten Decklisten bleiben als Vorbefüllung erhalten (s.o.).
  */
 export function backToDeckbuilder(): void {
+  // v0.1.11: Tutorial-Modus sauber verlassen (Auftrag Punkt 5, "verändert die
+  // normale Partie nicht") - stellt player2s Bot-Einstellungen von VOR dem
+  // Tutorial-Start wieder her (s. startTutorial unten), statt player2
+  // dauerhaft auf bot-gesteuert/"medium" hängen zu lassen.
+  if (tutorialActive) {
+    tutorialActive = false;
+    tutorialPendingTip = undefined;
+    tutorialHelpOpen = false;
+    if (preTutorialBotControlled !== undefined) setBotControlled("player2", preTutorialBotControlled);
+    if (preTutorialBotDifficulty !== undefined) setBotDifficulty("player2", preTutorialBotDifficulty);
+    preTutorialBotControlled = undefined;
+    preTutorialBotDifficulty = undefined;
+  }
   appPhase = { kind: "deckbuild", player: "player1" };
   stopBotLoop();
   notify();
@@ -259,6 +274,155 @@ export function getBotDifficulty(player: PlayerId): BotDifficulty {
 export function setBotDifficulty(player: PlayerId, difficulty: BotDifficulty): void {
   botDifficulty = { ...botDifficulty, [player]: difficulty };
   notify();
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial-Modus (v0.1.11): alternativer Startpfad mit festen, kuratierten
+// Decklisten (tutorialDeck.ts) + festem Seed statt des normalen Deckbau-
+// Screens, Spieler 2 automatisch bot-gesteuert auf einer ruhigen Stufe
+// ("medium" — die unveränderte v1-Heuristik, s. docs/ai-status.md; bewusst
+// NICHT "easy", das laut ai-status.md ABSICHTLICH fehlerhaft/zufällig spielt
+// und damit für ein Lern-Tutorial eher verwirrender wäre als ein ruhiges,
+// vorhersehbares Mittelmaß; explizit NICHT "hard", s. Auftrag), plus
+// Overlay-Erklärungen zu den Kernkonzepten (tutorialContent.ts). Verändert die
+// normale Partie in keiner Weise — reiner zusätzlicher UI-Zustand + ein
+// alternativer initGame()-Aufruf mit anderen Anfangsbedingungen, exakt wie
+// jeder andere Partiestart auch.
+// ---------------------------------------------------------------------------
+
+const TUTORIAL_BOT_DIFFICULTY: BotDifficulty = "medium";
+
+let tutorialActive = false;
+let tutorialShownTips: Set<TutorialTipId> = new Set();
+let tutorialPendingTip: TutorialTipId | undefined;
+let tutorialHelpOpen = false;
+
+// Vorherige Bot-Einstellungen von player2, um sie beim Verlassen des Tutorials
+// wiederherzustellen (s. backToDeckbuilder unten) - das Tutorial soll die
+// normale Partie/den normalen Deckbau NICHT dauerhaft verändern (Auftrag
+// Punkt 5), auch nicht "Spieler 2 war vorher NICHT bot-gesteuert".
+let preTutorialBotControlled: boolean | undefined;
+let preTutorialBotDifficulty: BotDifficulty | undefined;
+
+export function isTutorialActive(): boolean {
+  return tutorialActive;
+}
+
+/** Aktuell anzuzeigender Tutorial-Tipp (einzelne Sprechblase) - `undefined`, solange keiner aussteht. */
+export function getTutorialPendingTip(): TutorialTipId | undefined {
+  return tutorialPendingTip;
+}
+
+/** Schließt die aktuell angezeigte Sprechblase und merkt sie als "gesehen" - erscheint für diese Tip-Art nicht erneut automatisch. */
+export function dismissTutorialTip(): void {
+  if (tutorialPendingTip === undefined) return;
+  tutorialShownTips = new Set(tutorialShownTips).add(tutorialPendingTip);
+  tutorialPendingTip = undefined;
+  notify();
+  // Der Bot-Zug-Loop wird pausiert, solange eine Sprechblase aussteht (s.
+  // scheduleBotStepIfNeeded unten) - nach dem Wegklicken ggf. weiterspielen.
+  triggerBotLoop();
+}
+
+export function isTutorialHelpOpen(): boolean {
+  return tutorialHelpOpen;
+}
+
+export function toggleTutorialHelp(): void {
+  tutorialHelpOpen = !tutorialHelpOpen;
+  notify();
+}
+
+export function closeTutorialHelp(): void {
+  tutorialHelpOpen = false;
+  notify();
+}
+
+function queueTutorialTip(id: TutorialTipId): void {
+  if (!tutorialActive) return;
+  if (tutorialShownTips.has(id)) return;
+  if (tutorialPendingTip !== undefined) return; // eine Sprechblase nach der anderen
+  tutorialPendingTip = id;
+}
+
+/**
+ * Prüft nach JEDER Zustandsänderung während einer Tutorial-Partie (menschliche
+ * Aktion, automatischer Bot-Zug, `initGame`), ob einer der in
+ * tutorialContent.ts beschriebenen Schlüsselmomente gerade eingetreten ist,
+ * und queued ggf. den passenden (noch nicht gezeigten) Tipp. Reine
+ * UI-Ableitung aus dem bereits vorhandenen `GameState`/der ausgeführten
+ * `PlayerAction` - keine eigene Regellogik, nur Wiedererkennung bereits von
+ * der Engine getroffener Entscheidungen (exakt wie `actingPlayer` oben).
+ *
+ * Bewusst NICHT auf "nur wenn player1 handelt" beschränkt: Reihenfolge
+ * Startspieler/Mulligan ist zufällig (seedabhängig), ein zuverlässiges
+ * "beim ERSTEN X" muss also unabhängig davon greifen, ob Mensch oder Bot X
+ * zuerst tut.
+ */
+function maybeQueueTutorialTips(action: PlayerAction | undefined): void {
+  if (!tutorialActive) return;
+
+  // "priority": generisch/zustandsbasiert (kein Aktionstyp) - der erste echte
+  // Priority-Moment der Partie (nach der Mulligan-Phase).
+  if (state.priorityPlayer !== undefined && !state.pendingDecision) {
+    queueTutorialTip("priority");
+  }
+
+  if (action) {
+    switch (action.kind) {
+      case "playTerrain":
+        queueTutorialTip("terrain");
+        break;
+      case "castSpell": {
+        const def = pool[state.cards[action.cardInstanceId]?.definitionId ?? ""];
+        if (def?.type === "unit") queueTutorialTip("creature");
+        else if (def?.type === "spell") queueTutorialTip("spell");
+        break;
+      }
+      case "declareAttackers":
+        if (action.attackers.length > 0) queueTutorialTip("attack");
+        break;
+      case "declareBlockers":
+        if (action.blocks.length > 0) queueTutorialTip("block");
+        break;
+      case "activateAbility": {
+        const def = pool[state.cards[action.sourceInstanceId]?.definitionId ?? ""];
+        const ability = def && "abilities" in def ? def.abilities?.[action.abilityIndex] : undefined;
+        if (ability?.kind === "activated" && !ability.isManaAbility) queueTutorialTip("ability");
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  // Abschluss-Hinweis: entweder alle Kernkonzepte gesehen, oder das Spiel ist
+  // vorbei (je nachdem, was zuerst eintritt) - s. tutorialContent.ts.
+  const allCoreShown = TUTORIAL_CORE_TIP_IDS.every((id) => tutorialShownTips.has(id));
+  if ((allCoreShown || state.winner !== undefined) && !tutorialShownTips.has("complete")) {
+    queueTutorialTip("complete");
+  }
+}
+
+/**
+ * Startet die Tutorial-Partie (Auftrag Punkt 1+2): überspringt den normalen
+ * Deckbau-Screen komplett, nutzt die festen Decklisten/den festen Seed aus
+ * tutorialDeck.ts, markiert Spieler 2 als bot-gesteuert (ruhige Stufe, s.o.)
+ * und setzt den Tutorial-UI-Zustand zurück (frischer Durchlauf zeigt alle
+ * Sprechblasen erneut, auch bei wiederholtem Start).
+ */
+export function startTutorial(): void {
+  stopBotLoop();
+  preTutorialBotControlled = isBotControlled("player2");
+  preTutorialBotDifficulty = getBotDifficulty("player2");
+  tutorialActive = true;
+  tutorialShownTips = new Set();
+  tutorialPendingTip = undefined;
+  tutorialHelpOpen = false;
+  setBotControlled("player2", true);
+  setBotDifficulty("player2", TUTORIAL_BOT_DIFFICULTY);
+  appPhase = { kind: "playing" };
+  initGame(TUTORIAL_DECK_PLAYER1, TUTORIAL_DECK_PLAYER2, TUTORIAL_SEED);
 }
 
 /**
@@ -334,6 +498,11 @@ function triggerBotLoop(): void {
 
 function scheduleBotStepIfNeeded(): void {
   if (botTimer !== undefined) return; // schon ein Schritt geplant
+  // v0.1.11: Solange eine Tutorial-Sprechblase aussteht, pausiert der
+  // automatische Bot-Zug-Loop (s. dismissTutorialTip oben, das ihn nach dem
+  // Wegklicken wieder anstößt) - sonst würde sich das Board unter der
+  // gerade gelesenen Erklärung weiterbewegen.
+  if (tutorialActive && tutorialPendingTip !== undefined) return;
   const actor = actingPlayer(state);
   if (!actor || !isBotControlled(actor)) return;
   if (botCycleGuard >= MAX_BOT_ACTIONS_PER_CYCLE) {
@@ -383,6 +552,7 @@ function runBotStep(): void {
     if (t) log.push(t);
   }
   if (log.length > 300) log = log.slice(-300);
+  maybeQueueTutorialTips(action);
   notify();
   scheduleBotStepIfNeeded();
 }
@@ -469,6 +639,7 @@ export function initGame(
     const t = describeEvent(e);
     if (t) log.push(t);
   }
+  maybeQueueTutorialTips(undefined);
   notify();
   // v0.1.7: Ist der (nach dem Münzwurf feststehende) erste Akteur bereits
   // bot-gesteuert - z.B. player2 ist KI und beginnt mit der ersten Mulligan-
@@ -505,6 +676,7 @@ export function dispatch(action: PlayerAction): void {
     if (t) log.push(t);
   }
   if (log.length > 300) log = log.slice(-300);
+  maybeQueueTutorialTips(action);
   notify();
   // v0.1.7: Nach jeder menschlichen Aktion prüfen, ob jetzt ein bot-
   // gesteuerter Spieler handeln muss - falls ja, automatisch weiterspielen

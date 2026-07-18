@@ -14,7 +14,6 @@ import type { CardPool, GameEvent, GameState, InstanceId, PlayerId } from "../mo
 import { getDefinition } from "./card-defs";
 import { leaveBattlefield } from "./zones";
 import { computeEffectiveStats } from "./stats";
-import { fireDeathTriggers } from "./triggers";
 
 function allBattlefieldInstances(state: GameState): Array<{ instanceId: InstanceId; playerId: PlayerId }> {
   const result: Array<{ instanceId: InstanceId; playerId: PlayerId }> = [];
@@ -47,8 +46,8 @@ function runOnce(state: GameState, pool: CardPool, events: GameEvent[]): boolean
   }
 
   // SBA 3+4: Units mit Toughness <= 0 oder letalem Schaden sterben.
-  const dying: Array<{ instanceId: InstanceId; controller: PlayerId; definitionId: string }> = [];
-  for (const { instanceId, playerId } of allBattlefieldInstances(state)) {
+  const dying: InstanceId[] = [];
+  for (const { instanceId } of allBattlefieldInstances(state)) {
     const card = state.cards[instanceId];
     if (!card?.permanentState) continue;
     const def = getDefinition(pool, card.definitionId);
@@ -61,16 +60,18 @@ function runOnce(state: GameState, pool: CardPool, events: GameEvent[]): boolean
       card.permanentState.damageMarked >= stats.toughness ||
       card.permanentState.deathtouchDamage
     ) {
-      dying.push({ instanceId, controller: playerId, definitionId: card.definitionId });
+      dying.push(instanceId);
     }
   }
-  for (const d of dying) {
+  for (const instanceId of dying) {
     // Erneut prüfen: könnte durch vorherige Iteration dieser Schleife bereits entfernt worden sein
     // (z.B. durch eine Aura, die mit ihr verschwand - in v0.1 nicht möglich, defensiv trotzdem).
-    if (!state.cards[d.instanceId]?.permanentState) continue;
-    leaveBattlefield(state, pool, events, d.instanceId, "graveyard");
-    events.push({ kind: "unitDied", instanceId: d.instanceId });
-    fireDeathTriggers(state, pool, d.instanceId, d.definitionId, d.controller);
+    if (!state.cards[instanceId]?.permanentState) continue;
+    // v0.3.3 (rules-engine.md 9.15): `leaveBattlefield` feuert Tod-Trigger
+    // (onDeath/onUnitDied) und das unitDied-Event jetzt selbst zentral, sobald
+    // toZone === "graveyard" - kein separater Aufruf hier mehr nötig (sonst
+    // Doppel-Feuern).
+    leaveBattlefield(state, pool, events, instanceId, "graveyard");
     changed = true;
   }
 

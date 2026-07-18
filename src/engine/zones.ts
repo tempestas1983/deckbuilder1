@@ -15,6 +15,7 @@ import type {
 } from "../model";
 import { getDefinition } from "./card-defs";
 import { nextInstanceId, nextTimestamp } from "./ids";
+import { fireDeathTriggers } from "./triggers";
 import type { CardPool } from "../model";
 
 type OwnedZone = Exclude<ZoneName, "stack">;
@@ -107,9 +108,19 @@ export function removeTokenPermanently(
  * Bewegt eine Karte vom Battlefield in eine Zielzone (graveyard/hand/exile),
  * unter Beachtung der Token-Sonderregel (SBA 7). Owner-basiert ("geht nach
  * Hause"). Rückgabewert: true, wenn die Karte tatsächlich verschoben wurde
- * (false bei Token -> gelöscht statt verschoben, Aufrufer soll dann keine
- * Folge-Logik wie Tod-Trigger für "normale" Zonenwechsel anwenden, Tod-Trigger
- * feuern aber trotzdem, siehe sba.ts).
+ * (false bei Token -> gelöscht statt verschoben; Tod-Trigger feuern in
+ * diesem Fall trotzdem, s.u.).
+ *
+ * v0.3.3 (rules-engine.md 9.15, zentraler Tod-Hook): Ist `toZone ===
+ * "graveyard"`, ist das per Definition ein Tod (ursachenunabhängig - SBA 3/4,
+ * SBA 5/Aura, `destroyPermanent`, `sacrificeSelf`-Zusatzkosten rufen alle
+ * diese Funktion auf), also feuern hier `fireDeathTriggers`. `toZone ===
+ * "hand"/"exile"` ist bewusst KEIN Tod (9.15) - dort passiert nichts
+ * Zusätzliches. Definition-Id/Controller werden VOR dem eigentlichen Move
+ * (Token-Löschung ODER moveCard) gesnapshottet, weil `removeTokenPermanently`
+ * die Instanz danach vollständig aus `state.cards` entfernt - der Hook muss
+ * aber trotzdem mit den richtigen Werten feuern (analog zum Muster, das
+ * `sba.ts` vor diesem Refactor selbst benutzt hat).
  */
 export function leaveBattlefield(
   state: GameState,
@@ -120,6 +131,9 @@ export function leaveBattlefield(
 ): { movedToRealZone: boolean } {
   const card = state.cards[instanceId];
   if (!card) throw new Error(`leaveBattlefield: unbekannte InstanceId ${instanceId}`);
+
+  const dyingDefinitionId = card.definitionId;
+  const dyingController = card.controller;
 
   // Attachment-Buchhaltung: verlässt eine angelegte Aura das Battlefield,
   // wird sie aus der attachments-Liste ihres Ziels entfernt (SBA 5 nutzt dies
@@ -137,12 +151,20 @@ export function leaveBattlefield(
   // eine Karte ohne permanentState) und selbst entfernt - siehe sba.ts.
 
   const def = getDefinition(pool, card.definitionId);
+  let movedToRealZone: boolean;
   if (def.isToken) {
     removeTokenPermanently(state, events, instanceId);
-    return { movedToRealZone: false };
+    movedToRealZone = false;
+  } else {
+    moveCard(state, events, instanceId, card.owner, toZone);
+    movedToRealZone = true;
   }
-  moveCard(state, events, instanceId, card.owner, toZone);
-  return { movedToRealZone: true };
+
+  if (toZone === "graveyard") {
+    fireDeathTriggers(state, pool, events, instanceId, dyingDefinitionId, dyingController);
+  }
+
+  return { movedToRealZone };
 }
 
 /**

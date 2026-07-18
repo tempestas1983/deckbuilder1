@@ -1,11 +1,192 @@
 # Laufender Zwischenstand
 
-Datum: 2026-07-10
+Datum: 2026-07-18
 Zweck: Einziger Ort, an dem der Projektkontext ein `/clear` überlebt. Wird von
 `documenter` bei jedem finalen Sweep aktualisiert. Details/Begründungen stehen
 in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
-`docs/ai-status.md`, `docs/README.md` — dieses Dokument ist die Kurzfassung
-"wo stehen wir gerade".
+`docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
+Dokument ist die Kurzfassung "wo stehen wir gerade".
+
+## Meilenstein: KI-Schwierigkeitsstufen + drei Engine-Bugfixes + Kartenrahmen-UI + 300-Karten-Ausbau + Artwork-Vorhaben
+
+Umfangreichste Session seit dem letzten Sweep (2026-07-10). Fünf große,
+weitgehend unabhängige Entwicklungsstränge, plus ein neues, nicht in die
+5-Agent-Pipeline eingebettetes Nutzer-Vorhaben.
+
+- **KI-Gegner: v1 → v2 → v2.1** (`docs/ai-status.md`). Der
+  `ai-opponent-engineer`-Subagent (fable-5) hat den bisherigen
+  Einzel-Bot (`simpleBot.ts`, v1) wie im letzten Sweep angekündigt zu drei
+  echten Schwierigkeitsstufen ausgebaut: **easy** (`easyBot.ts`, deterministisch
+  aus dem GameState abgeleiteter Zufall, absichtlich schwach, aber immer
+  regelkonform), **medium** (unverändert `simpleBot.ts`, die bisherige
+  v1-Heuristik), **hard** (`hardBot.ts`/`boardEval.ts`: budgetiertes
+  1-Ply-Lookahead über echte `applyAction`-Simulation, effektive Stats/
+  Keywords inkl. statischer Fremd-Effekte, echte Kampf-Mathematik/
+  -Simulation mit zwei Gegner-Modellen, Performance-Budget max. 400
+  simulierte Aktionen/Entscheidung). Deterministischer Stärkevergleich über
+  feste Seeds bestätigt strikte Stärkeordnung (medium schlägt easy, hard
+  schlägt medium/easy, je >= 60 % der entschiedenen Partien). **v2.1**
+  (Reaktion auf eine Farb-Balance-Prüfung des fertigen 300-Karten-Sets, s.
+  unten): zwei vom größeren Kartenpool aufgedeckte Legalitätsfehler behoben
+  (easy/medium prüften Blocklegalität nur über Basis-Keywords, nicht über
+  statisch gewährte wie eine neue guardian-Aura; alle Stufen reichten rohe
+  modale Kandidaten unvollständig ein, jetzt konsumentenseitige
+  Modus×Ziel-Vervollständigung in `boardEval.ts#expandModalCandidate`), plus
+  ein neues, bewusst per `describe.skip` aus der Standard-CI ausgeschlossenes
+  Analyse-Tool (`src/ai/__tests__/color-balance.analysis.test.ts`, manuell
+  mit `BALANCE_ANALYSIS=1` ausführbar). **Ein echter Engine-Bug wurde dabei
+  gefunden und gemeldet, nicht selbst behoben** (firstStrike-Token-Crash,
+  s. Engine-Absatz unten) — exakt das vorgesehene Muster.
+
+- **Engine: drei weitere Bugfixes, v0.3.2 → v0.3.5** (`docs/engine-status.md`,
+  parallel dazu `docs/rules-engine.md` v0.3.1 → v0.3.3 mit den zugehörigen
+  Entscheidungen 9.14/9.15). Alle drei wurden von ANDEREN Rollen beim
+  Testen/Kartenbau gefunden, nicht vom engine-engineer selbst:
+  1. **v0.3.3** — `combat.ts#dealCombatDamage` crashte, wenn ein
+     TOKEN-Kampfteilnehmer in der firstStrike-Zwischenrunde starb (Fund:
+     ai-opponent-engineer beim Stärkevergleichs-Testen, 2 von 250
+     Bot-Partien betroffen). Fix: `hasKeyword` behandelt nicht mehr
+     existierende Instanzen als "kein Keyword", plus ein zweiter,
+     defensiver Existenz-Guard in der Blocker-Rückschlag-Schleife.
+  2. **v0.3.4** (Entscheidung 9.14) — `destroyPermanent`/`returnToHand`/
+     `exilePermanent` fehlte der Battlefield-Existenz-Guard, den die
+     übrigen sieben permanent-bezogenen Effekte schon hatten (latent
+     gefunden vom game-architect beim Ausarbeiten von 9.14, noch bevor eine
+     Pool-Karte den Pfad auslöste) — hätte bei gelöschten Token-Instanzen
+     gecrasht oder bei Graveyard-Karten ungewollt Zonen manipuliert
+     (`exilePermanent` hätte aus dem Friedhof verbannt, `returnToHand` wäre
+     ein unbeabsichtigtes "Raise Dead" gewesen).
+  3. **v0.3.5** (Entscheidung 9.15) — `onDeath{self}`/`onUnitDied` feuerten
+     nur auf dem SBA-Todespfad (Kampf-/letaler Schaden, nur Units), nicht
+     bei `destroyPermanent` oder `sacrificeSelf`-Zusatzkosten, und nie für
+     Nicht-Unit-Permanents (Fund: card-designer, `core.husk-crawler` zog
+     keine Karte nach einem `core.doomreap-edict`-Destroy-Kill). Neue,
+     verbindliche Regel: „Stirbt" = Zonenwechsel Battlefield → Graveyard,
+     ursachenunabhängig; `onDeath{self}` jetzt typ-agnostisch (auch
+     Relic/Enchantment/Terrain); `onUnitDied`/`unitDied` bleiben unit-only;
+     `exilePermanent`/`returnToHand` sind bewusst KEIN Tod. Zentraler
+     Tod-Hook jetzt in `zones.ts#leaveBattlefield` statt verstreuter
+     Einzelaufrufe.
+  Engine-Testzahl (nur `src/engine/__tests__/*`) 119 → **130** (v0.3.3 +2,
+  v0.3.4 +2, v0.3.5 +7, per Grep gegengezählt). Gesamt-Testzahl über
+  Engine+UI+KI: **160 Tests grün + 1 bewusst per `describe.skip`
+  übersprungener Analyse-Test** (das neue Farb-Balance-Tool, s.o.).
+
+- **Frontend: v0.1.8 → v0.1.9 → v0.1.10** (`docs/frontend-status.md`).
+  **v0.1.9:** Anbindung der drei neuen Bot-Schwierigkeitsstufen — Dropdown
+  im Deckbau-Screen von Spieler 2 (nur sichtbar bei aktiver KI-Steuerung),
+  `botDifficulty`-Zustand pro Spieler in `store.ts` (Persistenz analog
+  `isBotControlled`), `runBotStep` nutzt jetzt `chooseActionForDifficulty`,
+  Stufen-Badge im Spieler-Panel während der Partie. **v0.1.10:** rein
+  visuelle Überarbeitung — klassisches Kartenrahmen-Layout (farbcodierter
+  Rahmen, Kopfzeile mit Name + Mana-Pips, Farbverlaufsfläche als bewusster
+  Platzhalter OHNE Artwork, Typzeile, Regeltext-Box, P/T-Kasten) einheitlich
+  für Handkarten, Battlefield-/Graveyard-/Stack-Kacheln und den
+  Deckbau-Kartenpool (der dafür von einer Tabellenzeilen-Liste auf ein
+  Flex-Wrap-Kartenraster umgebaut wurde). Keine Spiellogik-/Engine-Änderung.
+  `npm test`/`npm run build` zum v0.1.10-Stand 151/151 bzw. sauber (danach
+  kamen nur noch Engine-/KI-seitige Tests ohne weitere UI-Änderung hinzu).
+
+- **Kartenpool: 113 → 300 Karten in 9 Batches, danach drei
+  Balance-Korrekturrunden** (`docs/cards/starter-set.md`, v0.6 → v0.15,
+  jetzt ein sehr langes Dokument — inkrementell lesen/grep statt in einem
+  Rutsch). Batches 4–9 (v0.7–v0.12) haben den Pool systematisch über alle
+  fünf Farben, alle sechs Kartentypen und alle neun Keywords ausgebaut
+  (finale Verteilung: terrain 5, unit 110, spell 72, relic 56, enchantment
+  57; Farben 49/49/49/49/48 über flame/tide/wild/light/void — fast perfekt
+  gleichmäßig; Rarity 129/129/42 common/uncommon/rare). Danach hat der
+  Auftraggeber selbst drei empirische Bot-Simulationsläufe (medium vs.
+  medium, Mono-Farb-Decks) durchgeführt, auf die der card-designer jeweils
+  reagiert hat:
+  - **Runde 1 (v0.13):** `wild` gewann 73–75 % — gezielte Statlinien-Kürzung
+    auf der 3-Mana-Stufe (10 von 14 Karten −1 Toughness) + ein Top-End-Ausreißer.
+  - **Runde 2 (v0.14):** `wild` weiterhin 71,4 % (Runde 1 hatte einen
+    versteckten Static-Bonus nicht mitgekürzt) — 7 Karten spürbar stärker
+    korrigiert, u.a. Kostenerhöhung bei `core.grove-elder` (unbegrenzter
+    Marken-Mana-Sink) und der effizientesten `addCounters`-Spell-Karte.
+  - **Runde 3 (v0.15, 2026-07-18):** `wild` auf 64,7 % gesunken, aber Runde
+    2s reine Kostenerhöhung hatte das strukturelle Problem (unbegrenzt oft
+    aktivierbar) nicht behoben — `core.grove-elder`/`core.growth-totem`
+    erhalten jetzt echte `{ kind: "tap" }`-Zusatzkosten (harte 1×/Zug-Grenze;
+    eine Cross-Check aller 49 aktivierten Fähigkeiten im Set bestätigt,
+    dass dies die einzigen zwei unbegrenzten Mana-Sinks waren). Zusätzlich
+    wurde `void`s seit zwei Messungen stabiler 23:7-Vorsprung gegenüber
+    `tide`/`light` geprüft: strukturell erklärbar (mehr Tod-Trigger-Kreaturen
+    + bedingungslose Entfernungszauber als jede andere Farbe), aber KEINE
+    einzelne `void`-Karte ist im 1:1-Preisvergleich fehlbepreist — bewusst
+    NICHT korrigiert, ausführlich begründet im Dokument. Card-Designer
+    bewertet weiteres Nachschärfen an `wild` als praktisch wirkungslos.
+
+- **Neu, außerhalb der 5-Agent-Pipeline: Karten-Artwork-Vorhaben**
+  (`docs/cards/card-art-brief.md`, neuer Ordner `docs/cards/artworks/`).
+  Ein Stilleitfaden (gemalter Fantasy-Sammelkartenspiel-Look, Farbthemen je
+  Mana-Farbe, 4:3/3:2-Seitenverhältnis) plus eine 300-Zeilen-Tabelle
+  (Dateiname 1:1 aus der Karten-`id`, kurze deutsche Bildbeschreibung) als
+  Auftragsgrundlage für externe Bildgenerierung (Gemini/ChatGPT o.ä. — nicht
+  Teil dieser Werkzeugkette). Der Nutzer legt die fertigen Bilder manuell in
+  `docs/cards/artworks/` ab — **aktiv, noch nicht abgeschlossen**, aktuell
+  **20 Dateien** vorhanden (zum Zeitpunkt des vorigen Zwischenberichts an
+  den documenter waren es 9 — der Bestand wächst laufend weiter). Noch
+  keine Anbindung ans UI (der Kartenrahmen aus v0.1.10 zeigt weiterhin nur
+  die Farbverlaufsfläche). **Gefundene Inkonsistenz (dokumentiert, nicht
+  behoben — Bild-Datei liegt außerhalb der Doku-Schreibrechte des
+  documenters):** Für `core.bastion-forgeworks` nennt die Brief-Tabelle den
+  Dateinamen `core-bastion-forgeworks.png`, die tatsächlich abgelegte Datei
+  heißt aber `core-bastion-forgework.png` (fehlendes „s" am Ende) — sollte
+  vom Nutzer selbst umbenannt werden, falls ein künftiges Anbindungs-Skript
+  exakten Dateinamensabgleich braucht.
+
+- **documenter (dieser Sweep, 2026-07-18):** Alle fünf Modul-Dokumente
+  (`docs/rules-engine.md`, `docs/engine-status.md`, `docs/cards/starter-set.md`,
+  `docs/frontend-status.md`, `docs/ai-status.md`) gelesen und Kernbehauptungen
+  gegen den Code verifiziert statt Agent-Berichte blind zu übernehmen:
+  Kartenzahl 300 + 3 Token per Grep gegen `src/cards/starter-set.ts`
+  bestätigt (303 `id: "core.…"`-Treffer, davon 3 echte `isToken:true`-Felder
+  — ein vierter Grep-Treffer ist nur ein Code-Kommentar); Engine-Testzahl
+  130 per Grep gegen `src/engine/__tests__/*.test.ts` nachgezählt und exakt
+  gegen die arithmetische Summe der einzelnen Versions-Abschnitte
+  (119+2+2+7) verifiziert; Test-Gesamtzahl 160+1 übersprungen über alle drei
+  Modul-Dokumente konsistent gefunden; Artwork-Ordner tatsächlich ausgezählt
+  (20 Dateien, nicht die im Auftrag genannten 9 — der Bestand ist seither
+  gewachsen, im Text oben korrekt als „aktuell 20" statt der veralteten
+  Zahl dokumentiert). **`npm test`/`npm run build` konnten in dieser Session
+  nicht selbst ausgeführt werden (kein Ausführungswerkzeug verfügbar,
+  wie schon beim Sweep vom 2026-07-10)** — die 160/160-Behauptung stützt
+  sich auf die Grep-Kreuzverifikation, die untereinander konsistenten
+  Verifikationsabschnitte von engine-engineer/ai-opponent-engineer sowie die
+  vom Auftraggeber selbst mitgeteilte, bereits verifizierte Zahl; keine
+  Abweichung zwischen den Quellen gefunden. **Gefundene Inkonsistenzen,
+  korrigiert:**
+  - `docs/ai-status.md` referenzierte in der Kopfzeile noch
+    „`docs/rules-engine.md` (v0.3.1)" statt v0.3.3 — korrigiert (mit
+    Anmerkung, dass die beiden zusätzlichen Entscheidungen 9.14/9.15 keine
+    KI-relevanten Auswirkungen haben, kein Nacharbeitsbedarf für den
+    ai-opponent-engineer).
+  - `docs/engine-status.md`s eigene „Offene Fragen"-Liste führte
+    „Echte Mulligan-UI fehlt noch" weiterhin als offenen Punkt, obwohl
+    `docs/frontend-status.md` v0.1.6 (bereits vor dem letzten Sweep) einen
+    echten Mulligan-Dialog geliefert hatte — als erledigt markiert.
+  - `docs/engine-status.md`s „## Tests"-Abschnitt und Kopfzeile trugen noch
+    die Zwischenstände aus dem letzten Sweep (119 Engine-/141
+    Gesamt-Tests) — auf den aktuellen Stand (130 Engine-/160 Gesamt-Tests)
+    gehoben, inkl. Ergänzung der drei neuen Bugfix-Testgruppen in den
+    jeweiligen Datei-Bullets (`combat-keywords.test.ts`,
+    `triggers-and-misc.test.ts`).
+  - `docs/frontend-status.md` Punkt 8 der „Nächste Schritte" (Sorge um
+    Deckbau-Screen-Performance „bei einem künftig deutlich größeren
+    Kartenpool, weit über 109") ist mit dem jetzigen 300-Karten-Pool
+    tatsächlich eingetreten, aber laut Dokument nicht neu gemessen worden —
+    **nicht selbst korrigiert** (echte Performance-Messung ist Sache des
+    frontend-engineer), stattdessen in `docs/README.md` „Weitere offene
+    Punkte" als offener Punkt an frontend-engineer zurückgemeldet.
+  - `docs/rules-engine.md` selbst war bereits vollständig aktuell (v0.3.3,
+    Entscheidungen 9.14/9.15 inkl. Abschnitt 10 bereinigt) — keine Änderung
+    nötig, game-architect hatte das Dokument bereits selbst gepflegt.
+  `docs/README.md` (Statustabelle + „Nächste Schritte") komplett auf den
+  neuen Gesamtstand gehoben, inkl. einer neuen Tabellenzeile für das
+  Artwork-Vorhaben und aktualisierten „Weitere offene Punkte" je Rolle
+  (abgeleitet aus den jeweils eigenen, aktuellen Ausblick-Abschnitten der
+  Modul-Dokumente, nicht geraten).
 
 ## Meilenstein: Vier Regellücken geschlossen + einfacher KI-Gegner + UI-Komfortfeatures
 
@@ -408,25 +589,25 @@ in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 
 | Bereich | Version | Tests/Verifikation |
 |---|---|---|
-| Regelwerk | v0.3.1 (vier Abschnitt-10-Punkte geschlossen: `onDamageReceived`, Mulligan, X auf aktivierten Fähigkeiten, Modal-Effekte; v0.3.1 = Nachtrag zu 9.13) | — (Design-Dokument) |
-| Datenmodell | v0.2.1 (v0.3-Erweiterungen: `EffectMode`/`modes`, `PendingDecision`/`DecisionChoice` +`mulligan`/`chooseMode`, `chosenX`/`chosenMode` an Aktionen/Stack-Objekten, `PlayerState.mulligans`, `CreateGameConfig.skipMulligans`; v0.3.1: additives `chosenMode?` an `chooseTriggerTargets`) | unverändert an sich, nur additive Erweiterungen |
-| Engine | v0.3.2 (v0.3.2 = Bugfix `legal-actions.ts` Zusatzkosten-Prüfung, gefunden beim Bot-Stresstest) | 141/141 Vitest-Tests grün laut allen Agent-Berichten (119 Engine + 11 UI + 11 KI, per Grep gegengezählt — `npm test` in dieser Sweep-Session mangels Bash-Werkzeug nicht selbst ausgeführt), `npm run build` laut Berichten sauber |
-| Starter-Kartenset | v0.6 (113 Karten + 3 Token-Definitionen) | per Grep gegen `src/cards/starter-set.ts` verifiziert (116 `id:"core.…"` − 3 Token = 113) |
-| Frontend/UI | v0.1.8 | Deckbau-UI, dauerhafte UI-Tests (jsdom+Vitest), Mulligan-/Modal-/X-Kosten-UI, KI-Umschalter, `concede`-Button, `localStorage`-Deck-Persistenz — alle laut Agent-Berichten verifiziert |
-| KI-Gegner | v1 (`src/ai/simpleBot.ts`, neu) | 11 dauerhafte Bot-vs-Bot-Tests (13 vollständige Partien über den echten 113-Karten-Pool); bewusst ohne Schwierigkeitsstufen — Fundament für den `ai-opponent-engineer`-Subagenten |
+| Regelwerk | v0.3.3 (9.14: einheitlicher stiller Nicht-Permanent-Fizzle für `eventSubject`; 9.15: zonenbasierte Todesdefinition, `onDeath{self}` typ-agnostisch) | — (Design-Dokument), inhaltlich bereits vollständig konsistent mit dem Code vorgefunden |
+| Datenmodell | v0.2.1 mit v0.3-Erweiterungen (unverändert seit v0.3.1 — 9.14/9.15 brauchten keinen Modell-Umbau, nur Kommentar-Präzisierungen) | unverändert an sich |
+| Engine | v0.3.5 (v0.3.3 firstStrike-Token-Crash-Fix, v0.3.4 Battlefield-Guard für `destroyPermanent`/`returnToHand`/`exilePermanent`, v0.3.5 zentraler Tod-Hook in `zones.ts#leaveBattlefield`) | **160 Tests grün + 1 bewusst übersprungen** (Analyse-Tool) laut allen drei Modul-Dokumenten übereinstimmend (130 Engine + Rest UI/KI, Engine-Zahl per Grep gegengezählt und arithmetisch gegen die Versions-Historie verifiziert — `npm test`/`npm run build` in dieser Sweep-Session mangels Ausführungswerkzeug nicht selbst ausgeführt) |
+| Starter-Kartenset | v0.15 (300 Karten + 3 Token-Definitionen, 9 Batches + 3 Balance-Korrekturrunden) | per Grep gegen `src/cards/starter-set.ts` verifiziert (303 `id:"core.…"` − 3 echte Token = 300; ein 4. Grep-Treffer ist nur ein Kommentar) |
+| Frontend/UI | v0.1.10 (v0.1.9 Bot-Stufen-UI, v0.1.10 klassisches Kartenrahmen-Layout) | 151/151 zum v0.1.10-Stand laut Dokument (danach nur noch Engine-/KI-seitige Testzugänge ohne UI-Änderung) |
+| KI-Gegner | v2.1 (easy/medium/hard, `src/ai/difficulty.ts` + `easyBot.ts`/`hardBot.ts`/`boardEval.ts`; v2.1 = zwei Legalitätsfixes fürs 300-Karten-Set + Farb-Balance-Analyse-Tool) | deterministischer Stärkevergleich bestätigt strikte Stufenordnung (>= 60 % der entschiedenen Partien je Stufe höher); fand und meldete den in der Engine-Zeile gelisteten firstStrike-Crash |
+| Karten-Artwork (Nutzer-Vorhaben, außerhalb der Pipeline) | `docs/cards/card-art-brief.md`, `docs/cards/artworks/` | laufend, nicht abgeschlossen — aktuell 20 abgelegte Bilder von 300 benötigten; ein Dateinamens-Mismatch bei `core.bastion-forgeworks` gefunden (s. Meilenstein oben), nicht selbst behoben |
 
 ## Offene Punkte (nicht blockierend), siehe `docs/README.md` "Nächste Schritte" für Details
 
-Die vier Abschnitt-10-Punkte aus dem vorigen Zwischenstand sind geschlossen
-(s. Meilenstein oben). **Nächster geplanter Meilenstein:** KI-Gegner-Ausbau
-zu drei Schwierigkeitsstufen durch den neuen `ai-opponent-engineer`-
-Subagenten — bewusst noch nicht gestartet, für eine künftige Session
-zurückgestellt. Verbleibend sonst:
+Der im vorigen Zwischenstand als „nächster geplanter Meilenstein"
+angekündigte KI-Ausbau zu drei Schwierigkeitsstufen ist abgeschlossen (s.
+Meilenstein oben). Verbleibend:
 
-- **card-designer:** weiterhin kein Hauptauftrag offen; optionale
-  Kandidaten für einen möglichen weiteren Batch unverändert:
-  `onAttackDeclared`/`onBlockDeclared`-Trigger (verdrahtet, aber ungenutzt),
-  `modifyStats duration:"permanent"`, Karten mit >1 Zielslot.
+- **card-designer:** weiterhin kein Hauptauftrag offen — das vereinbarte
+  ~300-Karten-Ziel ist erreicht und dreifach nachbalanciert. Optionale,
+  ausdrücklich nicht beauftragte Kandidaten für ein künftiges
+  Erweiterungsset (nur nach Rücksprache): Subtyp-Synergien, Karten mit >1
+  Zielslot, `void`s strukturelle Stärke im Auge behalten.
 - **engine-engineer:** offene Rückfrage an game-architect zur Bedeutung von
   `StaticAbility.scope` bei `costChange` (weiterhin unbeantwortet);
   StaticAbility-Test für `stats`/`grantKeyword` (fehlt weiterhin); Migration
@@ -436,10 +617,12 @@ zurückgestellt. Verbleibend sonst:
   (`core.current-diplomat`, Code-Pfad steht, Test fehlt noch); Mehrfach-
   Zielslot-UI (kein Pool-Bedarf bisher); `computeEffectiveStats`/
   `computeEffectiveKeywords` offiziell in den `RulesEngine`-Vertrag heben;
-  Migration `chooseManaColor`/`chooseDiscard`/`orderScry` (s.o., zieht
-  Frontend-Arbeit nach sich, sobald die Engine migriert); Bot-
-  Schwierigkeitsstufe/-Timing nicht im UI einstellbar (wird erst mit dem
-  KI-Ausbau relevant).
+  Migration `chooseManaColor`/`chooseDiscard`/`orderScry` (s.o.); Bot-vs-Bot-
+  Zuschauermodus (Umschalter bisher nur für Spieler 2); **neu:**
+  Deckbau-Screen-Performance mit dem jetzt tatsächlich sehr großen
+  300-Karten-Pool ist ungeprüft (die frühere Sorge „bei weit über 109
+  Karten" ist eingetreten, aber nicht neu gemessen) — an frontend-engineer
+  zurückgemeldet, nicht selbst behoben.
 - **game-architect:** offene Rückfrage vom engine-engineer zu
   `StaticAbility.scope` bei `costChange`; die großen, bewusst vertagten
   Themen aus Abschnitt 10 (>2 Spieler, Kontrollwechsel/Kopier-Effekte/
@@ -448,10 +631,16 @@ zurückgestellt. Verbleibend sonst:
   Reihenfolge, „Spieler erleidet Schaden"-Trigger, London-Mulligan-Upgrade,
   „wähle zwei" bei Modal-Effekten, rekursive Cleanup-Sonderregel,
   `addMana("any")`/`discardCards`/`scry`-Migration, kombinatorische
-  `getLegalActions`-Enumeration) — alle ausdrücklich nur bei konkretem
-  Kartenbedarf anzugehen, kein aktiver Auftrag.
-- **ai-opponent-engineer (künftige Session):** Ausbau von `src/ai/*` auf
-  drei spürbar unterschiedliche Schwierigkeitsstufen, aufbauend auf den in
-  `docs/ai-status.md` Abschnitt 6 dokumentierten v1-Schwächen (kein
-  Lookahead, ignoriert statische Fremd-Effekte, kein Kombo-Verständnis,
-  keine Instant-Speed-Taktik, grobe Ziel-/Discard-Heuristiken).
+  `getLegalActions`-Enumeration, **neu seit 9.14/9.15:** „ein beliebiges
+  Permanent stirbt"-Beobachter-Trigger, Graveyard-Zonen-Primitiv für
+  „Removal-bei-Tod") — alle ausdrücklich nur bei konkretem Kartenbedarf
+  anzugehen, kein aktiver Auftrag.
+- **ai-opponent-engineer:** X-Kosten/Mehrfach-Zielslot-Karten werden von
+  keiner Stufe gecastet; kein echtes Multi-Ply-Minimax/MCTS; kein
+  Instant-Speed-Spiel in irgendeiner Stufe; Balance-Empfehlungen aus der
+  Farb-Analyse liegen jetzt größtenteils beim card-designer erledigt (drei
+  Runden, s. Meilenstein oben) — das Analyse-Tool kann bei Bedarf jederzeit
+  erneut laufen.
+- **documenter:** Dateinamens-Mismatch im Artwork-Ordner
+  (`core-bastion-forgework.png` statt `core-bastion-forgeworks.png`) dem
+  Nutzer gemeldet, nicht selbst behoben (Bild-Datei, keine Doku-Textdatei).

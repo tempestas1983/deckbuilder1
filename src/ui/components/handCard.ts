@@ -10,6 +10,7 @@
 import type { CardDefinition, InstanceId, PlayerAction } from "../../model";
 import { dominantColorClass, subtypeLine } from "../cardInfo";
 import { h, text } from "../h";
+import { cardFrameArt } from "./cardArt";
 import { manaCostBadge } from "./manaCost";
 
 export interface HandCardOptions {
@@ -35,7 +36,7 @@ export interface HandCardOptions {
 /** Baut den gemeinsamen "Kartenrahmen" (Kopfzeile, Bildfläche, Typzeile, Regeltext, ggf. P/T-Kasten). */
 function cardFrameBody(def: CardDefinition): HTMLElement {
   const frameChildren: (Node | string | false | undefined)[] = [
-    h("div", { class: "card-frame-art" }),
+    cardFrameArt(def),
     h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
   ];
   if (def.rulesText) {
@@ -116,7 +117,7 @@ export function handCardDiscardToggle(
       cost ? manaCostBadge(cost) : undefined,
     ]),
     h("div", { class: "card-frame-frame" }, [
-      h("div", { class: "card-frame-art" }),
+      cardFrameArt(def),
       h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
     ]),
     h("div", { class: "discard-toggle-hint" }, [text(selected ? "wird abgeworfen" : "anklicken zum Abwerfen")]),

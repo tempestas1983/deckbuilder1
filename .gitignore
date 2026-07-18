@@ -1,3 +1,8 @@
 node_modules/
 dist/
 dist-ui/
+
+# Kartenartworks: extern generiert (Gemini, s. tools/image-generation), zu groß
+# fürs Repo (~500 MB) und lokal beim Nutzer vorhanden statt versioniert.
+docs/cards/artworks/
+tools/output_images/

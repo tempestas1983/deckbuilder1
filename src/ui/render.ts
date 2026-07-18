@@ -16,6 +16,8 @@ import {
   backToDeckbuilder,
   confirmDeck,
   copyDeckFromPlayer1,
+  closeTutorialHelp,
+  dismissTutorialTip,
   dispatch,
   getAppPhase,
   getBotDifficulty,
@@ -24,17 +26,24 @@ import {
   getLog,
   getPool,
   getState,
+  getTutorialPendingTip,
   getUiMode,
   isBotControlled,
+  isTutorialActive,
+  isTutorialHelpOpen,
   legalActions,
   resetUiMode,
   setBotControlled,
   setBotDifficulty,
   setDecklist,
   setUiMode,
+  startTutorial,
+  toggleTutorialHelp,
 } from "./store";
 import { BOT_DIFFICULTY_LABELS } from "../ai";
 import { cardDef } from "./cardInfo";
+import { tutorialTip } from "./tutorialContent";
+import { tutorialHelpButton, tutorialHelpPanel, tutorialTipBubble } from "./components/tutorialOverlay";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
 import { deckBuilderScreen } from "./components/deckBuilder";
@@ -191,6 +200,12 @@ function renderDeckBuilder(player: PlayerId): HTMLElement {
         confirmDeck(player);
       }
     },
+    // v0.1.11: "Tutorial starten" ist nur auf dem allerersten Screen (player1,
+    // faktisch der App-"Startbildschirm", s. docs/frontend-status.md) sichtbar
+    // - startTutorial() (store.ts) überspringt den kompletten restlichen
+    // Deckbau-Ablauf (auch den player2-Screen) und startet die Partie direkt
+    // mit den festen Decks aus tutorialDeck.ts.
+    onStartTutorial: player === "player1" ? () => startTutorial() : undefined,
   });
 }
 
@@ -200,8 +215,11 @@ function renderGameBoard(root: HTMLElement): void {
   const pool = getPool();
   const mode = getUiMode();
   const err = getLastError();
+  const tutorialActive = isTutorialActive();
+  const pendingTipId = tutorialActive ? getTutorialPendingTip() : undefined;
 
   const children: (HTMLElement | undefined)[] = [
+    pendingTipId ? tutorialTipBubble(tutorialTip(pendingTipId), () => dismissTutorialTip()) : undefined,
     statusBar(state),
     err ? h("div", { class: "error-banner" }, [text(`Nicht erlaubt: ${err}`)]) : undefined,
     ...actionBanner(state, mode),
@@ -209,6 +227,7 @@ function renderGameBoard(root: HTMLElement): void {
     boardSection(state, pool, mode),
     stackPanel(state, pool, stackPanelOptions(state, mode)),
     logPanel(getLog()),
+    tutorialActive && isTutorialHelpOpen() ? tutorialHelpPanel(() => closeTutorialHelp()) : undefined,
   ];
 
   root.append(...children.filter((c): c is HTMLElement => !!c));
@@ -247,7 +266,15 @@ function statusBar(state: GameState): HTMLElement {
           [text(`Priorität passen (${priorityPlayer})`)],
         )
       : undefined,
-    h("button", { class: "btn btn-cancel", onclick: () => backToDeckbuilder() }, [text("Neues Spiel")]),
+    // v0.1.11: im Tutorial-Modus jederzeit alle bereits erklärten (und noch
+    // ausstehenden) Tipps erneut abrufbar (Auftrag Punkt 4) - unabhängig vom
+    // aktuellen Spielstand, s. components/tutorialOverlay.ts#tutorialHelpPanel.
+    isTutorialActive() ? tutorialHelpButton(() => toggleTutorialHelp()) : undefined,
+    h(
+      "button",
+      { class: "btn btn-cancel", onclick: () => backToDeckbuilder() },
+      [text(isTutorialActive() ? "Zurück zum Hauptmenü" : "Neues Spiel")],
+    ),
   ]);
 }
 

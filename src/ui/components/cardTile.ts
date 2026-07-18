@@ -15,6 +15,7 @@ import {
   subtypeLine,
 } from "../cardInfo";
 import { h, text } from "../h";
+import { cardFrameArt } from "./cardArt";
 import { manaCostBadge } from "./manaCost";
 
 export interface CardTileOptions {
@@ -60,7 +61,7 @@ export function cardTile(
   }
 
   const frameChildren: (Node | string | false | undefined)[] = [
-    h("div", { class: "card-frame-art" }),
+    cardFrameArt(def),
     h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
   ];
   if (def.rulesText || statusBadges.length > 0) {

@@ -34,6 +34,20 @@ import type {
   PlayerId,
   RulesEngine,
 } from "../model";
+// boardEval ist wie dieses Modul ein reiner Konsument (CardPool+GameState,
+// keine Engine-Internals). Genutzt wird es hier AUSSCHLIESSLICH für zwei
+// LEGALITÄTS-relevante Stellen (beides Funde der Farb-Balance-Analyse übers
+// 300-Karten-Set, siehe docs/ai-status.md Abschnitt 10):
+// 1. Blocker-Konstruktion mit effektiven Keywords (inkl. statischer
+//    Fremd-Grants wie guardian-Auren — mit reinen Basis-Keywords reichte der
+//    Bot eine von der Engine abgelehnte, leere Blockdeklaration ein).
+// 2. Vervollständigung modaler Cast-/Activate-Kandidaten (getLegalActions
+//    liefert sie laut Vertrag OHNE chosenMode/chosenTargets; roh eingereicht
+//    lehnt applyAction sie mit "Modus fehlt" ab).
+// Die HEURISTIK-Qualität (rough*-Schätzer, Angriffs-/Removal-Bewertung)
+// bleibt bewusst die dokumentierte v1-Vereinfachung ohne fremde Statics
+// (docs/ai-status.md 6.2).
+import { canBlockPairEffective, expandModalCandidate, hasEffectiveKeyword } from "./boardEval";
 
 // ---------------------------------------------------------------------------
 // Öffentliche Kernfunktion
@@ -99,7 +113,7 @@ export function chooseAction(
   if (terrainAction) return terrainAction;
 
   // 3. Beste castSpell-/activateAbility-Option.
-  const castOrActivate = chooseBestCastOrActivate(pool, state, legal, player);
+  const castOrActivate = chooseBestCastOrActivate(engine, pool, state, legal, player);
   if (castOrActivate) return castOrActivate;
 
   // 4. Angreifer deklarieren (Konstruktion aus einzeln validierten
@@ -287,6 +301,7 @@ function wouldTapPotentialAttacker(
 }
 
 function chooseBestCastOrActivate(
+  engine: RulesEngine,
   pool: CardPool,
   state: GameState,
   legal: PlayerAction[],
@@ -297,6 +312,18 @@ function chooseBestCastOrActivate(
 
   for (const action of legal) {
     if (action.kind === "castSpell") {
+      // Modale Kandidaten kommen laut getLegalActions-Vertrag OHNE
+      // chosenMode/chosenTargets und müssen konsumentenseitig vervollständigt
+      // werden (boardEval.ts#expandModalCandidate, engine-validierter Dry-Run)
+      // — der rohe Kandidat selbst würde von applyAction abgelehnt.
+      const modalCompletions = expandModalCandidate(engine, pool, state, action);
+      if (modalCompletions !== undefined) {
+        for (const completed of modalCompletions) {
+          if (completed.kind !== "castSpell") continue;
+          scored.push({ action: completed, score: scoreCastSpell(pool, state, player, completed) });
+        }
+        continue;
+      }
       scored.push({ action, score: scoreCastSpell(pool, state, player, action) });
       continue;
     }
@@ -310,6 +337,15 @@ function chooseBestCastOrActivate(
         continue;
       }
       if (wouldTapPotentialAttacker(pool, state, player, action, ability)) {
+        continue;
+      }
+      // Modale Fähigkeiten: analog zu castSpell vervollständigen.
+      const modalCompletions = expandModalCandidate(engine, pool, state, action);
+      if (modalCompletions !== undefined) {
+        for (const completed of modalCompletions) {
+          if (completed.kind !== "activateAbility") continue;
+          scored.push({ action: completed, score: scoreActivateAbility(pool, state, player, completed, ability) });
+        }
         continue;
       }
       scored.push({ action, score: scoreActivateAbility(pool, state, player, action, ability) });
@@ -372,7 +408,11 @@ function scoreCastSpell(
   }
 
   if (def.type === "spell") {
-    const removalScore = scoreRemovalTarget(pool, state, player, def.effects ?? [], action.chosenTargets);
+    // Bei modalen (vervollständigten) Kandidaten zählen die Effekte des
+    // GEWÄHLTEN Modus, sonst die normalen Spell-Effekte.
+    const effects: Effect[] =
+      action.chosenMode !== undefined ? (def.modes?.[action.chosenMode]?.effects ?? []) : (def.effects ?? []);
+    const removalScore = scoreRemovalTarget(pool, state, player, effects, action.chosenTargets);
     if (removalScore !== undefined) return 10 + removalScore / denom;
     return 1 / denom; // sonst: günstigste verfügbare Option bevorzugen
   }
@@ -518,11 +558,12 @@ function findKillingBlockerIndex(pool: CardPool, state: GameState, attackerId: I
 // ANDERS als bei Angreifern liefert combatCandidates() für declareBlockers
 // bei aktiver guardian-Pflicht (>= 1 pflichtige guardian-Unit) NUR
 // eingeschränkte bzw. GAR KEINE Einzel-Kandidaten (siehe legal-actions.ts-
-// Kommentar). Die Blockwahl wird daher direkt aus GameState konstruiert
-// (eigene, vereinfachte Legalitätsprüfung `canBlockPair` — nur
-// Basis-Keywords, keine statischen/temporären Effekte fremder Quellen) statt
-// aus `legal` extrahiert. Siehe docs/ai-status.md für die ausführliche
-// Begründung und das damit verbundene Restrisiko.
+// Kommentar). Die Blockwahl wird daher direkt aus GameState konstruiert.
+// Die LEGALITÄTS-Prüfung (guardian-Pflicht, airborne/reach) nutzt seit dem
+// 300-Karten-Set effektive Keywords inkl. statischer Fremd-Grants
+// (boardEval.ts#hasEffectiveKeyword/canBlockPairEffective) — das frühere
+// Nur-Basis-Keyword-Restrisiko aus docs/ai-status.md 3.1 ist damit
+// geschlossen. Die BEWERTUNG (isFavorableBlock) bleibt v1-grob.
 // ---------------------------------------------------------------------------
 
 function chooseBlockAction(pool: CardPool, state: GameState, player: PlayerId): PlayerAction {
@@ -538,7 +579,9 @@ function chooseBlockAction(pool: CardPool, state: GameState, player: PlayerId): 
   });
 
   const guardians = ownUnits.filter(
-    (id) => hasBaseKeyword(pool, state, id, "guardian") && attackerIds.some((a) => canBlockPair(pool, state, id, a)),
+    (id) =>
+      hasEffectiveKeyword(pool, state, id, "guardian") &&
+      attackerIds.some((a) => canBlockPairEffective(pool, state, id, a)),
   );
 
   const life = state.players[player].life;
@@ -549,7 +592,7 @@ function chooseBlockAction(pool: CardPool, state: GameState, player: PlayerId): 
   const used = new Set<InstanceId>();
 
   for (const guardian of guardians) {
-    const options = attackerIds.filter((a) => canBlockPair(pool, state, guardian, a));
+    const options = attackerIds.filter((a) => canBlockPairEffective(pool, state, guardian, a));
     const preferred = options.find((a) => isFavorableBlock(pool, state, guardian, a)) ?? options[0];
     if (preferred === undefined) continue;
     blocks.push({ blocker: guardian, attacker: preferred });
@@ -559,7 +602,9 @@ function chooseBlockAction(pool: CardPool, state: GameState, player: PlayerId): 
   if (dangerous) {
     for (const unit of ownUnits) {
       if (used.has(unit)) continue;
-      const target = attackerIds.find((a) => canBlockPair(pool, state, unit, a) && isFavorableBlock(pool, state, unit, a));
+      const target = attackerIds.find(
+        (a) => canBlockPairEffective(pool, state, unit, a) && isFavorableBlock(pool, state, unit, a),
+      );
       if (target !== undefined) {
         blocks.push({ blocker: unit, attacker: target });
         used.add(unit);
@@ -568,24 +613,6 @@ function chooseBlockAction(pool: CardPool, state: GameState, player: PlayerId): 
   }
 
   return { kind: "declareBlockers", player, blocks };
-}
-
-/** Vereinfachte Legalitätsprüfung (nur Basis-Keywords, siehe Modul-Doku oben). */
-function canBlockPair(pool: CardPool, state: GameState, blockerId: InstanceId, attackerId: InstanceId): boolean {
-  const blockerCard = state.cards[blockerId];
-  if (!blockerCard?.permanentState || blockerCard.permanentState.tapped) return false;
-  if (blockerCard.permanentState.combat?.role === "blocker") return false;
-  if (pool[blockerCard.definitionId]?.type !== "unit") return false;
-
-  const attackerCard = state.cards[attackerId];
-  if (!attackerCard?.permanentState || attackerCard.permanentState.combat?.role !== "attacker") return false;
-
-  if (hasBaseKeyword(pool, state, attackerId, "airborne")) {
-    if (!hasBaseKeyword(pool, state, blockerId, "airborne") && !hasBaseKeyword(pool, state, blockerId, "reach")) {
-      return false;
-    }
-  }
-  return true;
 }
 
 /** "Kein reines Sinnlos-Chumpen": Blocker überlebt ODER tötet/mit-tötet den Angreifer. */

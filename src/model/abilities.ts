@@ -126,6 +126,26 @@ export type TargetSpec =
  * - { target: n }: das im Zielslot n gewählte Ziel
  * - "eventSubject": das Objekt, das den Trigger ausgelöst hat
  *   (z.B. die gestorbene Unit bei onUnitDied) — nur in Triggered Abilities gültig.
+ *
+ * v0.3.2 (rules-engine.md 4/5 + Entscheidung 9.14) — "eventSubject" auf
+ * Nicht-Permanents: Die Referenz bleibt auch bestehen, wenn das Objekt das
+ * Battlefield schon verlassen hat (onUnitDied/onDeath: die Karte liegt beim
+ * Resolven bereits im Graveyard; Token können komplett gelöscht sein, SBA 7).
+ * Permanent-bezogene Effekte (dealDamage auf Permanents, destroyPermanent,
+ * exilePermanent, returnToHand, tapPermanent, untapPermanent, modifyStats,
+ * grantKeyword, addCounters, removeCounters) überspringen einen solchen
+ * Nicht-Permanent-Empfänger STILL (kein Fehler, kein Event, KEINE
+ * Ersatzwirkung in der neuen Zone — exilePermanent verbannt nie aus dem
+ * Graveyard). Konsequenz fürs Kartendesign:
+ * - onUnitDied/onDeath + permanent-bezogener Effekt auf "eventSubject" ist
+ *   zulässig, aber GARANTIERT wirkungslos (Subjekt ist beim Resolven nie
+ *   mehr Permanent) — bitte nicht bauen.
+ * - onDamageReceived (eventSubject = Schadensquelle, kann noch leben) bleibt
+ *   der tragende Anwendungsfall (Vergeltung, 9.10); tote Quelle → stiller
+ *   Fizzle.
+ * - "Verbanne die gestorbene Karte" (Removal-bei-Tod) braucht ein künftiges
+ *   Graveyard-Primitiv (rules-engine.md 10), keine Zweckentfremdung von
+ *   exilePermanent.
  */
 export type EffectRecipient =
   | "self"
@@ -306,8 +326,21 @@ export type Keyword =
  */
 export type TriggerCondition =
   | { kind: "onEnterBattlefield"; what: "self" }
+  // Dieses Permanent stirbt = verlässt das Battlefield RICHTUNG GRAVEYARD,
+  // ursachenunabhängig (SBA 3/4, destroyPermanent, sacrificeSelf-Kosten,
+  // Aura-SBA 5) und typ-agnostisch (feuert auch für Relic/Enchantment/
+  // Terrain — "parting shot"-Designs; Token: Trigger wird gequeued, verpufft
+  // aber beim Stacken, da SBA 7 die Instanz löscht). exilePermanent/
+  // returnToHand/Countern/Discard sind KEIN Tod (v0.3.3, rules-engine.md 5 +
+  // Entscheidung 9.15 — bis v0.3.2 feuerte nur der SBA-Pfad, das war ein Bug).
   | { kind: "onDeath"; what: "self" }
-  | { kind: "onUnitDied"; controller: ControllerFilter } // eine (fremde/eigene) Unit stirbt
+  // Eine (fremde/eigene) Unit stirbt. eventSubject = die gestorbene Karte,
+  // die beim Resolven bereits im Graveyard liegt (bzw. gelöscht ist, Token) —
+  // permanent-bezogene Effekte auf "eventSubject" fizzeln hier deshalb
+  // garantiert still, siehe EffectRecipient-Kommentar oben (v0.3.2, 9.14).
+  // Todesdefinition wie bei onDeath (v0.3.3, 9.15): battlefield → graveyard,
+  // ursachenunabhängig — feuert aber NUR für sterbende Units (Name = Vertrag).
+  | { kind: "onUnitDied"; controller: ControllerFilter }
   | { kind: "onUpkeep"; whoseTurn: "own" | "any" }
   | { kind: "onEndStep"; whoseTurn: "own" | "any" }
   | { kind: "onAttackDeclared"; what: "self" }

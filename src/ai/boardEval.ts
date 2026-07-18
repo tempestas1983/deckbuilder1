@@ -21,11 +21,16 @@ import type {
   Ability,
   CardDefinition,
   CardPool,
+  ChosenTarget,
+  EffectMode,
   GameState,
   InstanceId,
   Keyword,
   ManaCost,
+  PlayerAction,
   PlayerId,
+  RulesEngine,
+  TargetSpec,
 } from "../model";
 
 export function otherPlayerId(player: PlayerId): PlayerId {
@@ -320,4 +325,106 @@ export function canBlockPairEffective(pool: CardPool, state: GameState, blockerI
     }
   }
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Modale Cast-/Activate-Kandidaten vervollständigen
+// ---------------------------------------------------------------------------
+
+/**
+ * getLegalActions liefert für modale Spells/Fähigkeiten laut Vertrag
+ * (legal-actions.ts, Datei-Kommentar) GENAU EINEN rohen Kandidaten OHNE
+ * chosenMode/chosenTargets — `applyAction` lehnt diesen rohen Kandidaten ab
+ * ("Modus fehlt"). Der Konsument (UI wie Bot) muss Modus + Ziele selbst
+ * ergänzen; das UI fragt beides interaktiv ab, die Bots nutzen diese
+ * Funktion. (Fund der Farb-Balance-Analyse übers 300-Karten-Set: vorher
+ * reichten medium/easy den rohen Kandidaten unverändert ein -> Engine-Ablehnung;
+ * hard hat modale Kandidaten still verworfen, weil die Simulation des rohen
+ * Kandidaten immer fehlschlug.)
+ *
+ * Rückgabe:
+ * - undefined  -> Kandidat ist nicht modal (oder hat schon einen Modus):
+ *                 unverändert verwenden.
+ * - Array      -> alle konkreten, ENGINE-VALIDIERTEN Vervollständigungen
+ *                 (Dry-Run über das pure `applyAction` — reine Nutzung der
+ *                 öffentlichen Schnittstelle, keine Engine-Internals). Leer,
+ *                 falls keine legale Vervollständigung existiert (Kandidat
+ *                 überspringen — sollte laut Kandidaten-Vertrag nicht
+ *                 vorkommen, defensiv trotzdem möglich).
+ *
+ * Bewusste Grenze (wie X-Kosten, docs/ai-status.md 9.7): Modi mit >= 2
+ * Zielslots werden übersprungen.
+ */
+export function expandModalCandidate(
+  engine: RulesEngine,
+  pool: CardPool,
+  state: GameState,
+  action: PlayerAction,
+): PlayerAction[] | undefined {
+  if (action.kind !== "castSpell" && action.kind !== "activateAbility") return undefined;
+  const modes = modesOfCandidate(pool, state, action);
+  if (!modes) return undefined;
+
+  const completions: PlayerAction[] = [];
+  for (let modeIndex = 0; modeIndex < modes.length; modeIndex++) {
+    const specs = modes[modeIndex]?.targets ?? [];
+    if (specs.length > 1) continue; // bewusste Grenze, siehe Doku oben
+    const targetSets: ChosenTarget[][] =
+      specs.length === 0 ? [[]] : coarseTargetUniverse(state, specs[0]!).map((t) => [t]);
+    for (const chosenTargets of targetSets) {
+      const completed: PlayerAction = { ...action, chosenMode: modeIndex, chosenTargets };
+      // Dry-Run: applyAction ist pure — Fein-Legalität (Zielfilter,
+      // Modus-Wählbarkeit, Kosten) prüft vollständig die Engine selbst,
+      // hier wird nichts davon dupliziert.
+      if (engine.applyAction(state, completed).error === undefined) {
+        completions.push(completed);
+      }
+    }
+  }
+  return completions;
+}
+
+/** Modi eines rohen Cast-/Activate-Kandidaten (undefined = nicht modal/bereits vervollständigt). */
+function modesOfCandidate(pool: CardPool, state: GameState, action: PlayerAction): EffectMode[] | undefined {
+  if (action.kind === "castSpell") {
+    if (action.chosenMode !== undefined) return undefined;
+    const card = state.cards[action.cardInstanceId];
+    const def = card && pool[card.definitionId];
+    if (def?.type === "spell" && def.modes && def.modes.length > 0) return def.modes;
+    return undefined;
+  }
+  if (action.kind === "activateAbility") {
+    if (action.chosenMode !== undefined) return undefined;
+    const ability = abilitiesOf(pool, state, action.sourceInstanceId)[action.abilityIndex];
+    if (ability?.kind === "activated" && ability.modes && ability.modes.length > 0) return ability.modes;
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Grobes Ziel-Universum für einen Zielslot — nur die KATEGORIE des Ziels
+ * (Permanent/Spieler/Stack-Objekt); alle Feinfilter (cardTypes, controller,
+ * mustBeTapped, ...) prüft der applyAction-Dry-Run in expandModalCandidate.
+ */
+function coarseTargetUniverse(state: GameState, spec: TargetSpec): ChosenTarget[] {
+  const permanents: ChosenTarget[] = [];
+  for (const playerId of ["player1", "player2"] as const) {
+    for (const instanceId of state.players[playerId].battlefield) {
+      permanents.push({ kind: "permanent", instanceId });
+    }
+  }
+  const players: ChosenTarget[] = (["player1", "player2"] as const).map((playerId) => ({ kind: "player", playerId }));
+  switch (spec.kind) {
+    case "permanent":
+      return permanents;
+    case "player":
+      return players;
+    case "unitOrPlayer":
+      return [...permanents, ...players];
+    case "stackObject":
+      return state.stack.map((obj) => ({ kind: "stackObject", stackObjectId: obj.id }));
+    default:
+      return [];
+  }
 }

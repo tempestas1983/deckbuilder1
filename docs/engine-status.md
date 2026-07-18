@@ -1,8 +1,8 @@
 # Engine-Status
 
-Status: v0.3.3 (engine-engineer) — 2026-07-10 (Bugfix-Runde, gemeldet vom
-ai-opponent-engineer — s. Abschnitt "v0.3.3" unten; vorheriger Stand: v0.3.2,
-2026-07-09)
+Status: v0.3.5 (engine-engineer) — 2026-07-10 (Bugfix, konkreter Umsetzungsauftrag
+des game-architect zu Entscheidung 9.15 — s. Abschnitt "v0.3.5" unten;
+vorheriger Stand: v0.3.4, 2026-07-10)
 Grundlage: `docs/rules-engine.md` (Regelwerk v0.3, vier vertagte Punkte aus
 Abschnitt 10 geschlossen: `onDamageReceived`, Mulligan, X auf aktivierten
 Fähigkeiten, Modal-Effekte; v0.3.1-Nachtrag zu Entscheidung 9.13), `src/model/*`
@@ -21,10 +21,208 @@ dauerhafte Tests hinzugekommen (v0.1.7 `vs-bot.test.ts`, v0.1.8
 `src/engine/__tests__/*`, 11 in `src/ui/__tests__/*`, 11 in
 `src/ai/__tests__/*` inkl. der 10 seed-parametrisierten Bot-Partien), nicht
 mehr Sache dieses engine-engineer-Dokuments einzeln nachzuführen.
+**documenter-Sweep 2026-07-18:** Der Stand oben beschreibt bewusst noch den
+Zeitpunkt vor v0.3.3/v0.3.4/v0.3.5 (nicht überschrieben, siehe jeweilige
+Abschnitte unten für die Einzelheiten). Aktueller Gesamtstand laut allen drei
+Modul-Dokumenten (engine-status.md v0.3.5, ai-status.md v2.1, sowie dem
+Auftraggeber verifiziert): **160 Tests grün + 1 bewusst per `describe.skip`
+übersprungener Analyse-Test** (`src/ai/__tests__/color-balance.analysis.test.ts`).
+Engine-Tests allein (`src/engine/__tests__/*`) per Grep gegengezählt: **130**
+(119 zum v0.3.2-Stand + 2 `combat-keywords.test.ts` aus v0.3.3 + 2
+`triggers-and-misc.test.ts` aus v0.3.4 + 7 `triggers-and-misc.test.ts` aus
+v0.3.5 = 130, exakt konsistent mit der arithmetischen Summe aus den
+Einzel-Abschnitten unten). `npm run build` laut allen Berichten weiterhin
+sauber.
 
 Dieses Dokument richtet sich an frontend-engineer (worauf aufbauen?), card-designer
 (welche DSL-Primitive funktionieren zuverlässig?) und game-architect (offene
 Klärungspunkte, siehe Abschnitt "Offene Fragen").
+
+## v0.3.5: Bugfix — `onDeath{self}`/`onUnitDied` feuerten nur auf dem SBA-Pfad, nicht bei `destroyPermanent`/`sacrificeSelf` (Entscheidung 9.15)
+
+**Auftrag** des game-architect zu `docs/rules-engine.md` Entscheidung 9.15
+("zonenbasierte Todesdefinition"), gefunden vom card-designer in
+Kartenpool-Batch 6 (`core.husk-crawler` zieht keine Karte, wenn es per
+`core.doomreap-edict`/`destroyPermanent` statt per Kampf-/SBA-Tod stirbt).
+
+**Root Cause:** `fireDeathTriggers` (`src/engine/triggers.ts`) hatte bis
+dahin genau EINEN Aufrufer: die SBA-3/4-Schleife in `src/engine/sba.ts`
+(Toughness ≤ 0 / letaler Schaden), die zusätzlich nur **Units** überhaupt
+betrachtet (`def.type !== "unit"` wird dort vorab herausgefiltert). Die
+beiden anderen Pfade, über die ein Permanent ins Graveyard wandert —
+`effects.ts`s `destroyPermanent`-Effekt-Handler und der
+`sacrificeSelf`-Zusatzkosten-Pfad in `actions.ts` (Zeile ~399) — riefen
+zwar beide bereits `zones.ts#leaveBattlefield(..., "graveyard")` auf, aber
+OHNE anschließend `fireDeathTriggers` aufzurufen. Konsequenz: `onDeath {
+what: "self" }` feuerte nie bei Entfernungszaubern oder Opfer-Kosten (nur
+beim Kampf-/SBA-Tod einer Unit), und für Nicht-Unit-Permanents (Relic/
+Enchantment/Terrain) feuerte `onDeath` überhaupt nie, weil der einzige
+Aufrufer unit-gefiltert war. Card-Designer und engine-engineer waren sich
+dieser Lücke zuvor nicht bewusst — sie war ein stillschweigender Bug (9.15),
+kein beabsichtigtes Verhalten.
+
+**Neue, verbindliche Todesdefinition (9.15):** "Stirbt" = Zonenwechsel
+Battlefield → Graveyard, ursachenunabhängig (SBA 3/4, SBA 5/Aura-ohne-Ziel,
+`destroyPermanent`, `sacrificeSelf`-Zusatzkosten); `onDeath{self}` dabei
+**typ-agnostisch** (auch Relic/Enchantment/Terrain/Token); `onUnitDied`/das
+Event `unitDied` bleiben dagegen **unit-only** (der Name ist der Vertrag).
+`exilePermanent`/`returnToHand` sind bewusst KEIN Tod (Exil als "saubere
+Antwort" auf Tod-Trigger, dokumentiertes Design) — ebenso wenig Countern
+(Stack → Graveyard) oder Discard (Hand → Graveyard), weil dort kein
+Permanent das Battlefield verlässt.
+
+**Fix — zentraler Tod-Hook statt verstreuter Einzelaufrufe:**
+
+1. **`zones.ts#leaveBattlefield`** ist jetzt der EINZIGE Ort, der
+   Tod-Trigger auslöst: Ist `toZone === "graveyard"`, ruft die Funktion nach
+   dem eigentlichen Zonenwechsel (Token-Löschung ODER `moveCard`)
+   `fireDeathTriggers` auf — ursachenunabhängig, weil `leaveBattlefield`
+   bereits von allen vier Tod-Pfaden (SBA 3/4, SBA 5, `destroyPermanent`,
+   `sacrificeSelf`-Kosten) aufgerufen wird. `toZone === "hand"/"exile"`
+   lösen den Hook NICHT aus (kein Tod, 9.15). Definition-Id/Controller
+   werden VOR dem eigentlichen Move gesnapshottet (`dyingDefinitionId`/
+   `dyingController`), weil `removeTokenPermanently` (SBA 7) die Instanz
+   danach vollständig aus `state.cards` löscht — der Hook feuert aber
+   trotzdem mit den richtigen Werten (identisches Muster zum bisherigen
+   `sba.ts`-Code, nur jetzt zentralisiert).
+2. **`sba.ts`** gibt seinen bisherigen direkten `fireDeathTriggers`-Aufruf
+   (inkl. der manuellen `unitDied`-Event-Emission) ab — beides passiert jetzt
+   automatisch innerhalb des `leaveBattlefield`-Aufrufs, den die SBA-3/4-
+   Schleife ohnehin schon macht. Kein Doppel-Feuern.
+3. **`triggers.ts#fireDeathTriggers`** hat ein neues `events`-Argument
+   (für die jetzt dort zentral emittierte `unitDied`-Event) und ein neues
+   Gate: Die `onDeath{self}`-Schleife bleibt unverändert typ-agnostisch
+   (keine `def.type`-Prüfung). Die `onUnitDied`-Beobachter-Schleife UND die
+   `unitDied`-Event-Emission sind jetzt hinter einem expliziten
+   `if (def.type !== "unit") return;` gegated — vorher ergab sich dieselbe
+   Einschränkung implizit daraus, dass der einzige Aufrufer (SBA) ohnehin nur
+   Units betrachtete; jetzt, wo der Aufruf zentral aus `zones.ts` für JEDEN
+   Permanent-Typ kommt, muss das Unit-only-Gate explizit in der Funktion
+   selbst stehen.
+4. **Kein Import-Zyklus:** `zones.ts` importiert jetzt `triggers.ts`
+   (`fireDeathTriggers`); `triggers.ts` importiert seinerseits nur
+   `card-defs.ts`/`ids.ts`/`targets.ts`/`modal.ts` — kein Zyklus, wie vom
+   Architect vorab geprüft und hier durch den grünen `tsc --noEmit`-Build
+   verifiziert.
+5. **Kein Datenmodell-Change** — `abilities.ts` trägt bereits die vom
+   Architect für 9.15 ergänzten Kommentare an `TriggerCondition`; die Engine
+   konsumiert `onDeath`/`onUnitDied` strukturell unverändert, nur die
+   Auslösebedingung (wann `fireDeathTriggers` überhaupt aufgerufen wird) hat
+   sich verschoben.
+
+**Regressionstests** (neue Describe-Gruppen in
+`src/engine/__tests__/triggers-and-misc.test.ts`, 7 neue Tests; neue
+Testfixtures `SELF_DEATH_UNIT`/`SELF_DEATH_RELIC`/`DESTROY_ANY_SPELL`/
+`EXILE_ANY_SPELL`/`RETURN_ANY_SPELL` in `fixtures.ts`):
+
+- "Zonenbasierte Todesdefinition für onDeath/onUnitDied" (6 Tests):
+  - `onDeath{self}` feuert weiterhin bei SBA-Tod (Regressionsschutz,
+    unverändertes Verhalten).
+  - `onDeath{self}` feuert NEU bei Tod durch `destroyPermanent`.
+  - `onDeath{self}` feuert NEU bei Tod durch `sacrificeSelf`-Zusatzkosten.
+  - `onDeath{self}` feuert NICHT bei `exilePermanent` (kein Tod).
+  - `onDeath{self}` feuert NICHT bei `returnToHand` (kein Tod; Handgröße
+    steigt exakt um 1 — durch das zurückgeholte Objekt selbst, NICHT durch
+    einen zusätzlichen `drawCards`-Effekt, der +2 bedeutet hätte).
+  - `onDeath{self}` ist typ-agnostisch (feuert für ein sterbendes NICHT-Unit-
+    Relic) UND `onUnitDied` bleibt unit-only (ein gleichzeitig anwesender
+    `onUnitDied`-Beobachter feuert beim Tod dieses Relics NICHT mit — Stack
+    zeigt nach der Resolution genau einen neuen Trigger, nicht zwei).
+- "Pool-Regressionstest: `core.husk-crawler` + `core.doomreap-edict`" (1
+  Test, echter `starterSet`-Pool statt Test-Fixture-Pool, wie vom
+  card-designer-Fund gefordert): `core.husk-crawler` (onDeath self: ziehe 1
+  Karte) zieht jetzt auch dann eine Karte, wenn es per
+  `core.doomreap-edict` (`destroyPermanent`) statt durch Kampf-/SBA-Tod
+  stirbt.
+
+Alle 7 Tests wurden gegen den unveränderten (Vor-Fix-)Code gegengeprüft: Die
+vier "feuert NEU"/"typ-agnostisch"-Tests sowie der Pool-Regressionstest
+schlagen dort fehl (kein Trigger auf dem Stack, Handgröße bleibt
+unverändert), die beiden "feuert NICHT"-Tests und der SBA-Regressionstest
+waren bereits vorher grün (unverändertes Verhalten).
+
+**Verifikation:** `npm test`: 160 Tests grün (153 Bestand + 7 neue). `npm run
+build` (`tsc --noEmit`): sauber.
+
+## v0.3.4: Bugfix — `destroyPermanent`/`returnToHand`/`exilePermanent` konnten crashen oder ungewollt Zonen manipulieren (Entscheidung 9.14)
+
+**Gefunden** vom game-architect beim Ausarbeiten von `docs/rules-engine.md`
+Entscheidung 9.14 ("`eventSubject` auf Nicht-Permanents: einheitlicher stiller
+Fizzle"), noch bevor eine Pool-Karte den Pfad tatsächlich auslöste (latent).
+
+**Root Cause (`src/engine/effects.ts`):** Von den zehn permanent-bezogenen
+Effekten (`dealDamage` auf Permanents, `destroyPermanent`, `exilePermanent`,
+`returnToHand`, `tapPermanent`, `untapPermanent`, `modifyStats`,
+`grantKeyword`, `addCounters`, `removeCounters`) prüften bereits SIEBEN
+(`tapPermanent`/`untapPermanent`/`modifyStats`/`grantKeyword`/`addCounters`/
+`removeCounters` in `effects.ts`, `dealDamage` via
+`damage.ts#applyDamageToPermanent`), ob der aufgelöste Empfänger überhaupt
+noch ein Battlefield-Permanent ist (`state.cards[id]?.permanentState`), bevor
+sie ihn bearbeiten - und übersprangen ihn sonst still. Die drei
+Zonenwechsel-Effekte `destroyPermanent`/`exilePermanent`/`returnToHand`
+fehlte dieser Guard: sie riefen `zones.ts#leaveBattlefield` unbedingt auf,
+sobald `resolveRecipients` einen `{ kind: "permanent" }`-Empfänger lieferte
+(inkl. `EffectRecipient "eventSubject"`, das laut Modell-Kommentar
+ausdrücklich auch auf ein Objekt zeigen darf, das das Battlefield beim
+Resolven bereits verlassen hat). Zwei Fehlerbilder je nach Zustand der
+referenzierten Instanz:
+
+1. **Crash:** War die Instanz durch SBA 7 (Token verlässt das Battlefield)
+   bereits endgültig aus `state.cards` gelöscht, wirft
+   `leaveBattlefield` `Error("leaveBattlefield: unbekannte InstanceId ...")`
+   - kein legaler `error`-Return, sondern eine Exception mitten in der
+   Stack-Resolution.
+2. **Versehentliche Zonen-Manipulation:** Existierte die Instanz noch, war
+   aber kein Battlefield-Permanent mehr (z.B. eine normale, nicht-Token-Karte
+   im Friedhof), hätte `leaveBattlefield` sie trotzdem erneut bewegt -
+   `exilePermanent` hätte ungewollt aus dem Friedhof verbannt,
+   `returnToHand` wäre ein unbeabsichtigtes "Raise Dead" gewesen.
+
+Beide Fälle waren vor diesem Fix bereits im Code angelegt, aber **folgenlos**
+(keine Pool-Karte kombinierte einen der drei Effekte mit einem Empfänger, der
+kein aktuelles Battlefield-Permanent mehr ist) - mit `onUnitDied` +
+`EffectRecipient "eventSubject"` (das gestorbene Objekt hat das Battlefield
+beim Auslösen des Triggers per Definition schon verlassen) wäre der Pfad
+sofort live geworden, sobald der card-designer eine entsprechende Karte
+gebaut hätte.
+
+**Fix:** `destroyPermanent`/`returnToHand`/`exilePermanent` erhalten in
+`effects.ts` denselben Guard wie die anderen sieben Effekte
+(`state.cards[r.instanceId]?.permanentState` muss existieren, sonst wird der
+Empfänger still übersprungen - kein Fehler, kein Event). `leaveBattlefield`
+selbst bleibt unverändert strikt (wirft weiterhin bei unbekannter
+InstanceId) - der Guard gehört an die Aufrufstellen im Effekt-Interpreter,
+nicht in die Zonen-Mechanik (so vom game-architect in 9.14 vorgegeben).
+Damit sind jetzt alle zehn permanent-bezogenen Effekte konsistent gegen
+Nicht-Permanent-Empfänger abgesichert.
+
+**Regressionstest:** Neue Describe-Gruppe in
+`src/engine/__tests__/triggers-and-misc.test.ts`
+("effects.ts-Regression: eventSubject-Fizzle für permanent-bezogene Effekte
+..., v0.3.4", 2 Tests) mit einer neuen Testkarte `DEATH_REMOVAL_UNIT`
+(`src/engine/__tests__/fixtures.ts`, `onUnitDied`-Trigger: zieht 1 Karte,
+versucht danach `destroyPermanent`/`exilePermanent`/`returnToHand` auf
+`eventSubject`):
+
+- Gestorbenes TOKEN (per SBA 7 endgültig gelöscht, `TOKEN_BEAR`): vor dem Fix
+  crasht die Trigger-Resolution mit exakt dem gemeldeten Fehler
+  (`leaveBattlefield: unbekannte InstanceId ...`); nach dem Fix läuft sie
+  sauber durch, der `drawCards`-Effekt desselben Triggers wirkt normal
+  weiter (Handgröße +1, sonst nichts).
+- Gestorbene NICHT-Token-Karte im Friedhof (`BEAR`): vor dem Fix wandert die
+  Karte durch den ungeguardeten `returnToHand`-Aufruf fälschlich zurück auf
+  die Hand (Handgröße +2 statt +1, Friedhof-Eintrag verschwindet); nach dem
+  Fix bleibt sie unverändert im Friedhof liegen, nur `drawCards` wirkt.
+
+Beide Tests wurden gegen den unveränderten (Vor-Fix-)Code gegengeprüft: sie
+schlagen dort exakt wie oben beschrieben fehl, bevor der Guard ergänzt wird.
+
+**Verifikation:** `npm test`: 153 Tests grün (151 Bestand + 2 neue). `npm run
+build` (tsc --noEmit): sauber.
+
+**Kein Datenmodell-Change** - die Guard-Ergänzung ist reine
+Engine-Interpretation der bereits vom Architect in `src/model/abilities.ts`
+(`EffectRecipient`-Kommentar, v0.3.2) dokumentierten Fizzle-Regel.
 
 ## v0.3.3: Bugfix — `dealCombatDamage` crashte, wenn ein TOKEN-Kampfteilnehmer in der firstStrike-Zwischenrunde starb
 
@@ -791,11 +989,10 @@ des Hybrid-Modells aus rules-engine.md 9.1.
    `chooseDiscard`/`orderScry` bleiben laut Vorgabe vorerst Auto-Default.
    Reihenfolge/Priorisierung für die Migration liegt beim Architect
    (abhängig vom Kartenpool-Bedarf, siehe rules-engine.md 10).
-2. **Echte Mulligan-UI fehlt noch (frontend-engineer, nicht game-architect,
-   aber hier vermerkt):** `src/ui/store.ts#initGame` ruft `createGame` mit
-   `skipMulligans: true` auf (mechanische Anpassung an den neuen v0.3-Default,
-   siehe Abschnitt oben) - ein echter Mulligan-Dialog (Decision `mulligan`
-   anzeigen, Antwort einholen) existiert im Frontend noch nicht.
+2. ~~**Echte Mulligan-UI fehlt noch**~~ **erledigt** — `docs/frontend-status.md`
+   v0.1.6 hat einen echten Mulligan-Dialog (`mulliganPanel`) ergänzt, der die
+   hier beschriebene `skipMulligans: true`-Notlösung ablöst (**documenter-Sweep
+   2026-07-18**, diese Zeile war seit v0.1.6 nicht mehr nachgeführt worden).
 3. **Mehr als 2 Spieler / Kontrollwechsel / Kopier-Effekte / Keyword-Entzug /
    Double Strike / Priority-Fenster zwischen den Schadensrunden /
    trample-Über-Zuteilung / "wähle zwei" bei Modal-Effekten / London-Mulligan**:
@@ -882,7 +1079,13 @@ Abschnitt oben) fehlt unten als eigener Bullet, ergänzt; die vollständigen,
 aktuell 11 dauerhaften `src/ui/__tests__/*`-Dateien und die 11 Tests in
 `src/ai/__tests__/simpleBot.test.ts` sind NICHT einzeln aufgeführt, siehe
 stattdessen `docs/frontend-status.md`/`docs/ai-status.md` für deren jeweils
-eigene, aktuell gehaltene Testübersicht):
+eigene, aktuell gehaltene Testübersicht; **documenter-Sweep 2026-07-18:**
+die Engine-Testzahl ist seither auf **130** gestiegen (v0.3.3 `combat-keywords.test.ts`
++2, v0.3.4 `triggers-and-misc.test.ts` +2, v0.3.5 `triggers-and-misc.test.ts`
++7 — per Grep gegengezählt, s. Kopfzeile oben; die beiden neuen Describe-Gruppen
+sind unten in den jeweiligen Bullets zu `combat-keywords.test.ts`/
+`triggers-and-misc.test.ts` bereits inhaltlich mit erwähnt, nur die
+Kopfzeilen-Gesamtzahl dieses Abschnitts war stehengeblieben):
 
 - `create-game.test.ts` - Determinismus, Starthand, Draw-Step-Skip,
   Münzwurf/`startingPlayer`-Override.
@@ -912,7 +1115,9 @@ eigene, aktuell gehaltene Testübersicht):
   firstStrike-Blocker tötet Angreifer vorher), Kombinatorik nach 6d(4)
   (firstStrike+deathtouch, firstStrike+trample, trample+deathtouch,
   firstStrike-Blocker vs. trample-Angreifer ohne firstStrike),
-  `getLegalActions`/Validierung bei `orderBlockers`.
+  `getLegalActions`/Validierung bei `orderBlockers`; seit v0.3.3 zusätzliche
+  Describe-Gruppe "v0.3.3-Bugfix" (2 Tests, firstStrike-Token-Crash-Regression,
+  s. Abschnitt v0.3.3 oben).
 - `pending-decision.test.ts` - Pause bei Mehrdeutigkeit, Kandidaten,
   Fremdauflösung abgelehnt, Resolution, Fizzle ohne legales Ziel,
   `resumePriorityTo` (nicht-aktiver Spieler bekommt nach `resolveDecision`
@@ -923,7 +1128,12 @@ eigene, aktuell gehaltene Testübersicht):
   Mechanik wie bei Spells, plus Verbot für Mana-Fähigkeiten).
 - `turn-structure.test.ts` - voller Zug-Durchlauf, Manapool-Leerung.
 - `triggers-and-misc.test.ts` - Death-Trigger, Terrain-Limit,
-  getLegalActions-Grundfall, Cleanup-Abwurf, Concede.
+  getLegalActions-Grundfall, Cleanup-Abwurf, Concede; seit v0.3.4 zusätzliche
+  Describe-Gruppe "effects.ts-Regression: eventSubject-Fizzle ..." (2 Tests,
+  s. Abschnitt v0.3.4 oben); seit v0.3.5 zusätzliche Describe-Gruppen
+  "Zonenbasierte Todesdefinition für onDeath/onUnitDied" (6 Tests) und der
+  `core.husk-crawler`/`core.doomreap-edict`-Pool-Regressionstest (1 Test),
+  s. Abschnitt v0.3.5 oben.
 - `starter-set-smoke.test.ts` - echter Kartenpool des card-designers
   (`src/cards/starter-set.ts`) läuft ohne Fehler durch createGame + ein paar
   Priority-Runden.

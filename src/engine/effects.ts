@@ -213,19 +213,25 @@ function executeEffect(
     }
     case "destroyPermanent": {
       for (const r of resolveRecipients(state, effect.what, ctx)) {
-        if (r.kind === "permanent") leaveBattlefield(state, pool, events, r.instanceId, "graveyard");
+        if (r.kind === "permanent" && state.cards[r.instanceId]?.permanentState) {
+          leaveBattlefield(state, pool, events, r.instanceId, "graveyard");
+        }
       }
       break;
     }
     case "returnToHand": {
       for (const r of resolveRecipients(state, effect.what, ctx)) {
-        if (r.kind === "permanent") leaveBattlefield(state, pool, events, r.instanceId, "hand");
+        if (r.kind === "permanent" && state.cards[r.instanceId]?.permanentState) {
+          leaveBattlefield(state, pool, events, r.instanceId, "hand");
+        }
       }
       break;
     }
     case "exilePermanent": {
       for (const r of resolveRecipients(state, effect.what, ctx)) {
-        if (r.kind === "permanent") leaveBattlefield(state, pool, events, r.instanceId, "exile");
+        if (r.kind === "permanent" && state.cards[r.instanceId]?.permanentState) {
+          leaveBattlefield(state, pool, events, r.instanceId, "exile");
+        }
       }
       break;
     }

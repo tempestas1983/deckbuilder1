@@ -90,14 +90,29 @@ export function fireEnterBattlefieldTriggers(
 }
 
 /**
- * Feuert Tod-bezogene Trigger, NACHDEM die Unit das Battlefield bereits
+ * Feuert Tod-bezogene Trigger, NACHDEM das Permanent das Battlefield bereits
  * verlassen hat (permanentState ist weg, aber die CardInstance kann noch
  * existieren [Graveyard] oder ganz gelöscht sein [Token, SBA 7] - deshalb
  * `dyingDefinitionId`/`dyingController` separat statt erneutem State-Lookup).
+ *
+ * v0.3.3 (rules-engine.md 9.15): einziger Aufrufer ist jetzt
+ * `zones.ts#leaveBattlefield` (zentraler, ursachenunabhängiger Tod-Hook bei
+ * jedem Battlefield->Graveyard-Zonenwechsel: SBA 3/4, SBA 5 [Aura verliert
+ * Ziel - das ist der Tod der Aura selbst, nicht des ehemals verzauberten
+ * Objekts], `destroyPermanent`, `sacrificeSelf`-Zusatzkosten). Damit feuert
+ * dieser Aufruf jetzt für JEDEN Permanent-Typ, nicht mehr nur für Units (wie
+ * zuvor über den unit-gefilterten SBA-Pfad) - `onDeath { what: "self" }` ist
+ * laut 9.15 bewusst typ-agnostisch (auch Relic/Enchantment/Terrain). Der
+ * `onUnitDied`-Beobachter-Vertrag ("Beobachter feuert auf fremden UNIT-Tod")
+ * bleibt dagegen unit-only - deshalb das explizite Gate unten, das es vorher
+ * implizit durch den unit-gefilterten SBA-Aufrufer gab. Ebenso das
+ * `unitDied`-Event: bleibt Teil desselben Unit-Gates, feuert also jetzt auch
+ * konsistent bei Nicht-SBA-Unit-Toden (vorher nur von sba.ts direkt emittiert).
  */
 export function fireDeathTriggers(
   state: GameState,
   pool: CardPool,
+  events: GameEvent[],
   dyingInstanceId: InstanceId,
   dyingDefinitionId: string,
   dyingController: PlayerId,
@@ -109,6 +124,13 @@ export function fireDeathTriggers(
       queueTrigger(state, pool, dyingInstanceId, index, ability.trigger, dyingInstanceId);
     }
   });
+
+  // onUnitDied/unitDied bleiben laut Vertrag (Name + rules-engine.md 9.15)
+  // auf sterbende UNITS beschränkt - onDeath{self} oben ist dagegen
+  // typ-agnostisch und braucht dieses Gate nicht.
+  if (def.type !== "unit") return;
+
+  events.push({ kind: "unitDied", instanceId: dyingInstanceId });
 
   for (const playerId of Object.keys(state.players) as PlayerId[]) {
     for (const instanceId of state.players[playerId].battlefield) {

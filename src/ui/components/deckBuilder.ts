@@ -20,6 +20,7 @@ import type { CardDefinition, CardPool, CardType, ManaColor, PlayerId } from "..
 import { BOT_DIFFICULTIES, BOT_DIFFICULTY_LABELS, type BotDifficulty } from "../../ai";
 import { COLOR_LABEL, dominantColorClass, dominantColorKey, subtypeLine } from "../cardInfo";
 import { h, text } from "../h";
+import { cardFrameArt } from "./cardArt";
 import { manaCostBadge } from "./manaCost";
 import { validateDecklist } from "../deckValidation";
 
@@ -96,6 +97,14 @@ export interface DeckBuilderOptions {
    */
   botDifficulty: BotDifficulty;
   onChangeBotDifficulty: (next: BotDifficulty) => void;
+  /**
+   * v0.1.11 (geführtes Tutorial-Probespiel): nur auf dem player1-Screen
+   * gesetzt (dem faktischen App-Startbildschirm, s. render.ts#renderDeckBuilder)
+   * - ein Klick überspringt den kompletten restlichen Deckbau (auch den
+   * player2-Screen) und startet sofort eine feste Tutorial-Partie
+   * (store.ts#startTutorial).
+   */
+  onStartTutorial?: () => void;
 }
 
 export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
@@ -177,9 +186,18 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
       )
     : undefined;
 
+  // v0.1.11: deutlich prominentere Darstellung (eigene Überschrift +
+  // Hinweistext, größere Schrift) statt eines unauffälligen Text-Checkbox-
+  // Labels ganz oben - Nutzer-Feedback: der Umschalter war bisher schwer zu
+  // finden, während "Spiel starten" erst nach dem gesamten (mittlerweile
+  // 300 Karten großen) Kartenpool folgte (s. docs/frontend-status.md).
   const aiToggle =
     player === "player2"
       ? h("div", { class: "deckbuilder-ai-toggle" }, [
+          h("div", { class: "deckbuilder-ai-toggle-heading" }, [text("Gegen den Computer spielen")]),
+          h("div", { class: "deckbuilder-ai-toggle-hint" }, [
+            text("Lässt Spieler 2 automatisch von einer KI steuern - kein zweiter Mensch nötig."),
+          ]),
           h("label", { class: "deckbuilder-ai-toggle-label" }, [
             h("input", {
               type: "checkbox",
@@ -200,8 +218,31 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
         ])
       : undefined;
 
+  // v0.1.11: "Tutorial starten" - nur auf dem player1-Screen (s.
+  // DeckBuilderOptions.onStartTutorial-Kommentar). Eigene, auffällige Box
+  // direkt unter der Überschrift, damit sie sofort ins Auge fällt, statt erst
+  // nach dem Deckbau entdeckt zu werden.
+  const tutorialBox = opts.onStartTutorial
+    ? h("div", { class: "deckbuilder-tutorial-box" }, [
+        h("div", { class: "deckbuilder-tutorial-heading" }, [text("Neu hier?")]),
+        h("div", { class: "deckbuilder-tutorial-hint" }, [
+          text(
+            "Das Tutorial startet direkt eine kurze, geführte Beispielpartie mit " +
+              "fertigen Decks gegen eine ruhig spielende KI - mit Erklär-Hinweisen " +
+              "zu allen wichtigen Spielkonzepten.",
+          ),
+        ]),
+        h(
+          "button",
+          { class: "btn btn-play deckbuilder-tutorial-start-btn", onclick: opts.onStartTutorial },
+          [text("Tutorial starten")],
+        ),
+      ])
+    : undefined;
+
   return h("div", { class: "deckbuilder-screen" }, [
     h("h2", { class: "deckbuilder-title" }, [text(`Deckbau: ${player}`)]),
+    tutorialBox,
     aiToggle,
     h("div", { class: "deckbuilder-controls" }, [
       searchInput,
@@ -269,7 +310,7 @@ function poolRow(
   // reiner Tabellenzeile - die +/- Zählersteuerung tritt an die Stelle der
   // Aktions-Buttons einer Handkarte.
   const frameChildren: (Node | string | false | undefined)[] = [
-    h("div", { class: "card-frame-art" }),
+    cardFrameArt(def),
     h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
   ];
   if (def.rulesText) {

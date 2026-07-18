@@ -36,7 +36,13 @@ import type {
   PlayerId,
   RulesEngine,
 } from "../model";
-import { hasBaseKeyword, otherPlayerId } from "./boardEval";
+// Effektive Keywords (inkl. statischer Fremd-Grants, z. B. guardian-Auren im
+// 300-Karten-Set) sind hier LEGALITÄTS-relevant: mit reinen Basis-Keywords
+// würde die Blockdeklaration statisch gewährte guardian-Pflichten verfehlen
+// und von der Engine abgelehnt (siehe simpleBot.ts-Kommentar / docs/ai-status.md
+// Abschnitt 10). Die absichtlich schwache SPIELSTÄRKE der leichten Stufe
+// bleibt davon unberührt (weiterhin zufällige, wahllose Blocks).
+import { canBlockPairEffective, expandModalCandidate, hasEffectiveKeyword, otherPlayerId } from "./boardEval";
 
 // ---------------------------------------------------------------------------
 // Deterministischer Zufall pro Stellung
@@ -134,7 +140,20 @@ export function chooseActionEasy(
   // NIE aktivierte Nicht-Mana-Fähigkeiten (siehe Modul-Doku oben).
   const casts = legal.filter((a): a is Extract<PlayerAction, { kind: "castSpell" }> => a.kind === "castSpell");
   if (casts.length > 0 && rand() < CAST_PROBABILITY) {
-    return pickRandom(casts, rand)!;
+    const pick = pickRandom(casts, rand)!;
+    // Modale Kandidaten kommen laut getLegalActions-Vertrag OHNE
+    // chosenMode/chosenTargets — roh eingereicht lehnt applyAction sie ab.
+    // Vervollständigung (Modus + Ziel) zufällig aus den engine-validierten
+    // Optionen (boardEval.ts#expandModalCandidate), passend zum
+    // Zufalls-Charakter der leichten Stufe.
+    const modalCompletions = expandModalCandidate(engine, pool, state, pick);
+    if (modalCompletions !== undefined) {
+      const completed = pickRandom(modalCompletions, rand);
+      if (completed) return completed;
+      // keine legale Vervollständigung (defensiv): diesen Kandidaten nicht casten.
+    } else {
+      return pick;
+    }
   }
 
   // Mana-Aufbau nur in der eigenen Main-Phase (dieselbe Bremse wie v1, siehe
@@ -190,8 +209,8 @@ export function chooseActionEasy(
 }
 
 // ---------------------------------------------------------------------------
-// Blocker (eigene Konstruktion aus GameState, Muster + Restrisiko wie
-// simpleBot.ts / docs/ai-status.md 3.1 — nur Basis-Keywords)
+// Blocker (eigene Konstruktion aus GameState, Muster wie simpleBot.ts /
+// docs/ai-status.md 3.1 — Legalität über EFFEKTIVE Keywords, s. Import oben)
 // ---------------------------------------------------------------------------
 
 function chooseBlockActionEasy(
@@ -214,8 +233,8 @@ function chooseBlockActionEasy(
 
   // guardian-Pflicht: jede ungetappte guardian-Unit mit legalem Block MUSS blocken.
   for (const unit of ownUnits) {
-    if (!hasBaseKeyword(pool, state, unit, "guardian")) continue;
-    const options = attackerIds.filter((a) => canBlockPairBase(pool, state, unit, a));
+    if (!hasEffectiveKeyword(pool, state, unit, "guardian")) continue;
+    const options = attackerIds.filter((a) => canBlockPairEffective(pool, state, unit, a));
     const target = pickRandom(options, rand);
     if (target === undefined) continue;
     blocks.push({ blocker: unit, attacker: target });
@@ -226,7 +245,7 @@ function chooseBlockActionEasy(
   for (const unit of ownUnits) {
     if (used.has(unit)) continue;
     if (rand() >= BLOCK_PROBABILITY) continue;
-    const options = attackerIds.filter((a) => canBlockPairBase(pool, state, unit, a));
+    const options = attackerIds.filter((a) => canBlockPairEffective(pool, state, unit, a));
     const target = pickRandom(options, rand);
     if (target === undefined) continue;
     blocks.push({ blocker: unit, attacker: target });
@@ -236,20 +255,3 @@ function chooseBlockActionEasy(
   return { kind: "declareBlockers", player, blocks };
 }
 
-/** Vereinfachte Block-Legalität (nur Basis-Keywords) — identisch zur v1-Prüfung in simpleBot.ts. */
-function canBlockPairBase(pool: CardPool, state: GameState, blockerId: InstanceId, attackerId: InstanceId): boolean {
-  const blockerCard = state.cards[blockerId];
-  if (!blockerCard?.permanentState || blockerCard.permanentState.tapped) return false;
-  if (blockerCard.permanentState.combat?.role === "blocker") return false;
-  if (pool[blockerCard.definitionId]?.type !== "unit") return false;
-
-  const attackerCard = state.cards[attackerId];
-  if (!attackerCard?.permanentState || attackerCard.permanentState.combat?.role !== "attacker") return false;
-
-  if (hasBaseKeyword(pool, state, attackerId, "airborne")) {
-    if (!hasBaseKeyword(pool, state, blockerId, "airborne") && !hasBaseKeyword(pool, state, blockerId, "reach")) {
-      return false;
-    }
-  }
-  return true;
-}

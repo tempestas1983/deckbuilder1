@@ -1,9 +1,16 @@
 # KI-Gegner-Status
 
-Status: **v2 — Schwierigkeitsstufen** (ai-opponent-engineer, fable-5) — 2026-07-10
+Status: **v2.1 — Legalitäts-Fixes fürs 300-Karten-Set + Farb-Balance-Analyse**
+(ai-opponent-engineer, fable-5) — 2026-07-11 (Details: Abschnitt 10).
+v2 — Schwierigkeitsstufen (ai-opponent-engineer, fable-5) — 2026-07-10.
 (v1-Basis: engine-engineer — 2026-07-09; die v1-Abschnitte 1–8 unten gelten
-unverändert für die mittlere Stufe.)
-Grundlage: `docs/rules-engine.md` (v0.3.1), öffentliche `RulesEngine`-Schnittstelle
+für die mittlere Stufe, mit zwei in Abschnitt 10 dokumentierten
+Legalitäts-Korrekturen.)
+Grundlage: `docs/rules-engine.md` (v0.3.1 zum Zeitpunkt der v2/v2.1-Arbeit;
+**documenter-Korrektur 2026-07-18:** rules-engine.md steht inzwischen bei
+v0.3.3 — die zwei nachträglichen Änderungen 9.14/9.15 betreffen reine
+Engine-interne Fizzle-/Todes-Semantik ohne Modell- oder KI-Auswirkung, kein
+Nacharbeitsbedarf für dieses Dokument), öffentliche `RulesEngine`-Schnittstelle
 (`src/engine/index.ts` / `src/model/game-state.ts`).
 Code v1: `src/ai/simpleBot.ts` (unverändert = Stufe "medium").
 Code v2: `src/ai/difficulty.ts` (öffentliche API), `src/ai/easyBot.ts`,
@@ -150,14 +157,16 @@ sammelt mehrere Auswahlklicks in einem lokalen UI-Modus und dispatcht am Ende
   bliebe im Kandidaten-Array nur `concede` übrig!). Für den Blocker-Fall
   konstruiert `simpleBot.ts` die Aktion daher direkt aus `GameState` (eigene,
   vereinfachte `canBlockPair`-Prüfung: Tap-Status, Kampfrolle, Airborne/Reach
-  nur über Basis-Keywords). **Restrisiko:** Statisch von ANDEREN Permanents
-  gewährte Keywords (Anthems) fließen dort nicht ein — bei Karten, die
-  `guardian`/`airborne`/`reach` per Static-Ability an fremde Einheiten
+  nur über Basis-Keywords). **Restrisiko (v1):** Statisch von ANDEREN
+  Permanents gewährte Keywords (Anthems) fließen dort nicht ein — bei Karten,
+  die `guardian`/`airborne`/`reach` per Static-Ability an fremde Einheiten
   vergeben, könnte der Bot dadurch theoretisch eine vom echten Regelwerk
   abweichende (im schlimmsten Fall abgelehnte) Blockentscheidung treffen. Für
-  den aktuellen `core`-Kartenpool (109 Karten, keine solche Static-Ability
-  beobachtet) tritt das nicht auf; alle 50 stichprobenartig simulierten
-  Partien liefen fehlerfrei durch.
+  den damaligen `core`-Kartenpool (109 Karten, keine solche Static-Ability)
+  trat das nicht auf; alle 50 stichprobenartig simulierten Partien liefen
+  fehlerfrei durch. **UPDATE v2.1: Das Restrisiko ist mit dem 300-Karten-Set
+  real geworden (guardian-Aura) und wurde behoben — die Blocklegalität nutzt
+  jetzt in allen Stufen effektive Keywords, siehe Abschnitt 10.1.**
 
 ### 3.2 Cleanup-Abwurf (`discardToHandSize`)
 
@@ -272,11 +281,17 @@ oder Spielstärke — Ausgangspunkt für den geplanten Schwierigkeitsstufen-Ausb
    wird von der Engine nicht enumeriert); der Bot bewertet solche Karten daher
    nur über die "günstigste Option"-Baseline, nicht über den tatsächlichen
    Effekt des (von der Engine ohnehin nicht vorab bekannten) gewählten Modus.
+   **UPDATE v2.1: Der rohe Kandidat war darüber hinaus gar nicht direkt
+   `applyAction`-fähig ("Modus fehlt") — alle Stufen vervollständigen modale
+   Kandidaten jetzt selbst (Abschnitt 10.2); medium bewertet dabei die
+   Effekte des jeweils gewählten Modus (Removal-Heuristik), bleibt sonst
+   aber bei der v1-Baseline.**
 6. **Zieltarget-Optimierung ist grob.** Removal-Bewertung schaut nur auf
    Power+Toughness des Ziels, nicht auf dessen tatsächliche Bedrohlichkeit
    (Keywords, Board-Position, Fähigkeiten).
 7. **Guardian/Airborne/Reach-Erkennung bei Blockern nutzt nur Basis-Keywords**
-   (siehe Abschnitt 3.1) — keine statischen Fremd-Grants.
+   (siehe Abschnitt 3.1) — keine statischen Fremd-Grants. **UPDATE v2.1:
+   behoben (Legalitätsfehler, nicht nur Schwäche) — siehe Abschnitt 10.1.**
 8. **Discard-Heuristik ist eine grobe Wertschätzung** (Power+Toughness für
    Units, Pauschalwerte für andere Typen), keine kontextsensitive Bewertung.
 
@@ -363,10 +378,12 @@ Stellung ergibt immer dieselbe Aktion — reproduzierbare Tests, keine Flakiness
   degenerieren Partien zu Deck-Auszehr-Marathons (Abschnitt 5), was weder
   testbar noch für menschliche Gegner unterhaltsam wäre.
 
-## 9.3 Stufe "medium" — exakt die v1-Heuristik
+## 9.3 Stufe "medium" — die v1-Heuristik
 
-Delegiert unverändert an `simpleBot.ts#chooseAction` (Abschnitte 1–8).
-Keine Verhaltensänderung gegenüber dem bisherigen UI-Bot.
+Delegiert an `simpleBot.ts#chooseAction` (Abschnitte 1–8). Seit v2.1 mit
+zwei LEGALITÄTS-Korrekturen (Blocklegalität über effektive Keywords,
+Vervollständigung modaler Kandidaten — Abschnitt 10); die HEURISTIK-Qualität
+(rough*-Schätzer ohne fremde Statics, kein Lookahead) ist unverändert v1.
 
 ## 9.4 Stufe "hard" (`src/ai/hardBot.ts` + `src/ai/boardEval.ts`)
 
@@ -523,3 +540,113 @@ nur (alles `src/ui/*`, bewusst NICHT von diesem Modul angefasst):
    mit den drei Stufen — Optionen aus `BOT_DIFFICULTIES`, Anzeigenamen aus
    `BOT_DIFFICULTY_LABELS`, nur aktiv wenn KI-Steuerung an.
 3. Optional: Anzeige der aktiven Stufe im Spielbrett-Header.
+
+---
+
+# v2.1: Legalitäts-Fixes fürs 300-Karten-Set + Farb-Balance-Analyse
+
+Status: v2.1 (ai-opponent-engineer, fable-5) — 2026-07-11
+
+Auslöser: empirische Farb-Balance-Prüfung des fertigen 300-Karten-Sets über
+Bot-vs-Bot-Simulationen (Auftrag nach Set-Abschluss; Ergebnis und
+Interpretation: `docs/cards/starter-set.md`, Abschnitt "Empirische
+Balance-Prüfung (Bot-Simulation)"). Die ersten Läufe deckten zwei
+Legalitätsfehler in den BOTS auf (nicht in Engine oder Karten — beide sind
+Konsumenten-Pflichten laut dokumentiertem `getLegalActions`-Vertrag, die mit
+dem v1-Pool von 109 Karten schlicht nie erreichbar waren). Beide wurden in
+`src/ai/*` behoben; Engine/Model/Karten blieben unangetastet.
+
+## 10.1 Fix: Blocklegalität mit effektiven Keywords (easy + medium)
+
+Das 300-Karten-Set enthält erstmals eine Aura, die `guardian` STATISCH an
+die verzauberte Unit vergibt (`grantKeyword`-Static, scope `attachedTo`).
+Die Blocker-Konstruktion von easy/medium prüfte guardian-Pflichten und
+airborne/reach-Blockbarkeit aber nur über Basis-Keywords (das in Abschnitt
+3.1 dokumentierte v1-Restrisiko) — beobachteter Fehler in der Simulation:
+medium reichte bei aktiver (statisch gewährter) guardian-Pflicht eine leere
+Blockdeklaration ein, die die Engine ablehnte ("guardian-Pflicht verletzt").
+Im echten UI-Spiel gegen den Bot wäre die Partie an dieser Stelle
+steckengeblieben.
+
+Fix: easy (`easyBot.ts`) und medium (`simpleBot.ts`) nutzen für die
+LEGALITÄTS-relevanten Teile der Blockwahl jetzt die effektiven Keywords aus
+`boardEval.ts` (`hasEffectiveKeyword`/`canBlockPairEffective` — inkl.
+statischer Fremd-Grants; hard nutzte sie bereits). Die lokalen
+Nur-Basis-Keyword-Prüfungen (`canBlockPair`/`canBlockPairBase`) wurden
+entfernt. Wichtig für die Stufen-Identität: Die BEWERTUNGS-Heuristiken
+(rough*-Schätzer, isFavorableBlock, Angriffslogik) sind unverändert —
+medium bleibt bewusst "v1-grob", es reicht nur keine illegalen Aktionen
+mehr ein.
+
+## 10.2 Fix: Modale Kandidaten werden konsumentenseitig vervollständigt
+
+`getLegalActions` liefert modale Spells/Fähigkeiten laut Vertrag
+(legal-actions.ts, Datei-Kommentar) als GENAU EINEN rohen Kandidaten OHNE
+`chosenMode`/`chosenTargets`; `applyAction` lehnt den rohen Kandidaten ab
+("Modus fehlt") — das UI fragt Modus + Ziele interaktiv nach, die Bots
+taten das nicht:
+
+- medium/easy reichten den rohen Kandidaten unverändert ein -> von der
+  Engine abgelehnt (beobachtet mit `core.void-covenant`, dem einzigen
+  modalen Spell des Sets).
+- hard simulierte den rohen Kandidaten, die Simulation schlug immer fehl ->
+  modale Karten wurden STILL nie gespielt (kein Crash, aber die
+  9.4-Behauptung "schließt v1-Schwäche 5" galt nur für Modus-Wahlen, die
+  als PendingDecision kamen, nicht für modale Casts).
+
+Fix: neue gemeinsame Hilfsfunktion `boardEval.ts#expandModalCandidate` —
+erzeugt aus dem rohen Kandidaten alle konkreten Vervollständigungen
+(Modus x Ziel) und validiert JEDE per `applyAction`-Dry-Run (pure Funktion
+der öffentlichen Schnittstelle; keine Duplikation der Engine-Zielfilter —
+das grobe Ziel-Universum liefert nur die Kategorie Permanent/Spieler/
+Stack-Objekt, die Feinlegalität entscheidet die Engine selbst). Nutzung:
+
+- medium: bewertet jede Vervollständigung mit der normalen v1-Scoring-Logik
+  (Removal-Heuristik sieht jetzt die Effekte des jeweiligen Modus).
+- easy: wählt eine ZUFÄLLIGE legale Vervollständigung (deterministischer
+  Zustands-Zufall wie alle easy-Entscheidungen).
+- hard: jede Vervollständigung durchläuft das normale 1-Ply-Lookahead.
+
+Bewusste Grenze (unverändert, wie X-Kosten — 9.7 Punkt 3): Modi mit >= 2
+Zielslots werden übersprungen; im aktuellen Set existieren keine.
+
+## 10.3 Analyse-Tool Farb-Balance
+
+`src/ai/__tests__/color-balance.analysis.test.ts` — dauerhaft eingecheckt,
+aber **Analyse-Tool, KEIN Correctness-Test**: in `npm test`/CI via
+`describe.skip` übersprungen (Laufzeit ~1 min pro Lauf), Ausführung nur
+explizit mit `BALANCE_ANALYSIS=1` (optional `BALANCE_ANALYSIS_BOT`,
+`BALANCE_ANALYSIS_SEEDS`, siehe Datei-Kommentar). Methodik: 5 Mono-Farb-
+Decks (1x jede Karte der Farbe + 32 Terrains), alle 10 Paarungen, beide
+Rollenzuordnungen pro Seed, identische Bot-Stufe auf beiden Seiten.
+Ergebnis (Kurzform; Interpretation + Einschränkungen im starter-set.md-
+Abschnitt): wild ~73-75 % Siegquote (klar zu stark, konsistent unter
+medium- UND hard-Spielstil), tide ~29-34 % (klar zu schwach, vermutlich
+teils Bot-Artefakt), light ~35-44 %, flame/void ~49-56 % (unauffällig).
+Kartenänderungen sind ausdrücklich NICHT Teil dieses Auftrags — nur als
+Empfehlung an den card-designer dokumentiert.
+
+## 10.4 Verifikation (v2.1)
+
+- `npm run build` (tsc --noEmit): sauber.
+- `npm test`: 160 Tests grün, 1 übersprungen (das Analyse-Tool) — alle
+  bestehenden v1-/v2-Bot-Tests und Engine-/UI-Tests unverändert grün; die
+  deterministischen Stärkevergleiche halten weiterhin beide Assertions
+  (strikt mehr Siege UND >= 60 %): medium:easy 19:5, hard:medium 25:15,
+  hard:easy 21:3 (leicht verschobene Tallies gegenüber v2 sind erwartet —
+  easy/medium blocken jetzt in statik-Keyword-Stellungen korrekt).
+- Balance-Analyse-Läufe: 800 Partien medium vs medium (40 Seeds) + 300
+  Partien hard vs hard (15 Seeds) + 300 Partien medium (15 Seeds,
+  Erst-Lauf) — nach den Fixes ausnahmslos ohne eine einzige von der Engine
+  abgelehnte Aktion und ohne Engine-Crash regulär beendet (der in 9.6
+  gemeldete firstStrike-Token-Crash ist laut difficulty.test.ts-Kommentar
+  seit Engine v0.3.3 behoben und trat in keinem Lauf mehr auf).
+
+## 10.5 Offene Punkte nach v2.1
+
+- 9.7 Punkt 3 (X-Kosten, Mehrfach-Zielslots) besteht fort — X-Karten werden
+  weiterhin von keiner Stufe gecastet (fürs Balance-Ergebnis dokumentiert:
+  die eine X-Karte des Sets wurde aus den Analyse-Decks ausgeschlossen).
+- Die Balance-Empfehlungen (wild-3-Drops) liegen beim card-designer; nach
+  einem etwaigen Rebalancing kann das Analyse-Tool unverändert erneut
+  laufen (deterministische Seeds -> direkt vergleichbare Zahlen).

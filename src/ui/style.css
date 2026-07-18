@@ -392,15 +392,31 @@ body {
   overflow: hidden;
 }
 
+/* Kunstbereich-Höhe (v0.1.13): die extern generierten Artworks
+   (docs/cards/artworks/) sind praktisch alle im Seitenverhältnis ~4:3
+   (1200x896px, s. docs/cards/card-art-brief.md „Seitenverhältnis"). Die
+   bisherigen Werte (30px/42px) waren bei Kartenbreiten von 118-158px ein so
+   schmaler Streifen, dass object-fit: cover das Hauptmotiv fast komplett
+   wegschnitt (nur ein horizontaler Fragment-Ausschnitt blieb sichtbar,
+   s. Nutzer-Feedback). Die Werte unten orientieren sich grob am 4:3-
+   Seitenverhältnis relativ zur jeweiligen Kartenbreite (im Browser an den
+   echten Bildern nachjustiert) statt an einer willkürlich kleinen fixen
+   Höhe. Die Gesamtkartenhöhe wächst dadurch spürbar - bewusst in Kauf
+   genommen (Nutzer-Vorgabe), Layout bleibt an allen drei Einsatzorten
+   (Hand-Zone/Battlefield-Grid/Deckbau-Pool) weiterhin scrollbar/nutzbar. */
 .card-frame-art {
-  height: 30px;
+  position: relative;
+  height: 78px;
   background: linear-gradient(155deg, var(--mana-colorless) 0%, var(--mana-colorless-dark) 100%);
   border-bottom: 1px solid var(--border);
 }
 
-.hand-card .card-frame-art,
+.hand-card .card-frame-art {
+  height: 104px;
+}
+
 .deck-pool-row .card-frame-art {
-  height: 42px;
+  height: 88px;
 }
 
 .mana-flame .card-frame-art { background: linear-gradient(155deg, var(--mana-flame) 0%, var(--mana-flame-dark) 100%); }
@@ -408,6 +424,25 @@ body {
 .mana-wild .card-frame-art { background: linear-gradient(155deg, var(--mana-wild) 0%, var(--mana-wild-dark) 100%); }
 .mana-light .card-frame-art { background: linear-gradient(155deg, var(--mana-light) 0%, var(--mana-light-dark) 100%); }
 .mana-void .card-frame-art { background: linear-gradient(155deg, var(--mana-void) 0%, var(--mana-void-dark) 100%); }
+
+/* Artwork-Einbindung (s. components/cardArt.ts): das <img> liegt über dem
+   Farbverlauf und bleibt unsichtbar, bis es erfolgreich geladen hat - bei
+   einem Ladefehler (Datei existiert noch nicht, der Normalfall für die
+   meisten der 300 Karten) entfernt cardArt.ts das <img> wieder aus dem DOM,
+   sodass GENAU der Farbverlauf oben unverändert sichtbar bleibt. */
+.card-frame-art-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.card-frame-art-img-loaded {
+  opacity: 1;
+}
 
 .card-frame-type {
   padding: 1px 4px;
@@ -601,15 +636,32 @@ body {
 
 /* KI-Umschalter (v0.1.7, "Spieler 2 = KI") -------------------------------- */
 
+/* v0.1.11: deutlich auffälliger gemacht (dickerer Rahmen, mehr Platz,
+   eigene Überschrift + Hinweistext) - Nutzer-Feedback: der Umschalter war als
+   unauffälliges Text-Checkbox-Label kaum zu finden, s. Kommentar in
+   components/deckBuilder.ts. */
 .deckbuilder-ai-toggle {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--mana-wild);
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--mana-wild);
   background: var(--panel-2);
+}
+
+.deckbuilder-ai-toggle-heading {
+  flex-basis: 100%;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--mana-wild);
+}
+
+.deckbuilder-ai-toggle-hint {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .deckbuilder-ai-toggle-label {
@@ -617,7 +669,8 @@ body {
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .deckbuilder-ai-quickstart-btn {
@@ -717,4 +770,139 @@ body {
 .deckbuilder-footer {
   display: flex;
   justify-content: flex-end;
+  /* v0.1.11: sticky statt "ganz unten nach dem 300-Karten-Pool" - der
+     "Spiel starten"/"Weiter"-Button bleibt beim Scrollen durch den Pool
+     jederzeit sichtbar (Nutzer-Feedback: musste bisher immer erst durch
+     die komplette, mittlerweile 300 Karten große Liste scrollen). Keine
+     größere Layout-Umstellung nötig, da .deckbuilder-pool bereits sein
+     eigenes internes overflow-y trägt - dieser sticky-Zusatz greift zusätzlich
+     für den Fall, dass der gesamte Deckbau-Screen selbst (z.B. auf kleineren
+     Bildschirmen) die Seite länger als den Viewport macht. */
+  position: sticky;
+  bottom: 0;
+  padding: 8px 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  z-index: 5;
+}
+
+/* "Tutorial starten" (v0.1.11) --------------------------------------------
+   Auffällige Box direkt unter der Deckbau-Überschrift auf dem player1-Screen
+   (dem faktischen App-Startbildschirm) - siehe Auftrag Teil 2 Punkt 1. */
+.deckbuilder-tutorial-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--accent);
+  background: var(--panel-2);
+}
+
+.deckbuilder-tutorial-heading {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.deckbuilder-tutorial-hint {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.deckbuilder-tutorial-start-btn {
+  align-self: flex-start;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 8px 16px;
+}
+
+/* Tutorial-Sprechblase + Hilfe-Panel (v0.1.11) ---------------------------- */
+
+.tutorial-tip-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--accent);
+  background: #1f2d3a;
+}
+
+.tutorial-tip-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.tutorial-tip-body {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tutorial-tip-dismiss-btn {
+  align-self: flex-start;
+}
+
+.tutorial-help-btn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tutorial-help-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.tutorial-help-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(560px, 90vw);
+  max-height: 80vh;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--panel);
+}
+
+.tutorial-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tutorial-help-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.tutorial-help-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.tutorial-help-entry {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.tutorial-help-entry-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.tutorial-help-entry-body {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
 }

@@ -1,7 +1,47 @@
 # Regelwerk-Design: Rules Engine
 
-Status: v0.3.1 (Game-Architect) — 2026-07-09
+Status: v0.3.3 (Game-Architect) — 2026-07-10
 Verbindlich für: engine-engineer (Implementierung), card-designer (Fähigkeitsdesign), frontend-engineer (Visualisierung von Stack/Priority)
+
+v0.3.3-Änderung (Verhaltens-Widerspruch, Fund des card-designers in
+Kartenpool-Batch 6, `docs/cards/starter-set.md` „Offene Fragen" Punkt 8):
+`onDeath { what: "self" }` feuerte de facto nur auf dem SBA-3/4-Pfad
+(Toughness/letaler Schaden, nur Units) — eine per `destroyPermanent`
+zerstörte Unit löste ihren eigenen Tod-Trigger still NICHT aus, für
+Nicht-Unit-Permanents feuerte `onDeath` nie; dieselbe Lücke galt für fremde
+`onUnitDied`-Trigger und das `unitDied`-Event (alle drei hängen an
+`fireDeathTriggers`, dessen einziger Aufrufer die SBA-Schleife war; auch der
+`sacrificeSelf`-Kosten-Pfad war betroffen). **Entscheidung 9.15: Bug —
+zonenbasierte Todesdefinition.** „Stirbt" = Zonenwechsel Battlefield →
+Graveyard, ursachenunabhängig (SBA 3/4, `destroyPermanent`,
+`sacrificeSelf`-Zusatzkosten, Aura-SBA 5); `onDeath` dabei typ-agnostisch
+(auch Relic/Enchantment/Terrain/Token), `onUnitDied`/`unitDied` folgen
+derselben Todesdefinition, bleiben aber unit-only. `exilePermanent`/
+`returnToHand` sind bewusst KEIN Tod — Exil als „saubere Antwort" auf
+Tod-Trigger ist damit dokumentiertes Design statt Zufallsverhalten. Kein
+Datenmodell-Umbau (nur Kommentare an `onDeath`/`onUnitDied` in
+`src/model/abilities.ts`). **Engine-Auftrag (9.15):** zentraler Tod-Hook in
+`zones.ts#leaveBattlefield` (Ziel Graveyard), SBA-Schleife gibt ihren
+Direkt-Aufruf ab, `fireDeathTriggers` gatet `onUnitDied` auf Unit-Tote.
+
+v0.3.2-Änderung (Modell-Lücke, Fund des card-designers in Kartenpool-Batch 4):
+`EffectRecipient "eventSubject"` bei Triggern, deren Subjekt beim Resolven kein
+Permanent mehr ist (v.a. `onUnitDied`/`onDeath` — die SBA hat das Objekt vor dem
+Stacken des Triggers ins Graveyard verschoben). **Entscheidung 9.14: zulässig,
+mit einheitlichem stillen Fizzle** — neue allgemeine Auflösungsregel
+„Nicht-Permanent-Fizzle" (Abschnitt 4/Resolution): Permanent-bezogene Effekte
+überspringen Empfänger, die kein Permanent (mehr) sind, still; gilt für
+gewählte Ziele, `self` UND `eventSubject` gleichermaßen. `eventSubject`-
+Semantik pro Trigger in Abschnitt 5 präzisiert. Kein Datenmodell-Umbau (nur
+Kommentare an `EffectRecipient`/`onUnitDied` in `src/model/abilities.ts`).
+**Engine-Auftrag:** `destroyPermanent`/`exilePermanent`/`returnToHand` in
+`effects.ts` verletzen die Regel heute (Crash bei gelöschter Token-Instanz,
+ungewollte Zonen-Manipulation bei Karten im Graveyard) und brauchen denselben
+Battlefield-Guard wie die übrigen Permanent-Effekte — Details in 9.14.
+Konsequenz für card-designer: Kombination bei `onUnitDied`/`onDeath` ist
+zulässig, aber garantiert wirkungslos → nicht bauen; der
+„Removal-bei-Tod"-Archetyp braucht ein künftiges Graveyard-Primitiv
+(Abschnitt 10).
 
 v0.3.1-Änderung (Modellkonflikt-Fund des engine-engineers bei der
 v0.3-Umsetzung, 9.13 Punkt 2): Die Entscheidungskette `chooseMode` →
@@ -317,6 +357,7 @@ Modale Spells und Fähigkeiten deklarieren statt der flachen
 
 - Es resolvt immer nur das **oberste** Objekt, und nur wenn alle Spieler nacheinander gepasst haben. Zwischen zwei Resolutions gibt es also immer ein volles Priority-Fenster (Antworten möglich).
 - **Target-Recheck bei Resolution:** Sind bei Resolution ALLE Ziele eines Objekts illegal geworden, wird das Objekt entfernt ohne Wirkung („fizzles"; Spells gehen dabei in den Graveyard). Sind nur manche Ziele illegal, resolvt der Rest.
+- **Nicht-Permanent-Fizzle bei der Effekt-Ausführung (v0.3.2, Entscheidung 9.14):** Löst ein permanent-bezogener Effekt (`dealDamage` auf ein Permanent, `destroyPermanent`, `exilePermanent`, `returnToHand`, `tapPermanent`, `untapPermanent`, `modifyStats`, `grantKeyword`, `addCounters`, `removeCounters`) seinen Empfänger auf und dieser ist **kein Permanent auf dem Battlefield (mehr)** — egal ob gewähltes Ziel, `self` oder `eventSubject` —, wird der Effekt für genau diesen Empfänger **still übersprungen**: kein Fehler, kein Event, und insbesondere keine Ersatzwirkung in der Zone, in der die Karte jetzt liegt (`exilePermanent` verbannt NIE aus dem Graveyard, `returnToHand` holt NIE aus dem Graveyard zurück). Übrige Empfänger/Effekte desselben Objekts resolven normal. Das verallgemeinert den Teil-Fizzle gewählter Ziele (Punkt oben) auf die fixen `EffectRecipient`-Werte; praktisch relevant vor allem für `eventSubject` (Abschnitt 5). Maßgebliches Kriterium für die Engine: `CardInstance.permanentState` existiert (⟺ auf dem Battlefield); eine bereits vollständig gelöschte Instanz (Token, SBA 7) zählt selbstverständlich ebenfalls als Nicht-Permanent und darf keinen Crash verursachen.
 - Nach Resolution: Spell-Karten vom Typ `spell` → Graveyard. `unit`/`relic`/`enchantment` → Battlefield (als Permanent, ETB-Trigger feuern). Fähigkeiten-Objekte verschwinden einfach.
 - **Countern:** Ein Effekt `counterSpell` entfernt ein Stack-Objekt wirkungslos (Spell → Graveyard).
 
@@ -339,6 +380,25 @@ Modale Spells und Fähigkeiten deklarieren statt der flachen
   - **`eventSubject` ist die Schadensquelle** (die InstanceId des schadenverursachenden Permanents/Spells) — ermöglicht „Vergeltungs"-Designs über `EffectRecipient "eventSubject"`. Bewusste Abweichung von den übrigen Self-Combat-Triggern (dort `eventSubject` = die Quelle selbst); `fireSelfCombatTrigger` braucht dafür einen Parameter oder eine eigene Feuer-Funktion.
   - **Scope:** `what: "self"` betrifft ausschließlich Permanents. „Ein Spieler erleidet Schaden" ist ein separater, bewusst **nicht** modellierter Trigger (Abschnitt 10).
   - **Verdrahtung (Empfehlung an engine-engineer):** bevorzugt EIN zentraler Helfer „Schaden an Permanent anwenden" (markiert `damageMarked`, setzt ggf. `deathtouchDamage`, emittiert `damageDealt`, feuert `onDamageReceived`), genutzt sowohl von der Apply-Schleife in `combat.ts#dealCombatDamageRound` als auch von `effects.ts#dealDamageToPermanent` — das dedupliziert nebenbei die heute doppelt vorhandene deathtouch-Flag-Logik. Zwei getrennte Feuerstellen sind zulässig, wenn der Helfer nicht sinnvoll extrahierbar ist; die Semantik oben ist in beiden Fällen identisch einzuhalten.
+- **`eventSubject` referenziert Objekte auch nach deren Tod (v0.3.2, Entscheidung 9.14):**
+  `eventSubject` ist eine reine InstanceId-Referenz auf die auslösende Karteninstanz, **wo immer
+  sie beim Resolven liegt** — bei `onUnitDied` und `onDeath` also regulär die Karte im Graveyard
+  (bzw. eine ins Leere zeigende Referenz, falls SBA 7 eine Token-Instanz gelöscht hat). Die
+  Kombination mit permanent-bezogenen Effekten ist **zulässig** und löst über die
+  Nicht-Permanent-Fizzle-Regel (Abschnitt 4) auf: kein Permanent mehr → Effekt für diesen
+  Empfänger still übersprungen. Konsequenzen:
+  - **`onUnitDied`/`onDeath`:** Das Subjekt ist beim Resolven **nie** mehr ein Permanent —
+    permanent-bezogene Effekte auf `eventSubject` sind hier also garantiert wirkungslos.
+    Card-Designer: **nicht bauen** (empfohlen zusätzlich als Pool-Lint); es ist eine erlaubte,
+    aber sinnfreie Kombination, kein Fehlerfall.
+  - **`onDamageReceived`:** `eventSubject` = Schadensquelle (9.10), die beim Resolven noch leben
+    KANN — das Vergeltungs-Muster bleibt der tragende Anwendungsfall. Ist die Quelle inzwischen
+    gestorben, fizzelt die Vergeltung still (gleiche Regel, erwartetes Verhalten).
+  - Der eigentlich gewünschte **„Removal-bei-Tod"-Archetyp** („stirbt eine Unit, verbanne sie")
+    ist in Wahrheit ein *Graveyard*-Effekt und braucht ein eigenes, ehrlich benanntes Primitiv
+    (z.B. `exileFromGraveyard`) statt einer zonenabhängigen Umdeutung von `exilePermanent` —
+    bewusst vertagt (Abschnitt 10, Begründung in 9.14).
+- **Todesdefinition für `onDeath`/`onUnitDied` (v0.3.3, Entscheidung 9.15):** „Stirbt" heißt: das Permanent verlässt das Battlefield **in Richtung Graveyard** — ursachenunabhängig. Todesursachen sind damit gleichwertig: SBA 3/4 (Toughness ≤ 0 / letaler Schaden), `destroyPermanent`, die `sacrificeSelf`-Zusatzkosten und SBA 5 (Aura verliert ihr Ziel). Bei Tokens zählt der Abgang Richtung Graveyard, auch wenn SBA 7 die Instanz stattdessen löscht. **Kein Tod** sind dagegen `exilePermanent` und `returnToHand` (kein Graveyard — Exil umgeht Tod-Trigger absichtlich, das ist dokumentiertes Design und Bepreisungs-Argument für Exil-Removal), ebenso wenig Countern (Stack → Graveyard) oder Discard (Hand → Graveyard), weil dort kein Permanent das Battlefield verlässt. `onDeath { what: "self" }` ist dabei **typ-agnostisch** (feuert auch für sterbende Relics/Enchantments/Terrains — „parting shot"-Designs); `onUnitDied` und das Event `unitDied` bleiben auf sterbende **Units** beschränkt (der Name ist der Vertrag). Bis v0.3.2 feuerte all das de facto nur auf dem SBA-Pfad — das war ein Bug (9.15), kein Design.
 - **Feuern ≠ Resolven:** Tritt das Ereignis ein, wird der Trigger nur **vorgemerkt** (Pending-Trigger-Queue). Er wird erst auf den Stack gelegt, **wenn das nächste Mal ein Spieler Priority erhalten würde** (siehe Priority-Regel 3).
 - **Reihenfolge (APNAP):** Warten mehrere Trigger, legt zuerst der aktive Spieler seine Trigger in selbstgewählter Reihenfolge auf den Stack, dann der nicht-aktive Spieler. Dessen Trigger resolven dadurch zuerst (LIFO). v0.1-Vereinfachung: Hat ein Spieler mehrere gleichzeitige Trigger, ordnet die Engine sie deterministisch (Timestamp der Quelle) statt den Spieler wählen zu lassen — Spielerwahl ist ein späteres Feature.
 - Trigger mit Targets wählen ihre Ziele beim **Auf-den-Stack-Legen**, nicht beim Feuern.
@@ -497,7 +557,9 @@ regulären Runde abgeräumt und alle im Step gefeuerten Trigger gestackt.
 6. `+1/+1`- und `-1/-1`-Marken auf demselben Permanent annihilieren sich paarweise.
 7. Ein Token, das das Battlefield verlässt, hört auf zu existieren (wird endgültig entfernt statt Zonenwechsel).
 
-Warum SBAs statt Ad-hoc-Checks: Ein zentraler, immer gleicher Prüfzeitpunkt verhindert die klassischen Bugs („Kreatur mit 0 Toughness überlebt, weil der Effekt-Code den Tod vergessen hat"). Effekt-Code verändert nur Zustand; Sterben/Verlieren entscheidet ausschließlich die SBA-Schleife.
+Warum SBAs statt Ad-hoc-Checks: Ein zentraler, immer gleicher Prüfzeitpunkt verhindert die klassischen Bugs („Kreatur mit 0 Toughness überlebt, weil der Effekt-Code den Tod vergessen hat"). Effekt-Code verändert nur Zustand; Sterben durch Schaden/Toughness und Verlieren entscheidet ausschließlich die SBA-Schleife.
+
+**v0.3.3-Präzisierung (Entscheidung 9.15):** Tod-**Trigger** (`onDeath`/`onUnitDied`) und das `unitDied`-Event hängen NICHT am SBA-Pfad, sondern am Zonenwechsel Battlefield → Graveyard selbst — SBA 3/4 ist nur eine der Todesursachen (neben `destroyPermanent`, `sacrificeSelf`-Kosten und SBA 5). Todesdefinition in Abschnitt 5.
 
 ---
 
@@ -673,6 +735,43 @@ Unterbricht eine PendingDecision eine anstehende Priority-Vergabe, darf der ursp
 > ersetzen (inkl. Test: modaler Trigger, Moduswahl, danach mehrdeutige
 > Zielwahl, beide Decisions nacheinander).
 
+### 9.14 `eventSubject` auf Nicht-Permanents: einheitlicher stiller Fizzle statt Verbot (v0.3.2)
+
+**Anlass:** Fund des card-designers (Kartenpool-Batch 4, `docs/cards/starter-set.md`): Bei `onUnitDied` hat das gestorbene Objekt beim Resolven des Triggers das Battlefield längst verlassen (SBA vor dem Stacken). Ob `EffectRecipient "eventSubject"` dort als Empfänger permanent-bezogener Effekte (`exilePermanent`/`destroyPermanent`/`tapPermanent`/`addCounters` …) zulässig ist und wie die Engine das auflöst, war unspezifiziert; zwei Testkarten (`core.sanctified-remains`, `core.witherplague-shrine`) wurden bewusst ohne die Kombination gebaut.
+
+**Code-Befund vor der Entscheidung:** Der stille Fizzle existiert bereits **de facto, aber nur teilweise**. Sieben der zehn permanent-bezogenen Effekte prüfen `permanentState` und tun bei einem Nicht-Permanent still nichts (`tapPermanent`, `untapPermanent`, `modifyStats`, `grantKeyword`, `addCounters`, `removeCounters` in `effects.ts`; `dealDamage` via `damage.ts#applyDamageToPermanent` — dieser Guard trägt heute schon die freigegebene `onDamageReceived`-Vergeltung, wenn die Schadensquelle beim Resolven tot ist). Die drei Zonenwechsel-Effekte `destroyPermanent`/`exilePermanent`/`returnToHand` rufen dagegen `leaveBattlefield` **ungeguardet** auf: Bei einer gelöschten Token-Instanz (SBA 7) wirft das eine Exception (Crash), bei einer Karte im Graveyard würde `moveCard` sie tatsächlich bewegen — `exilePermanent` würde aus dem Graveyard verbannen, `returnToHand` wäre ein versehentliches „Raise Dead". Latent (keine Pool-Karte trifft die Pfade heute), aber mit `onUnitDied` + `eventSubject` sofort live.
+
+**Optionen:**
+- (A) **Verbot:** `eventSubject` bei `onUnitDied` für permanent-bezogene Effekte per Modellkommentar/Validierung ausschließen. Einfach, aber: dieselbe Situation (Subjekt beim Resolven kein Permanent mehr) tritt auch bei `onDeath` (self) und bei `onDamageReceived` (tote Schadensquelle) auf — dort ist sie freigegeben und funktioniert nur wegen des `permanentState`-Guards. Ein Verbot nur für `onUnitDied` behandelt einen Spezialfall einer allgemeinen Frage und lässt die Engine-Lücke (Crash/Zonen-Manipulation) ungelöst.
+- (B) **Referenz auf den aktuellen Aufenthaltsort MIT Zonen-Wirkung:** `exilePermanent`/`returnToHand` wirken dann auch aus dem Graveyard — würde den „Removal-bei-Tod"-Archetyp sofort ermöglichen. Dagegen: die Effektnamen würden lügen (`exilePermanent` wäre kein Permanent-Effekt mehr), die Semantik würde zonenabhängig, `destroyPermanent` auf eine Graveyard-Karte bliebe undefiniert, und der Pfad wäre ausschließlich über `eventSubject` erreichbar (gewählte Ziele werden beim Resolven ohnehin auf Legalität gefiltert) — eine versteckte Sonderregel genau der Art, die 9.4 mit dem geschlossenen Primitiv-Satz vermeiden will.
+- (C) **Zulässig mit einheitlichem stillen Fizzle (Entscheidung):** Neue allgemeine Regel „Nicht-Permanent-Fizzle" (Abschnitt 4): Jeder permanent-bezogene Effekt überspringt Empfänger, die kein Permanent auf dem Battlefield (mehr) sind, still — einheitlich für gewählte Ziele, `self` und `eventSubject`, einheitlich für alle zehn Effekte. Der Archetyp aus (B) kommt später als **eigenes, ehrlich benanntes Graveyard-Primitiv** (Abschnitt 10) — exakt der 9.4-Weg „neue Mechanik = bewusste DSL-Erweiterung".
+
+**Begründung für (C):** Es kodifiziert das mehrheitlich schon existierende Engine-Verhalten, ist konsistent mit dem Teil-Fizzle gewählter Ziele (Abschnitt 4) und mit dem MTG-Vorbild („Ziel/Objekt existiert nicht mehr beim Resolven → keine Wirkung"), schließt die gefundene Crash-/Manipulations-Lücke mit einer einzigen Regel statt Trigger-spezifischer Sonderfälle und hält den Effekt-Primitiv-Satz ehrlich. Preis: Bei `onUnitDied`/`onDeath` ist die Kombination zwar zulässig, aber garantiert wirkungslos — das ist als Designer-Guidance dokumentiert (Abschnitt 5, `src/model/abilities.ts`) und billiger als eine Verbots-Validierung, die die identische Semantikfrage bei `onDamageReceived` doch wieder beantworten müsste.
+
+**Auftrag an engine-engineer:** `destroyPermanent`/`returnToHand`/`exilePermanent` in `effects.ts` erhalten denselben Battlefield-Guard wie die übrigen Permanent-Effekte (`state.cards[id]?.permanentState` existiert, sonst still überspringen) — `leaveBattlefield` selbst bleibt strikt (wirft weiterhin bei unbekannter Instanz; der Guard gehört an die Aufrufstellen im Effekt-Interpreter, nicht in die Zonen-Mechanik). Empfohlener Test: `onUnitDied`-Trigger-Fixture mit `exilePermanent(eventSubject)` → kein Crash, keine Zonenänderung, übrige Effekte desselben Triggers wirken normal; plus je ein Fall für Graveyard-Karte und gelöschte Token-Instanz.
+
+### 9.15 Tod-Trigger: zonenbasierte Todesdefinition statt SBA-exklusivem Pfad (v0.3.3)
+
+**Anlass:** Fund des card-designers (Kartenpool-Batch 6, `docs/cards/starter-set.md` „Offene Fragen" Punkt 8): `fireDeathTriggers` (`src/engine/triggers.ts`) hat genau EINEN Aufrufer — die SBA-3/4-Sterbeschleife in `sba.ts`, die zuvor auf `def.type === "unit"` filtert. Konsequenzen des Ist-Zustands: (1) Eine Unit mit `onDeath{self}` (`core.husk-crawler`, `core.gravebound-warden`, `core.plaguebound-wretch`), die per `destroyPermanent` (`core.doomreap-edict`) stirbt, löste ihren eigenen Trigger still NICHT aus — Kampf-/Brand-Tod (SBA-Pfad) dagegen schon. (2) Fremde `onUnitDied`-Trigger (`core.sanctified-remains` u.a.) und das `unitDied`-Event hatten exakt dieselbe Lücke. (3) Für Nicht-Unit-Permanents feuerte `onDeath` nie, unabhängig von der Todesart. (4) Auch der `sacrificeSelf`-Kosten-Pfad (`actions.ts`) und der Aura-SBA-5-Pfad riefen `fireDeathTriggers` nicht auf. Nirgends war das als Design dokumentiert — anders als z.B. die 9.10-/9.14-Einschränkungen.
+
+**Frage 1 — Bug oder Design? Optionen:**
+- (A) Als Design festschreiben („nur SBA-Tod triggert"): billigste Option, aber sie widerspricht der gedruckten Karten-Semantik („Wenn diese Kreatur stirbt, …" trägt keine Ursachen-Einschränkung), dem MTG-Vorbild („dies" = battlefield → graveyard, egal ob Schaden, Destroy oder Sacrifice) und macht destroy-Removal unbeabsichtigt zur harten Antwort gegen einen ganzen Archetyp. Kein Gewinn außer Nicht-Arbeit.
+- (B) **Bug, Fix mit zonenbasierter Todesdefinition (Entscheidung):** JEDER Zonenwechsel Battlefield → Graveyard ist ein Tod, unabhängig von der Ursache (SBA 3/4, `destroyPermanent`, `sacrificeSelf`-Zusatzkosten, SBA 5). Bewusst KEIN Tod: `exilePermanent`/`returnToHand` (kein Graveyard) — MTG-analog bleibt Exil die „saubere" Antwort, die Tod-Trigger umgeht; ab jetzt dokumentiertes Design (und Bepreisungs-Argument destroy vs. exile) statt Zufallsverhalten. Ebenfalls kein Tod: Countern (Stack → Graveyard) und Discard (Hand → Graveyard), da kein Battlefield-Abgang.
+
+**Frage 2 — Scope: unit-only oder typ-agnostisch? Optionen:**
+- (A) `onDeath` bleibt unit-only: bräuchte eine Validierung, die es heute nicht gibt (das Modell erlaubt `onDeath` auf jedem Permanent-Typ), und verbaut die vom card-designer gewünschten „parting shot"-Designs (Enchantment/Relic „wenn dieses Permanent zerstört wird, …").
+- (B) Neues Trigger-Kind `onDestroyed` für Nicht-Units: zwei Namen für dieselbe Semantik, Modell-Aufblähung gegen 9.4 (geschlossener Primitiv-Satz).
+- (C) **Typ-agnostisch (Entscheidung):** `onDeath{self}` feuert für JEDES Permanent, das battlefield → graveyard geht. Kein neues Modellfeld, deckt „parting shot" ab. Bewusste MTG-Abweichung: MTG reserviert „dies" für Kreaturen (CR 700.4); wir verallgemeinern, weil unser Modell ohnehin nur EIN Todes-Trigger-Kind hat und Alternativen nur Sonderfälle schaffen. `onUnitDied` und das Event `unitDied` bleiben dagegen unit-only — der Name ist der Vertrag; ein typ-agnostischer Beobachter-Trigger („ein beliebiges Permanent stirbt") wäre bei Kartenbedarf eine additive Erweiterung (Abschnitt 10).
+
+**Auftrag an engine-engineer (zentraler Hook statt Aufrufstellen-Fixes):** Analog zur SBA-Begründung in Abschnitt 7 („ein zentraler Prüfzeitpunkt statt Ad-hoc-Checks") gehört der Tod-Hook an die eine Stelle, durch die jeder Battlefield-Abgang läuft — nicht als je ein `fireDeathTriggers`-Aufruf in `effects.ts`/`actions.ts`/`sba.ts` (das reproduziert genau die Vergessens-Bug-Klasse, die hier vorlag):
+1. `zones.ts#leaveBattlefield`: Ist `toZone === "graveyard"`, werden NACH dem Zonenwechsel (bzw. der Token-Löschung, SBA 7) (a) bei `def.type === "unit"` das Event `unitDied` emittiert und (b) `fireDeathTriggers` aufgerufen. `definitionId`/`controller` VOR dem Move snapshotten (die Token-Instanz existiert danach nicht mehr; die Signatur von `fireDeathTriggers` nimmt beides bereits entgegen). Kein Import-Zyklus: `triggers.ts` importiert `zones.ts` nicht.
+2. `sba.ts`: eigener `unitDied`-Push und `fireDeathTriggers`-Aufruf entfallen (sonst Doppel-Feuer); die Sterbeschleife bleibt sonst unverändert. `actions.ts#sacrificeSelf`, der `destroyPermanent`-Case in `effects.ts` und der Aura-SBA-5-Pfad erben den Hook ohne eigene Änderung.
+3. `triggers.ts#fireDeathTriggers`: `onUnitDied` nur noch queuen, wenn die GESTORBENE Karte eine Unit ist (bisher implizit durch den einzigen Aufrufer garantiert, künftig nicht mehr); `onDeath{self}` typ-agnostisch queuen (bereits so implementiert). `eventSubject` bleibt die gestorbene Instanz — die 9.14-Fizzle-Regel gilt unverändert, ebenso die Pending-Queue-Mechanik (Trigger werden nur gequeued, Flush erst beim nächsten Priority-Fenster — keine Rekursions-/Reihenfolgeänderung, auch nicht innerhalb der SBA-Schleife).
+4. Bekannte dokumentierte Vereinfachung gilt weiter: Ein Token mit eigenem `onDeath{self}` verpufft beim Stacken (SBA 7 löscht die Instanz vor dem Flush, kein Definitions-Lookup mehr — analog 9.10 Punkt 4). Fremde `onUnitDied`-Trigger auf Token-Tode feuern normal.
+5. Empfohlene Tests: `destroyPermanent`-Kill feuert eigenes `onDeath` + fremdes `onUnitDied` + `unitDied`-Event; Exil-/Bounce-Kill feuert NICHTS davon; `sacrificeSelf`-Kosten feuern; zerstörtes Enchantment/Relic feuert `onDeath`, aber weder `onUnitDied` noch `unitDied`; SBA-Tod verhält sich unverändert (insbesondere keine Doppel-Trigger); Aura, deren Träger stirbt, feuert ihr eigenes `onDeath` (SBA-5-Abgang Richtung Graveyard).
+
+**Hinweis für card-designer:** `exilePermanent`-Karten (`core.banishment-rite`) sind ab jetzt EXPLIZIT die Premium-Antwort gegen Tod-Trigger — beim Bepreisen von destroy- vs. exile-Removal berücksichtigen. `onDeath`+destroy-Payoffs (inkl. „parting shot"-Nicht-Units) bitte erst bauen, wenn `docs/engine-status.md` die Umsetzung meldet.
+
 ---
 
 ## 10. Offene Punkte (v0.3 aktualisiert)
@@ -704,6 +803,8 @@ Unterbricht eine PendingDecision eine anstehende Priority-Vergabe, darf der ursp
 - trample-Über-Zuteilung (Spielerwahl „mehr als letal an einen Blocker", 9.9 Punkt 3 — erst mit Regenerations-/Unzerstörbarkeits-artigen Mechaniken relevant)
 - Spielerwahl bei der Reihenfolge mehrerer eigener gleichzeitiger Trigger (deterministische Timestamp-Ordnung bleibt v0.2-Verhalten; Kandidat für den Pending-Decision-Kanal aus 9.7)
 - „Spieler erleidet Schaden"-Trigger (das Spieler-Pendant zu `onDamageReceived`, 9.10 Punkt 5 — anderes Subjekt/Filterbedürfnis, erst bei Kartenbedarf)
+- „Ein beliebiges Permanent stirbt"-Beobachter-Trigger (typ-agnostisches Pendant zu `onUnitDied`, 9.15 Frage 2 Option (C) — additiv, erst bei Kartenbedarf; `onDeath{self}` selbst ist seit v0.3.3 bereits typ-agnostisch)
+- Graveyard-Zonen-Primitiv für den „Removal-bei-Tod"-Archetyp (z.B. `exileFromGraveyard` mit Empfänger `eventSubject` bei `onUnitDied` — 9.14 Option (B) als eigenes, ehrlich benanntes Primitiv statt Umdeutung von `exilePermanent`; erst bei Kartenbedarf, card-designer meldet sich zur Batch-Planung)
 - London-Mulligan als Upgrade der Paris-Variante (9.11 Option B — additiv: gleiche `mulligan`-Decision plus Bottoming-Folge-Decision, sinnvoll frühestens zusammen mit der `orderScry`-Migration)
 - „Wähle zwei"/konfigurierbare Modusanzahl bei Modal-Effekten (9.13 Punkt 4 — additives `chooseCount`-Feld, erst bei Kartenbedarf)
 - Vollständig rekursive Cleanup-Sonderregel (Abschnitt 2; aktuell: ein Extra-Fenster genügt)

@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.10 (frontend-engineer) — 2026-07-10
+Status: v0.1.13 (frontend-engineer) — 2026-07-18
 Grundlage: `docs/rules-engine.md` (v0.3.1, Entscheidungen 9.10-9.13 + Nachtrag),
 `docs/engine-status.md` (v0.3.2 zum Zeitpunkt dieses v0.1.8-Stands, 135
 Engine-/UI-/KI-Tests zum Zeitpunkt der v0.3.2-Übernahme — der
@@ -8,12 +8,100 @@ v0.1.1-v0.1.5-Text unten beschreibt bewusst unverändert den Stand zum
 jeweiligen Zeitpunkt, s. dortige Abschnitte; **documenter-Korrektur
 2026-07-10:** hier stand zuvor veraltet „v0.3.1, 118 Tests"), `src/model/*`
 (Datenmodell, unverändert konsumiert), `src/engine/*` (`createRulesEngine`),
-`src/cards/starter-set.ts` (113 Karten, u.a. die drei neuen v0.3-Testkarten
-`core.void-covenant`, `core.current-diplomat`, `core.cinderwrack-engine`),
-`docs/ai-status.md` (**seit v0.1.9**: KI-Gegner v2, `src/ai/difficulty.ts`,
-öffentliche Funktion `chooseActionForDifficulty(engine, pool, state, player,
-difficulty)` mit drei Stufen `easy`/`medium`/`hard`; `chooseAction`
-(`src/ai/simpleBot.ts`, v1 = Stufe "medium") bleibt weiterhin exportiert).
+`src/cards/starter-set.ts` (jetzt 300 Karten + 3 Token-Definitionen, s.
+`docs/cards/starter-set.md` — der Rest dieses Dokuments spricht an mehreren
+Stellen noch von „113 Karten"/„109 Karten", das sind bewusst unverändert
+belassene Stände früherer Abschnitte, s. dortige Hinweise), `docs/ai-status.md`
+(**seit v0.1.9**: KI-Gegner v2, `src/ai/difficulty.ts`, öffentliche Funktion
+`chooseActionForDifficulty(engine, pool, state, player, difficulty)` mit drei
+Stufen `easy`/`medium`/`hard`; `chooseAction` (`src/ai/simpleBot.ts`, v1 =
+Stufe "medium") bleibt weiterhin exportiert).
+
+**v0.1.13 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Feedback zu v0.1.12 — die frisch eingebundenen Artworks wirkten
+"unsauber abgeschnitten" (z. B. ein Greifen-/Flügelmotiv zeigte nur die
+Flügelspitzen, ein Strudelmotiv nur ein kleines Fragment). Ursache: der
+Kunstbereich `.card-frame-art` war mit 30px (Battlefield/Graveyard/Stack-
+Kacheln, `.card-tile`) bzw. 42px (Handkarten/Deckbau-Pool, `.hand-card`/
+`.deck-pool-row`) bei Kartenbreiten von 118-158px ein so schmaler Streifen,
+dass `object-fit: cover` bei den praktisch immer im ~4:3-Seitenverhältnis
+(1200×896px, laut Stichprobe 38 von 39 vorhandenen Artworks exakt in diesem
+Verhältnis) generierten Bildern das Hauptmotiv fast komplett wegschnitt.
+Reine CSS-Änderung: `.card-frame-art` (Battlefield-Kacheln) jetzt 78px,
+`.hand-card .card-frame-art` 104px, `.deck-pool-row .card-frame-art` 88px —
+Werte grob am 4:3-Seitenverhältnis relativ zur Innenbreite der jeweiligen
+Kartenrahmen orientiert, dann per echtem Browser-Screenshot (Chrome
+headless über CDP, s. Verifikations-Abschnitt) nachjustiert/bestätigt.
+`object-position` bleibt bei `center center` (Standard) — eine
+Stichprobenprüfung der realen Artworks im Browser zeigte keinen
+systematischen Bedarf für einen vertikalen Versatz. Die Gesamtkartenhöhe
+wächst dadurch spürbar (bewusste Nutzer-Vorgabe); Hand-Zone/Battlefield-
+Grid/Deckbau-Pool-Grid bleiben weiterhin scroll-/nutzbar (weniger Karten pro
+Zeile ist ein akzeptierter Trade-off). Keine Engine-/Model-Änderung.
+
+**v0.1.12 auf einen Blick** (Details im gleichnamigen Abschnitt unten): die
+extern generierten Karten-Artworks (`docs/cards/artworks/`, s.
+`docs/cards/card-art-brief.md`) sind jetzt ins UI eingebunden, OHNE ein neues
+Datenfeld im Kartenmodell — der Bildpfad wird rein aus der Karten-`id`
+abgeleitet (`id.replace(/\./g, "-") + ".png"`, neue Hilfsfunktion
+`src/ui/components/cardArt.ts#artworkUrl`). Gemeinsamer Baustein
+`cardFrameArt(def)` ersetzt das bisherige leere `.card-frame-art`-Div in
+`handCard.ts`/`cardTile.ts`/`deckBuilder.ts` (alle drei Kartendarstellungen
+Hand/Battlefield-Graveyard-Stack/Deckbau-Pool) durch ein `<img loading="lazy">`
+darüber; lädt es erfolgreich, wird es sichtbar (CSS-Opacity-Übergang,
+object-fit: cover) und überdeckt den Farbverlauf; schlägt das Laden fehl
+(Normalfall für die meisten der 300 Karten aktuell), entfernt sich das `<img>`
+selbst wieder aus dem DOM und der bisherige Farbverlauf-Platzhalter bleibt
+unverändert sichtbar — kein kaputtes Bild-Icon, kein Layout-Sprung. Da
+`docs/cards/artworks/` bewusst außerhalb von `public/` liegt (der Nutzer legt
+dort weiterhin einfach neue Dateien ab, ohne sie zu verschieben), übernimmt
+ein neues, selbst geschriebenes Vite-Plugin (`vite.config.ts`) die
+Auslieferung: eine Dev-Server-Middleware liest Dateien live aus
+`docs/cards/artworks/` (`npm run dev`), ein `closeBundle`-Kopierschritt
+dupliziert sie beim Produktions-Build nach `<outDir>/cards/artworks/`
+(`npm run build:ui`) — bewusst KEIN zusätzliches npm-Package
+(`vite-plugin-static-copy`) eingeführt, da die reine Kopierlogik trivial
+genug für ein paar Zeilen eigenen Code war. Eine Falle dabei: `closeBundle`
+feuert nicht nur bei einem echten `vite build`, sondern auch innerhalb
+Vitests eigener, interner Vite-Instanz (die dabei bewusst einen
+nicht-existenten Platzhalterpfad als `build.outDir` durchreicht, um genau
+solche unbedingt schreibenden Plugins zu erwischen) — das Plugin prüft
+deshalb explizit `config.command === "build"`, bevor es irgendetwas ins
+Dateisystem schreibt. `npm test`/`npm run build`/`npm run build:ui` weiterhin
+sauber (161/161 Tests), keine Engine-/Model-Änderung (`src/cards/starter-set.ts`
+bewusst NICHT angefasst).
+
+**v0.1.11 auf einen Blick** (Details im gleichnamigen Abschnitt unten): zwei
+Aufträge rund ums Einstiegserlebnis. **Teil 1** (kleiner Fix): die KI-
+Umschaltung im Deckbau-Screen von Spieler 2 war als unauffälliges Text-
+Checkbox-Label kaum zu finden — jetzt eine deutlich hervorgehobene, umrahmte
+Box mit eigener Überschrift („Gegen den Computer spielen") + Hinweistext,
+größerer Schrift; zusätzlich ist der „Spiel starten"/„Weiter"-Button jetzt per
+`position: sticky` immer sichtbar, auch beim Scrollen durch den mittlerweile
+300 Karten großen Kartenpool (reines CSS, keine Layout-Umstellung). **Teil 2**
+(Hauptauftrag): ein geführtes Tutorial-Probespiel — ein „Tutorial starten"-
+Button auf dem Startbildschirm (dem player1-Deckbau-Screen) überspringt den
+kompletten normalen Deckbau und startet direkt eine Partie mit zwei fest
+kuratierten 40-Karten-Decks (`src/ui/tutorialDeck.ts`, je 6 verschiedene
+Karten: Terrain, Vanilla-Kreatur, Keyword-Kreatur, größerer Kreatur-Körper,
+Zielsuch-Zauberspruch, Buff-Zauberspruch) und festem Seed (deterministisch/
+reproduzierbar). Spieler 2 ist automatisch bot-gesteuert auf der ruhigen
+„medium"-Stufe (bewusst NICHT „easy", das laut `docs/ai-status.md` absichtlich
+fehlerhaft/zufällig spielt, und NICHT „hard"). An sechs Schlüsselmomenten
+(erstes Priority-Fenster, erstes Terrain, erste Kreatur, erster
+Zauberspruch, erster Angriff, erster Block) erscheint einmalig eine kurze,
+wegklickbare Sprechblase (`src/ui/tutorialContent.ts` für die Texte,
+`src/ui/components/tutorialOverlay.ts` für die Anzeige); danach ein
+Abschluss-Hinweis. Ein „?"-Button im Spielbrett-Header (nur im Tutorial-
+Modus sichtbar) öffnet jederzeit ein Panel mit ALLEN Tutorial-Texten. Der
+Bot-Zug-Loop pausiert automatisch, solange eine Sprechblase aussteht.
+„Zurück zum Hauptmenü" (ersetzt „Neues Spiel" nur im Tutorial-Modus) beendet
+den Tutorial-Modus sauber (stellt Spieler 2s vorherige Bot-Einstellung
+wieder her) und führt zum normalen Deckbau zurück — reiner zusätzlicher
+UI-Zustand in `store.ts`, keine Engine-/Model-Änderung, die normale Partie
+ist davon unberührt. `npm run build`/`npm test` weiterhin sauber (161 grün +
+1 bewusst übersprungener Analyse-Test, s.u.), neuer Test
+`src/ui/__tests__/tutorial.test.ts`.
 
 **v0.1.10 auf einen Blick** (Details im gleichnamigen Abschnitt unten): rein
 visuelle Überarbeitung — Karten sehen jetzt wie klassische Kartenspiel-Karten
@@ -154,17 +242,19 @@ anklickbare Aktionen angezeigt.
 | Datei | Zweck |
 |---|---|
 | `main.ts` | Einstiegspunkt, startet Store + Render-Loop (**seit v0.1.5**: kein automatischer `initGame`-Aufruf mehr, App startet im Deckbau-Screen) |
-| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten); **seit v0.1.9** zusätzlich `botDifficulty: Record<PlayerId, BotDifficulty>` + `getBotDifficulty`/`setBotDifficulty` (Persistenz analog zu `isBotControlled`), `runBotStep` ruft jetzt `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])` (aus `../ai`) statt des bisherigen `chooseAction` |
+| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten); **seit v0.1.9** zusätzlich `botDifficulty: Record<PlayerId, BotDifficulty>` + `getBotDifficulty`/`setBotDifficulty` (Persistenz analog zu `isBotControlled`), `runBotStep` ruft jetzt `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])` (aus `../ai`) statt des bisherigen `chooseAction`; **seit v0.1.11** zusätzlich der komplette Tutorial-Zustand (s. eigener Abschnitt unten): `startTutorial()` (fixe Decks aus `tutorialDeck.ts` + fixer Seed, markiert Spieler 2 bot-gesteuert auf "medium", merkt sich dessen vorherige Bot-Einstellung), `isTutorialActive`/`getTutorialPendingTip`/`dismissTutorialTip`/`isTutorialHelpOpen`/`toggleTutorialHelp`/`closeTutorialHelp`, `maybeQueueTutorialTips` (nach jeder Zustandsänderung während einer Tutorial-Partie: erkennt Schlüsselmomente rein aus der bereits ausgeführten `PlayerAction`/dem Folge-`GameState`, keine neue Regellogik), `scheduleBotStepIfNeeded` pausiert zusätzlich, solange eine Tutorial-Sprechblase aussteht; `backToDeckbuilder()` beendet den Tutorial-Modus sauber (stellt Spieler 2s vorherige Bot-Einstellung wieder her) |
 | `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine); **seit v0.1.6** neuer `CastSource`-Typ (spell/ability) + `UiMode`-Zweige `modeSelect`/verallgemeinerte `xInput`/`xTarget` (s. eigener Abschnitt unten); **seit v0.1.7 unverändert** — die KI-Zuordnung lebt bewusst nur in `store.ts` (s. dortige Begründung im Code-Kommentar, analog zur v0.1.5-`AppPhase`-Entscheidung) |
 | `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen; **seit v0.1.7** zusätzlich Basis für „Zufälliges KI-Deck + weiter" im Deckbau-Screen von Spieler 2 |
 | `deckValidation.ts` | **Neu in v0.1.5**: reine UI-Validierung einer Deckliste (min. 40 Karten, max. 4 Kopien pro Nicht-Terrain-id, s. `src/model/cards.ts#Decklist`-Kommentar) — die Engine validiert das selbst nicht |
+| `tutorialDeck.ts` | **Neu in v0.1.11**: zwei fest kuratierte 40-Karten-Decklisten (`TUTORIAL_DECK_PLAYER1`/`TUTORIAL_DECK_PLAYER2`, je 6 verschiedene Karten aus `starterSet`) + `TUTORIAL_SEED` (fester `createGame`-Seed) für den Tutorial-Modus — reine Daten, keine Deckbau-Logik |
+| `tutorialContent.ts` | **Neu in v0.1.11**: reine Textdaten für den Tutorial-Modus — `TutorialTipId`-Union, `TUTORIAL_TIPS` (geordnete Liste aus Titel+Text je Kernkonzept + Abschluss-Hinweis), `TUTORIAL_CORE_TIP_IDS` (die sechs Kernkonzepte, deren vollständiges Erscheinen den Abschluss-Hinweis auslöst) |
 | `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten); **seit v0.1.5** zusätzlich `dominantColorKey` (Manafarbe als Schlüssel statt CSS-Klasse, für den Deckbau-Farbfilter) |
 | `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI; **seit v0.1.6** zusätzlich die `CastSource`-Helfer (`sourceName`/`sourceModes`/`sourceHasXCost`/`sourceTargets`/`buildCastAction`/`activateAbilityCandidatesFor`), die castSpell und activateAbility für den gemeinsamen Modus-/X-/Ziel-Flow vereinheitlichen |
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
-| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })`; **seit v0.1.9** reicht `renderDeckBuilder` zusätzlich `getBotDifficulty`/`setBotDifficulty` an `deckBuilderScreen` durch und `playerArea` reicht `botDifficultyLabel` (nur gesetzt, wenn `isBotControlled(playerId)`) an `playerPanel` durch |
-| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests); **seit v0.1.9** `deckBuilder.ts` mit Schwierigkeits-Dropdown (`.deckbuilder-ai-difficulty-select`, nur bei aktiver KI-Steuerung), `playerPanel.ts` mit optionalem zweiten Bot-Badge (`botDifficultyLabel`-Option, `.badge-bot-difficulty`); **seit v0.1.10** neuer gemeinsamer Baustein `manaCost.ts` (`manaCostBadge`, baut die Mana-Pip-Kopfzeile aus `cardInfo.ts#manaCostPips`), `handCard.ts`/`cardTile.ts`/`deckBuilder.ts` (`poolRow`) komplett auf das neue `card-frame-*`-Kartenrahmen-Layout umgebaut (s. eigener Abschnitt unten) |
-| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten) |
-| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten); **seit v0.1.9** zusätzlich `vs-bot-difficulty.test.ts` (Schwierigkeitsstufen-Dropdown + komplette Partie mit Stufe „hard", s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `selectValue` (`<select>`-Interaktion) |
+| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })`; **seit v0.1.9** reicht `renderDeckBuilder` zusätzlich `getBotDifficulty`/`setBotDifficulty` an `deckBuilderScreen` durch und `playerArea` reicht `botDifficultyLabel` (nur gesetzt, wenn `isBotControlled(playerId)`) an `playerPanel` durch; **seit v0.1.11** reicht `renderDeckBuilder` zusätzlich `onStartTutorial` (nur für player1 gesetzt) an `deckBuilderScreen` durch, `renderGameBoard` rendert bei aktivem Tutorial-Modus zusätzlich die aktuell anstehende Tutorial-Sprechblase (`tutorialTipBubble`, ganz oben) sowie bei Bedarf das Hilfe-Panel (`tutorialHelpPanel`), `statusBar` zeigt im Tutorial-Modus zusätzlich einen "?"-Hilfe-Button und beschriftet den bisherigen "Neues Spiel"-Button dort als "Zurück zum Hauptmenü" |
+| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests); **seit v0.1.9** `deckBuilder.ts` mit Schwierigkeits-Dropdown (`.deckbuilder-ai-difficulty-select`, nur bei aktiver KI-Steuerung), `playerPanel.ts` mit optionalem zweiten Bot-Badge (`botDifficultyLabel`-Option, `.badge-bot-difficulty`); **seit v0.1.10** neuer gemeinsamer Baustein `manaCost.ts` (`manaCostBadge`, baut die Mana-Pip-Kopfzeile aus `cardInfo.ts#manaCostPips`), `handCard.ts`/`cardTile.ts`/`deckBuilder.ts` (`poolRow`) komplett auf das neue `card-frame-*`-Kartenrahmen-Layout umgebaut (s. eigener Abschnitt unten); **seit v0.1.11** `deckBuilder.ts` mit auffälligerer KI-Umschalter-Box (Überschrift + Hinweistext) und neuer "Tutorial starten"-Box (nur player1-Screen), neuer Baustein `tutorialOverlay.ts` (`tutorialTipBubble`, `tutorialHelpButton`, `tutorialHelpPanel`) für den Tutorial-Modus (s. eigener Abschnitt unten) |
+| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten); **seit v0.1.11** `.deckbuilder-footer` jetzt `position: sticky` (bleibt beim Pool-Scrollen sichtbar), größere/auffälligere `.deckbuilder-ai-toggle*`-Regeln (+ neue `-heading`/`-hint`-Klassen), neue `.deckbuilder-tutorial-box*` sowie `.tutorial-tip-bubble*`/`.tutorial-help-btn`/`.tutorial-help-backdrop`/`.tutorial-help-panel*` (s. eigener Abschnitt unten) |
+| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten); **seit v0.1.9** zusätzlich `vs-bot-difficulty.test.ts` (Schwierigkeitsstufen-Dropdown + komplette Partie mit Stufe „hard", s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `selectValue` (`<select>`-Interaktion); **seit v0.1.11** zusätzlich `tutorial.test.ts` (Tutorial-Start bis zur ersten wegklickbaren Sprechblase + Hilfe-Panel + Rückkehr zum Hauptmenü, s. eigener Abschnitt unten) |
 
 ## Was funktioniert
 
@@ -1517,6 +1607,454 @@ Dateien: `src/ui/cardInfo.ts` (`manaCostPips`), `src/ui/components/handCard.ts`,
 Render-Verdrahtung/Interaktionslogik war nicht Gegenstand dieses Auftrags und
 blieb unangetastet).
 
+## KI-Umschalter-Sichtbarkeit + geführtes Tutorial-Probespiel (v0.1.11, 2026-07-18)
+
+Zwei Aufträge rund ums Einstiegserlebnis für neue Spieler.
+
+### Teil 1: KI-Schalter sichtbarer machen
+
+Auftrag: Der Nutzer fand die Checkbox „Spieler 2 von KI steuern lassen" auf
+dem Deckbau-Screen von Spieler 2 nicht — sie war ein unauffälliges
+Text-Checkbox-Label ganz oben, während „Spiel starten" erst nach der (mit dem
+Kartenpool auf 300 Karten mitgewachsenen) scrollbaren Pool-Liste ganz unten
+folgte.
+
+- **`src/ui/components/deckBuilder.ts`**: Der bestehende `.deckbuilder-ai-toggle`-
+  Container bekommt eine eigene Überschrift („Gegen den Computer spielen") und
+  einen Hinweistext, bevor die Checkbox folgt (Struktur unverändert, nur zwei
+  zusätzliche `div`s davor).
+- **`src/ui/style.css`**: `.deckbuilder-ai-toggle` bekommt mehr Innenabstand
+  und einen dickeren (2px statt 1px) Rahmen, die Checkbox-Beschriftung ist
+  jetzt größer/fett (`font-size: 15px; font-weight: 600` statt 13px normal);
+  neue `.deckbuilder-ai-toggle-heading`/`-hint`-Klassen für die beiden neuen
+  Textzeilen.
+- **`.deckbuilder-footer`** (der Container um den „Spiel starten"/„Weiter"-
+  Button) ist jetzt `position: sticky; bottom: 0` (mit passendem Hintergrund/
+  oberer Trennlinie) statt einfach nur „nach dem Pool-Container im DOM" — der
+  Button bleibt damit beim Scrollen durch den 300-Karten-Pool immer sichtbar,
+  ohne dass eine größere Layout-Umstellung nötig war (`.deckbuilder-pool`
+  hatte ohnehin schon ein eigenes `overflow-y: auto` mit `max-height: 65vh`,
+  s. v0.1.10-Abschnitt — der sticky-Zusatz greift zusätzlich für den Fall,
+  dass der gesamte Deckbau-Screen auf kleineren Bildschirmen die Seite länger
+  als den Viewport macht).
+- Keine Verhaltensänderung, keine neuen Test-Selektoren nötig — bestehende
+  Tests (`golden-path.test.ts`, `vs-bot.test.ts`, `vs-bot-difficulty.test.ts`),
+  die `.deckbuilder-ai-checkbox`/`.deckbuilder-ai-toggle`/`.deckbuilder-ai-
+  quickstart-btn`/`.deckbuilder-confirm-btn` per `querySelector` suchen,
+  liefen unverändert grün durch.
+
+### Teil 2 (Hauptauftrag): Geführtes Tutorial/Probespiel
+
+Auftrag: ein Tutorial als tatsächlich spielbare, geführte Beispielpartie
+(keine reine Text-Hilfeseite) — fester Startpfad mit kuratierten Decks, ruhig
+spielende KI, einmalige Erklär-Sprechblasen an Schlüsselmomenten, jederzeit
+über ein „?"-Symbol abrufbare Gesamtübersicht, keine Auswirkung auf normale
+Partien.
+
+**Neue Dateien:**
+
+- **`src/ui/tutorialDeck.ts`**: `TUTORIAL_DECK_PLAYER1`/`TUTORIAL_DECK_PLAYER2`
+  (je 40 Karten, 6 verschiedene IDs à 4 Kopien + 20 Terrain) und
+  `TUTORIAL_SEED` (fester `createGame`-Seed). Bewusst einfarbig pro Spieler
+  (Spieler 1 `flame`, Spieler 2 `tide` — unterschiedliche Farbe, damit die
+  Partie nicht spiegelbildlich verläuft) und auf genau die im Auftrag
+  genannten Konzepte zugeschnitten: `core.cinder-pup`/`core.tide-scout`
+  (Vanilla-Kreatur ohne Fähigkeiten), `core.ember-whelp` (Keyword `airborne` +
+  ETB-Trigger, exakt die `docs/README.md`-Beispielkarte)/`core.harbor-warden`
+  (Keyword `guardian`), `core.wildfire-boar`/`core.tidal-serpent` (größerer
+  Kreatur-Körper für Angriff/Block), `core.fire-jolt`/`core.tidal-rebuke`
+  (Zielsuch-Zauberspruch — `core.tidal-rebuke` ist ebenfalls die
+  `docs/README.md`-Beispielkarte), `core.blazing-frenzy`/`core.tidal-surge`
+  (Buff-Zauberspruch).
+- **`src/ui/tutorialContent.ts`**: `TutorialTipId`-Union (`priority`/`terrain`/
+  `creature`/`spell`/`attack`/`block`/`ability`/`complete`), `TUTORIAL_TIPS`
+  (Titel + Fließtext je Tipp, deutschsprachig) und `TUTORIAL_CORE_TIP_IDS`
+  (die sechs im Auftrag genannten Kernkonzepte — `ability` ist bewusst NICHT
+  Teil davon, s.u.). Reine Textdaten, keine Logik.
+- **`src/ui/components/tutorialOverlay.ts`**: `tutorialTipBubble` (einzelne
+  Sprechblase + „Verstanden"-Button), `tutorialHelpButton` („? Hilfe"-Button
+  für den Spielbrett-Header) und `tutorialHelpPanel` (Overlay-Panel mit ALLEN
+  `TUTORIAL_TIPS`, unabhängig vom aktuellen Spielstand, s. Auftrag Punkt 4).
+- **`src/ui/__tests__/tutorial.test.ts`**: neuer permanenter End-to-End-Test
+  (s. Verifikation unten).
+
+**`src/ui/store.ts`** (einzige inhaltliche Änderung an bestehender Logik):
+
+- `startTutorial()`: merkt sich Spieler 2s bisherige `isBotControlled`/
+  `botDifficulty`-Einstellung, markiert Spieler 2 bot-gesteuert auf `"medium"`
+  (bewusst NICHT `"easy"` — laut `docs/ai-status.md` spielt `easy`
+  ABSICHTLICH fehlerhaft/zufällig, was für ein Lern-Tutorial eher verwirrender
+  wäre als ein ruhiges, vorhersehbares Mittelmaß; explizit auch NICHT
+  `"hard"`, wie vom Auftrag verlangt), setzt `appPhase` direkt auf
+  `{ kind: "playing" }` (überspringt den kompletten restlichen Deckbau-Ablauf)
+  und ruft `initGame(TUTORIAL_DECK_PLAYER1, TUTORIAL_DECK_PLAYER2,
+  TUTORIAL_SEED)`.
+- `isTutorialActive()`/`getTutorialPendingTip()`/`dismissTutorialTip()`/
+  `isTutorialHelpOpen()`/`toggleTutorialHelp()`/`closeTutorialHelp()`: reiner
+  zusätzlicher UI-Zustand (`tutorialActive`/`tutorialShownTips`/
+  `tutorialPendingTip`/`tutorialHelpOpen`, alle modul-scoped wie
+  `botControlledPlayers` — keine Persistenz-Pflicht laut Auftrag, hier bewusst
+  NICHT in `localStorage` gespiegelt, da ein frischer Tutorial-Durchlauf nach
+  jedem "Tutorial starten"-Klick ohnehin wieder bei null beginnen soll).
+- `maybeQueueTutorialTips(action)`: nach JEDER Zustandsänderung während einer
+  Tutorial-Partie aufgerufen (`dispatch`, `runBotStep`, `initGame`) — erkennt
+  die sechs Schlüsselmomente rein aus der bereits von der Engine
+  akzeptierten `PlayerAction`/dem resultierenden `GameState` (keine neue
+  Regellogik, nur Wiedererkennung): `priority` (zustandsbasiert, unabhängig
+  vom Aktionstyp — der erste Moment mit `priorityPlayer` gesetzt und ohne
+  offene `pendingDecision`), `terrain` (`playTerrain`), `creature`/`spell`
+  (`castSpell`, unterschieden über `pool[...].type`), `attack`
+  (`declareAttackers` mit `attackers.length > 0`), `block`
+  (`declareBlockers` mit `blocks.length > 0`), optional `ability`
+  (`activateAbility` auf einer NICHT-Mana-Fähigkeit — im aktuellen
+  Tutorial-Kartenset kommt das nicht vor, der Trigger bleibt aber generisch
+  vorbereitet). Pro Tipp-Art wird nur EINMAL gequeued (`tutorialShownTips`);
+  es steht immer höchstens ein Tipp gleichzeitig an. Sind alle sechs
+  Kernkonzepte gezeigt worden ODER ist die Partie vorbei (`state.winner`
+  gesetzt), wird einmalig der Abschluss-Hinweis (`complete`) gequeued.
+- `scheduleBotStepIfNeeded()`: pausiert zusätzlich, solange
+  `tutorialPendingTip !== undefined` — verhindert, dass sich das Board unter
+  einer gerade gelesenen Sprechblase weiterbewegt (v.a. relevant, wenn der
+  Bot am Zug ist); `dismissTutorialTip()` stößt den Bot-Loop danach über
+  `triggerBotLoop()` wieder an.
+- `backToDeckbuilder()`: beendet den Tutorial-Modus sauber, falls aktiv —
+  stellt Spieler 2s vorherige `isBotControlled`/`botDifficulty`-Einstellung
+  wieder her (Auftrag Punkt 5: „verändert die normale Partie nicht", auch
+  nicht dauerhaft nach dem Verlassen) und setzt den restlichen
+  Tutorial-Zustand zurück.
+
+**`src/ui/components/deckBuilder.ts`**: neue optionale Option
+`onStartTutorial` (nur von `render.ts` für player1 gesetzt, analog zum
+`offerCopyFromPlayer1`-Muster für player2) — rendert bei Vorhandensein eine
+auffällige Box („Neu hier?" + Hinweistext + „Tutorial starten"-Button) direkt
+unter der Deckbau-Überschrift, noch vor der KI-Umschalter-Box.
+
+**`src/ui/render.ts`**: `renderDeckBuilder` reicht `onStartTutorial: player ===
+"player1" ? () => startTutorial() : undefined` durch; `renderGameBoard`
+rendert bei aktivem Tutorial-Modus die aktuell anstehende Sprechblase ganz
+oben (vor der Status-Zeile) sowie — falls geöffnet — das Hilfe-Panel ganz
+unten (als Overlay mit Backdrop); `statusBar` zeigt im Tutorial-Modus
+zusätzlich den „? Hilfe"-Button und beschriftet den bisherigen „Neues
+Spiel"-Button dort als „Zurück zum Hauptmenü" (dispatcht weiterhin exakt
+dieselbe `backToDeckbuilder()`-Funktion, nur die Beschriftung ist
+kontextabhängig).
+
+**`src/ui/style.css`**: neue Klassen für die Tutorial-Box im Deckbau
+(`.deckbuilder-tutorial-box`/`-heading`/`-hint`/`-start-btn`) sowie für
+Sprechblase/Hilfe-Panel (`.tutorial-tip-bubble`/`-title`/`-body`/
+`-dismiss-btn`, `.tutorial-help-btn`, `.tutorial-help-backdrop` (fixiertes,
+abgedunkeltes Overlay), `.tutorial-help-panel`/`-header`/`-title`/`-list`/
+`-entry`/`-entry-title`/`-entry-body`).
+
+### Warum `ability` nicht zu den Kernkonzepten zählt
+
+Der Auftrag nennt „beim ersten Einsatz einer aktivierten Fähigkeit" explizit
+als OPTIONAL („falls es sich anbietet"). Das aktuelle Tutorial-Kartenset
+(s.o.) enthält absichtlich keine Karte mit einer eigenen, nicht-Mana-
+aktivierten Fähigkeit (nur die Terrain-eigene Mana-Fähigkeit, die bewusst
+NICHT den `ability`-Tipp auslöst, s. `maybeQueueTutorialTips`) — die sechs
+Kernkonzepte des Auftrags (Priorität, Terrain, Kreatur, Zauberspruch,
+Angriff, Block) decken bereits den vollständigen Kartensatz ab. Der
+`ability`-Tipp bleibt trotzdem vollständig implementiert/im Hilfe-Panel
+sichtbar (falls ein künftiges Tutorial-Deck eine solche Karte bekommt, greift
+er ohne weitere Code-Änderung), zählt aber bewusst nicht zu
+`TUTORIAL_CORE_TIP_IDS`, damit der Abschluss-Hinweis nicht auf ein Ereignis
+wartet, das mit dem aktuellen Kartenset nie eintritt.
+
+### Verifikation
+
+- `npm run build` (`tsc --noEmit`) sauber.
+- `npm test` (`vitest run`): weiterhin alle bisherigen 161 Tests grün (+1
+  bewusst übersprungener Analyse-Test), plus der neue permanente
+  `src/ui/__tests__/tutorial.test.ts` (echter App-Start → Klick auf „Tutorial
+  starten" → Partie läuft mit den festen Decks/dem festen Seed → Spieler 2
+  ist bot-gesteuert auf „medium" → Spieler 1s eigene Mulligan-Entscheidung
+  über einen echten Klick behalten (Spieler 2s eigene läuft automatisch über
+  den Bot-Loop) → die erste Sprechblase („Mana, Phasen & Priorität")
+  erscheint spätestens beim ersten Priority-Fenster mit korrektem Titel/Text
+  aus `tutorialContent.ts` und ist über den „Verstanden"-Button wegklickbar
+  → das „?"-Hilfe-Panel zeigt alle `TUTORIAL_TIPS`-Titel in der richtigen
+  Reihenfolge und lässt sich schließen → „Zurück zum Hauptmenü" führt zum
+  Deckbau-Screen zurück, beendet `isTutorialActive()` und stellt Spieler 2s
+  vorherige (hier: nicht bot-gesteuerte) Einstellung wieder her) — alles über
+  echte `element.dispatchEvent(new Event("click"))`-Aufrufe, kein direkter
+  `store.dispatch()`-Bypass für die geprüfte Interaktion, exakt das Muster
+  aus `golden-path.test.ts`/`vs-bot.test.ts`. Da `startTutorial()` einen
+  FESTEN Seed an `createGame` übergibt (kein `Math.random()`-Aufruf in diesem
+  Pfad), ist der Test bereits ohne `Math.random()`-Mocking deterministisch —
+  einziger Nicht-Determinismus-Kandidat wäre eine Timing-Flakiness durch den
+  asynchronen Bot-Loop, der über `vi.waitFor(() => expect(isBotThinking())…)`
+  abgewartet wird (identisches Muster wie `vs-bot.test.ts`).
+- `npm run build:ui` (Vite-Produktionsbuild) erfolgreich.
+- Boot-Smoke-Test: `npm run dev` gestartet (Port 5174, da 5173 in dieser
+  Session bereits belegt war), `GET /` liefert `200`, liefert die erwartete
+  `index.html`.
+- **Einschränkung (wie in v0.1.10 dokumentiert):** In dieser Session standen
+  mir keine Browser-/Screenshot-Werkzeuge zur Verfügung (nur Datei-/
+  Shell-Werkzeuge) — die vom Auftrag zusätzlich gewünschte eigene
+  Browser-Verifikation samt Screenshot (KI-Umschalter jetzt auffindbar,
+  Tutorial bedienbar) konnte ich in dieser Session dadurch NICHT durchführen;
+  verifiziert wurde stattdessen ausschließlich über den oben beschriebenen
+  echten Klick-Test (`tutorial.test.ts`) plus manuelle Code-/CSS-Durchsicht.
+  Bitte bei Gelegenheit per echtem Browser-Screenshot nachverifizieren
+  (Dev-Server lief zum Zeitpunkt dieser Verifikation bereits unter
+  `http://localhost:5174/`).
+
+**Ergebnis:** Neue Dateien: `src/ui/tutorialDeck.ts`, `src/ui/tutorialContent.ts`,
+`src/ui/components/tutorialOverlay.ts`, `src/ui/__tests__/tutorial.test.ts`.
+Geänderte Dateien: `src/ui/store.ts`, `src/ui/render.ts`,
+`src/ui/components/deckBuilder.ts`, `src/ui/style.css`. Keine Änderungen an
+`src/engine/*`, `src/model/*`, `src/ai/*`, `src/cards/*` — der Tutorial-Modus
+nutzt ausschließlich die bestehende `RulesEngine`-Schnittstelle
+(`createGame`/`getLegalActions`/`applyAction`) und die bestehende
+`chooseActionForDifficulty`-Bot-Anbindung.
+
+## Artwork-Einbindung (v0.1.12, 2026-07-18)
+
+Auftrag: die extern generierten Karten-Artworks, die der Nutzer nach und nach
+in `docs/cards/artworks/` ablegt (aktuell 38 von 300 Dateien, laufend mehr,
+s. `docs/cards/card-art-brief.md`), ins UI einbinden — für Karten ohne
+Artwork soll GENAU der bisherige Farbverlauf-Platzhalter (v0.1.10) unverändert
+sichtbar bleiben.
+
+### Kein neues Datenfeld im Kartenmodell
+
+`src/ui/components/cardArt.ts#artworkUrl(cardId)` leitet den erwarteten
+Dateinamen rein aus der `id` ab (`id.replace(/\./g, "-") + ".png"`,
+z. B. `core.abyssal-lurker` → `/cards/artworks/core-abyssal-lurker.png`).
+`src/cards/starter-set.ts`/`src/model/cards.ts` sind dadurch bewusst
+unverändert — 300 einzelne Artwork-Pfade dort zu pflegen wäre unnötig
+gewesen, da der Pfad deterministisch berechenbar ist.
+
+### Ausliefer-Mechanismus: eigenes Vite-Plugin statt `public/`-Verschiebung
+
+`docs/cards/artworks/` liegt außerhalb von Vites Standard-`public/`-Ordner.
+Statt die Dateien dorthin zu verschieben (was den bestehenden Ablage-Workflow
+des Nutzers geändert hätte), liefert ein neues, selbst geschriebenes Plugin
+in `vite.config.ts` (`cardArtworkPlugin`) sie unter `/cards/artworks/<datei>`
+aus:
+
+- **Dev** (`npm run dev`): eine `configureServer`-Middleware liest die Datei
+  live direkt aus `docs/cards/artworks/` (mit einfacher Directory-Traversal-
+  Absicherung über den Dateinamen) und setzt den passenden Content-Type;
+  existiert die Datei nicht, wird einfach durchgereicht (`next()`) — kein
+  Neustart nötig, sobald der Nutzer eine neue Datei ablegt.
+- **Build** (`npm run build:ui`): ein `closeBundle`-Hook kopiert
+  `docs/cards/artworks/*` nach `<outDir>/cards/artworks/` (`dist-ui/cards/
+  artworks/`), da ein Produktions-Build keinen Node-Server mehr hat, der zur
+  Laufzeit im Quellordner nachschauen könnte.
+
+Bewusst **kein** zusätzliches npm-Package (`vite-plugin-static-copy`) —
+die eigentliche Kopier-/Serve-Logik ist mit `node:fs`/`node:path` in ca. 40
+Zeilen erledigt, ein zusätzlicher Dependency-Eintrag hätte hier keinen
+Mehrwert gebracht.
+
+**Gefundene Falle:** `closeBundle` feuert nicht nur bei einem echten
+`vite build`, sondern auch innerhalb Vitests eigener, interner Vite-Instanz
+beim Ausführen der UI-Tests (`npm test`) — dabei wird bewusst ein
+nicht-existenter Platzhalterpfad (`dummy-non-existing-folder`) als
+`config.build.outDir` durchgereicht, offenbar genau um Plugins zu erwischen,
+die unbedingt (ungeprüft) ins Dateisystem schreiben. Erste Version des
+Plugins erzeugte dadurch bei jedem `npm test` tatsächlich einen
+`dummy-non-existing-folder/cards/artworks/`-Ordner im Projekt-Root (mit
+einer Kopie aller vorhandenen Artworks) — gefunden über `git status`, nicht
+über einen fehlschlagenden Test. Fix: das Plugin merkt sich in
+`configResolved` zusätzlich `config.command === "build"` und überspringt den
+Kopierschritt in `closeBundle`, wenn das nicht zutrifft. Nach dem Fix
+erzeugen weder `npm test` noch `npm run build` einen solchen Ordner mehr,
+`npm run build:ui` kopiert weiterhin korrekt.
+
+### Fallback-Logik im Kartenrahmen
+
+Neuer gemeinsamer Baustein `src/ui/components/cardArt.ts#cardFrameArt(def)`
+ersetzt das bisherige leere `h("div", { class: "card-frame-art" })` in
+`handCard.ts` (inkl. `handCardDiscardToggle`), `cardTile.ts` und
+`deckBuilder.ts#poolRow` — alle drei Kartendarstellungen (Hand,
+Battlefield/Graveyard/Stack, Deckbau-Pool) nutzen jetzt exakt dieselbe
+Funktion, keine Dopplung der Lade-/Fallback-Logik. Aufbau: ein `<img
+loading="lazy" decoding="async">` mit `src` = `artworkUrl(def.id)` liegt
+(CSS `position: absolute; inset: 0; object-fit: cover`) über dem
+unverändert bestehenden Farbverlauf-Hintergrund von `.card-frame-art`:
+
+- **`onload`**: fügt die Klasse `.card-frame-art-img-loaded` hinzu, die die
+  anfängliche `opacity: 0` per CSS-Transition auf `1` hochfährt — das Bild
+  erscheint erst, wenn es tatsächlich fertig geladen ist (kein Aufblitzen
+  eines halb geladenen/kaputten Bilds).
+- **`onerror`** (Normalfall für die meisten der 300 Karten aktuell): entfernt
+  das `<img>`-Element direkt wieder aus dem DOM. Der Farbverlauf-Hintergrund
+  von `.card-frame-art` selbst wurde nie verändert — kein kaputtes
+  Bild-Icon, kein Layout-Sprung, exakt der v0.1.10-Zustand bleibt sichtbar.
+
+`loading="lazy"` ist bewusst gesetzt (Performance-Vorgabe): Der Deckbau-Pool
+zeigt alle 300 Karten gleichzeitig, die meisten davon lösen aktuell einen
+fehlschlagenden Request aus — der Browser fordert dank `loading="lazy"` nur
+die tatsächlich in den sichtbaren Bereich gescrollten Bilder überhaupt an.
+
+### Verifikation
+
+**Einschränkung (wie in v0.1.10/v0.1.11 dokumentiert):** In dieser Session
+standen mir keine Browser-/Screenshot-Werkzeuge zur Verfügung (nur Datei-/
+Shell-Werkzeuge) — eine echte Browser-Verifikation samt Screenshot konnte
+ich dadurch NICHT durchführen. Stattdessen verifiziert über eine Kombination
+aus einem echten HTTP-Request an den laufenden Dev-Server und temporären
+jsdom-Tests (nicht Teil des Repos, nach der Verifikation wieder gelöscht,
+gleiches Muster wie in früheren Runden):
+
+1. **Echter Dev-Server-Request** (`npm run dev`, danach `curl`): Ein Request
+   auf `http://localhost:5173/cards/artworks/core-abyssal-lurker.png` liefert
+   `200 image/png` mit den tatsächlichen, gültigen PNG-Bytes (per `file`
+   verifiziert: „PNG image data, 1408 x 768, …") — die Middleware liefert
+   also wirklich die echte Datei aus `docs/cards/artworks/`, nicht nur eine
+   Attrappe. Ein Request auf eine nicht existierende Artwork-Datei liefert
+   `text/html` (Vites eigener SPA-Fallback greift hier, kein hartes 404) —
+   das reicht für den Zweck aber aus, da ein `<img>`-Tag beim Versuch, HTML
+   als Bild zu dekodieren, ebenfalls zuverlässig ein `error`-Event auslöst.
+2. **Isolierter `cardFrameArt`-Test** (temporär, jsdom): für
+   `core.abyssal-lurker` (hat laut Nutzer bereits ein Artwork) erzeugt die
+   Funktion ein `<img>` mit `src="/cards/artworks/core-abyssal-lurker.png"`;
+   ein manuell dispatchtes `"load"`-Event fügt `.card-frame-art-img-loaded`
+   hinzu. Für `core.silence-veil` (kein Artwork vorhanden) entfernt ein
+   manuell dispatchtes `"error"`-Event das `<img>` wieder — die
+   `.card-frame-art`-Div selbst bleibt danach exakt wie vorher
+   (`className === "card-frame-art"`, keine Kinder), also bitgenau der
+   bisherige Farbverlauf-Platzhalter.
+3. **Integrationstest über die echte Render-Pipeline** (temporär, jsdom):
+   `render(root)` auf den echten Deckbau-Screen angewendet (kein direkter
+   Store-/Komponentenaufruf) — die Pool-Zeilen für `core.abyssal-lurker` UND
+   `core.ash-duelist` (beide laut Nutzer bereits mit Artwork) enthalten
+   jeweils ein `<img>` mit dem korrekt abgeleiteten `src` und
+   `loading="lazy"`; die Zeile für `core.silence-veil` (ohne Artwork) hat
+   weiterhin eine unveränderte, klassenlose `.card-frame-art`-Div.
+4. `npm run build` (`tsc --noEmit`), `npm test` (161/161 grün, 1 bewusst
+   übersprungener Analyse-Test unverändert) und `npm run build:ui` laufen
+   sauber; `dist-ui/cards/artworks/` enthält nach dem Build alle 38 aktuell
+   vorhandenen Artwork-Dateien (per `ls | wc -l` gegen den Quellordner
+   gegengeprüft).
+
+Bitte bei Gelegenheit per echtem Browser-Screenshot nachverifizieren (Karten
+mit Artwork zeigen das Bild, Karten ohne Artwork weiterhin den
+Farbverlauf) — funktional sollte das nach den obigen Tests bereits
+zuverlässig funktionieren, ein echter visueller Blick steht aber noch aus.
+
+**Ergebnis:** Neue Datei `src/ui/components/cardArt.ts`. Geänderte Dateien:
+`vite.config.ts` (neues Plugin), `src/ui/style.css` (`.card-frame-art-img`/
+`-loaded`), `src/ui/components/handCard.ts`/`cardTile.ts`/`deckBuilder.ts`
+(nutzen jetzt `cardFrameArt`/`cardArt.ts` statt der leeren Div). Keine
+Änderungen an `src/engine/*`, `src/model/*`, `src/cards/*`, `src/ai/*`.
+
+## Kunstbereich-Höhe korrigiert (v0.1.13, 2026-07-18)
+
+Direktes Nutzer-Feedback zum v0.1.12-Stand (per Screenshot vom Deckbau-Pool):
+die eingebundenen Artworks wirkten "unsauber abgeschnitten" — ein Karten-
+Motiv mit einem Greifen/geflügelten Wesen zeigte nur die Flügelspitzen, ein
+Strudel-Motiv nur ein kleines Fragment.
+
+### Ursache
+
+`.card-frame-art` (der Bildbereich im Kartenrahmen) war bewusst schmal
+dimensioniert gewesen, solange er nur ein reiner Farbverlauf war (v0.1.10):
+**30px** Höhe für Battlefield-/Graveyard-/Stack-Kacheln (`.card-tile`,
+118px breit) bzw. **42px** für Handkarten/Deckbau-Pool (`.hand-card`
+158px / `.deck-pool-row` 132px breit). Die extern generierten Artworks sind
+laut Stilleitfaden (`docs/cards/card-art-brief.md`, "Seitenverhältnis")
+querformatig (~4:3/3:2) angelegt — per Stichprobe aller 39 zum Zeitpunkt
+dieser Änderung vorhandenen Dateien via PNG-`IHDR`-Header (`node`, keine
+Bildbibliothek nötig) bestätigt: 38 von 39 Dateien exakt 1200×896px
+(Seitenverhältnis 1.339, praktisch 4:3), eine Ausreißer-Datei 1408×768px
+(1.833). Bei einer nur 30-42px hohen Zielfläche und `object-fit: cover`
+(unverändert seit v0.1.12) wird ein Bild mit diesem Seitenverhältnis massiv
+vertikal beschnitten — bei Kartenbreiten von 118-158px blieb dadurch nur ein
+sehr schmaler horizontaler Ausschnitt sichtbar, meist nicht das Hauptmotiv.
+
+### Änderung
+
+Reine CSS-Werteänderung in `src/ui/style.css`, keine Struktur-/Markup-
+Änderung (`cardArt.ts`/`handCard.ts`/`cardTile.ts`/`deckBuilder.ts`
+unverändert):
+
+- `.card-frame-art` (Basis, greift für `.card-tile` auf Battlefield/
+  Graveyard/Stack): `30px` → `78px`.
+- `.hand-card .card-frame-art`: `42px` → `104px`.
+- `.deck-pool-row .card-frame-art`: `42px` → `88px` (bisher mit
+  `.hand-card` zusammen in einem Selektor geführt; jetzt aufgeteilt, da
+  `.hand-card` und `.deck-pool-row` unterschiedlich breit sind — 158px vs.
+  132px — und ein gemeinsamer Höhenwert das 4:3-Verhältnis für die
+  schmalere `.deck-pool-row` unnötig verzerrt hätte).
+
+Die drei Werte orientieren sich grob am 4:3-Seitenverhältnis relativ zur
+tatsächlichen Innenbreite des jeweiligen Kartenrahmens (Kartenbreite abzüglich
+Border/Padding von `.hand-card`/`.card-tile`/`.deck-pool-row` UND des
+inneren `.card-frame-frame`-Rahmens) und wurden danach per echtem
+Browser-Screenshot nachjustiert/bestätigt (s. Verifikation unten) statt rein
+rechnerisch übernommen zu werden. `object-position` wurde bewusst NICHT
+geändert (bleibt Standard `center center`): eine Sichtprüfung von ca. 20
+realen Artworks im Deckbau-Pool-Screenshot zeigte keinen systematischen
+Bedarf für einen vertikalen Versatz (z. B. `center 40%`) — die Motive sind
+in der Bildgenerierung offenbar bereits überwiegend zentriert/mittig
+komponiert, ein zusätzlicher Versatz hätte hier eher geschadet als geholfen.
+
+Die Gesamtkartenhöhe wächst dadurch an allen drei Einsatzorten spürbar —
+das ist die explizite Nutzer-Vorgabe ("wir müssen die Höhe für die Bilder
+etwas erhöhen") und ein bewusst akzeptierter Trade-off (weniger Karten pro
+Zeile im Deckbau-Pool-Grid/Battlefield-Grid, mehr Scrollen). Kein Fixed-
+Height-Overflow/Layout-Bruch an den drei betroffenen Stellen (Hand-Zone,
+Battlefield-Grid, Deckbau-Pool-Grid mit 300 Karten) — alle drei nutzen
+bereits `flex-wrap`/`overflow-y: auto`-Container, die mit variabler
+Kartenhöhe umgehen können, s. Verifikation.
+
+### Verifikation
+
+Im Unterschied zu v0.1.10-v0.1.12 standen in dieser Session tatsächlich
+Browser-Werkzeuge zur Verfügung (Chrome, headless, über das Chrome
+DevTools-Protokoll direkt per WebSocket angesteuert — kein dediziertes
+Browser-MCP-Tool im Funktionsumfang dieser Session, daher ein kleines,
+temporäres Steuerskript mit `node` statt eines fertigen Tools; Skript nicht
+Teil des Repos):
+
+1. **`npm test`**: weiterhin 161/161 grün (1 bewusst übersprungener
+   Analyse-Test unverändert), **`npm run build`** (`tsc --noEmit`) und
+   **`npm run build:ui`** (Vite-Produktionsbuild) sauber — erwartbar, da
+   reine CSS-Wertänderung ohne TS-/Markup-Berührung.
+2. **Echter Screenshot des Deckbau-Pools** (`npm run dev`, Chrome headless
+   gegen `http://localhost:5173/`, direkt der App-Startbildschirm
+   `Deckbau: player1`): zeigt u. a. `core.abyssal-lurker` (Krake-Motiv,
+   vollständig sichtbar inkl. Tentakeln), `core.abyssal-undertow`
+   (Strudel-Motiv — genau die vom Nutzer bemängelte Karte, jetzt komplett
+   im Frame statt nur als Fragment), `core.aegis-ward`/`core.aegis-oath`
+   (goldene Ring-/Schild-Motive), `core.ash-duelist`, `core.bastion-
+   forgeworks`, `core.brandwatch-mercenary` u. a. — durchgängig das jeweilige
+   Hauptmotiv gut erkennbar, kein horizontaler Fragment-Ausschnitt mehr.
+   Karten ohne Artwork zeigen weiterhin unverändert den Farbverlauf-
+   Platzhalter (kein Regressions-Risiko für die 261 Karten ohne Datei zum
+   Zeitpunkt dieser Änderung).
+3. **Echter Screenshot der Hand-Zone im laufenden Spiel** (per CDP-Skript
+   durch Deckbau geklickt — inkl. gezielt 4× `core.ash-duelist`
+   hinzugefügt, um eine Artwork-Karte im Spiel zu garantieren — dann
+   Mulligan behalten + mehrere Priority-/Terrain-Zyklen): `core.ash-duelist`
+   ("Aschenduellant") zeigt in der Hand bei 104px Höhe die volle
+   Kriegerfigur mit brennender Klinge, gut erkennbar, keine Kopf-/
+   Fuß-Abschneidung. Layout der Hand-Zone (mehrere Karten nebeneinander,
+   `flex-wrap`) bleibt intakt.
+4. **Battlefield-Kachel (`.card-tile`, 78px)**: mangels im Spielverlauf
+   gezogener/bezahlbarer Artwork-Einheit innerhalb des Testzeitraums nicht
+   mit einer ECHTEN Artwork-Karte auf dem Battlefield verifiziert (reiner
+   Zeit-/Bot-Zug-Aufwand des Verifikationsskripts, keine Code-Unsicherheit)
+   — Terrains auf dem Battlefield (dieselbe `.card-tile`-Kachel, aktuell
+   ohne eigenes Artwork) zeigen bei 78px Höhe unverändert sauber den
+   Farbverlauf, kein Layout-Bruch, Status-Badges (`getappt` etc.) bleiben
+   korrekt unterhalb im Textbereich. Da `.card-tile` exakt denselben
+   `cardFrameArt`-Baustein/dieselbe CSS-Mechanik wie `.hand-card`/
+   `.deck-pool-row` verwendet (nur der Höhenwert unterscheidet sich) und
+   Punkt 2/3 oben beide mit echten Bildern bereits sauberes Rendering
+   bestätigen, ist hier mit hoher Zuversicht von korrektem Verhalten
+   auszugehen — **bitte bei Gelegenheit mit einer tatsächlich auf dem
+   Battlefield liegenden Artwork-Einheit nachverifizieren.**
+
+**Ergebnis:** Einzige geänderte Datei `src/ui/style.css` (drei Höhenwerte
+für `.card-frame-art`-Selektoren). Keine Änderungen an
+`src/ui/components/cardArt.ts`, `handCard.ts`, `cardTile.ts`,
+`deckBuilder.ts`, `src/engine/*`, `src/model/*`, `src/cards/*`, `src/ai/*`.
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
@@ -1559,7 +2097,12 @@ blieb unangetastet).
    ein scrollbarer `max-height`-Container ohne Virtualisierung — bei einem
    künftig deutlich größeren Kartenpool (weit über 109) könnte das UI träge
    werden (kein Problem beim aktuellen Umfang, gemessen über den
-   Produktionsbuild).
+   Produktionsbuild). **Teilweise adressiert in v0.1.11**: der „Spiel
+   starten"/„Weiter"-Button ist jetzt `position: sticky` und bleibt beim
+   Scrollen durch den (mittlerweile 300 Karten großen) Pool sichtbar (s.
+   eigener Abschnitt oben) — reines CSS, keine Virtualisierung; bei einem
+   nochmals deutlich größeren Pool bliebe die grundsätzliche Trägheits-Sorge
+   bestehen.
 9. ~~**KI-Gegner-Anbindung ("Spieler 2 = KI")**~~ **erledigt in v0.1.7** (s.
    eigener Abschnitt oben) — Umschalter im Deckbau-Screen, automatischer
    Zug-Loop in `store.ts`, „KI"-Badge im Spieler-Panel.
@@ -1576,3 +2119,16 @@ blieb unangetastet).
     bietet den Umschalter aber aktuell nur für Spieler 2 an (Auftrag: „Spieler
     2 = KI"); ein Umschalter auch für Spieler 1 wäre eine kleine, isolierte
     Ergänzung in `deckBuilder.ts`/`render.ts`.
+12. ~~**Geführtes Tutorial-Probespiel**~~ **erledigt in v0.1.11** (s. eigener
+    Abschnitt oben) — fester Startpfad mit kuratierten Decks/Seed, ruhig
+    spielende KI, einmalige Erklär-Sprechblasen, jederzeit abrufbares
+    Hilfe-Panel. **Echte Browser-/Screenshot-Verifikation steht noch aus**
+    (in dieser Session keine entsprechenden Werkzeuge verfügbar, s. dortiger
+    Verifikations-Abschnitt) — bitte nachholen. Mögliche spätere
+    Erweiterungen (nicht angefragt, nur zur Kenntnis): `localStorage`-
+    Persistenz der bereits gesehenen Tipps (analog zum Deck-Persistenz-Muster
+    aus v0.1.8, aktuell bewusst rein In-Memory, s. Begründung im
+    v0.1.11-Abschnitt), ein zweites, andersfarbiges Tutorial-Deck-Paar für
+    Abwechslung, sowie eine echte Anbindung an den `ability`-Tipp, sobald das
+    Tutorial-Kartenset (oder ein künftiges) eine Karte mit einer eigenen
+    nicht-Mana-aktivierten Fähigkeit enthält.

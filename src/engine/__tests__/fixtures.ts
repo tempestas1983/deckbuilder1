@@ -61,6 +61,27 @@ export const UNAFFORDABLE_COSTS_RELIC = "test.overcosted-trinket";
 // nur permanentState zu verlieren - genau das ist die Vorbedingung des Bugs.
 export const TOKEN_BEAR = "test.bear-token"; // 2/2 Vanilla-TOKEN für {2}
 
+// Regressionstest-Karte für den effects.ts-Engine-Bug (docs/engine-status.md,
+// v0.3.4 / rules-engine.md Entscheidung 9.14): destroyPermanent/exilePermanent/
+// returnToHand riefen `leaveBattlefield` bislang UNGEGUARDET auf, sobald der
+// Empfänger (hier: "eventSubject") kein Battlefield-Permanent mehr war - bei
+// einer bereits gelöschten Token-Instanz (SBA 7) ein Crash, bei einer Karte im
+// Friedhof eine versehentliche Zonen-Manipulation. Diese Karte kombiniert alle
+// drei betroffenen Effekte MIT einem harmlosen drawCards-Effekt im selben
+// Trigger, um beides zu belegen: kein Crash/keine Zonenänderung UND die
+// übrigen Effekte desselben Triggers wirken normal weiter.
+export const DEATH_REMOVAL_UNIT = "test.grave-keeper"; // 1/1 für {1}, wenn eine eigene Unit stirbt: ziehe 1 Karte, versuche danach die gestorbene Unit (eventSubject) zu zerstören/exilieren/zurückzuholen (muss still ins Leere laufen)
+
+// Regressionstest-Karten für die zonenbasierte Todesdefinition (docs/engine-status.md,
+// v0.3.5 / rules-engine.md Entscheidung 9.15): "Stirbt" = Battlefield -> Graveyard,
+// ursachenunabhängig (SBA 3/4, destroyPermanent, sacrificeSelf-Kosten), onDeath{self}
+// dabei typ-agnostisch; exilePermanent/returnToHand sind bewusst KEIN Tod.
+export const SELF_DEATH_UNIT = "test.wisp-harvester"; // 2/1 UNIT für {1}, onDeath self: ziehe 1 Karte; PLUS aktivierte Fähigkeit mit sacrificeSelf-Zusatzkosten (gewinne 1 Leben), um denselben Tod-Pfad testen zu können
+export const SELF_DEATH_RELIC = "test.parting-ward"; // Relic (NICHT-Unit) für {1}, onDeath self: ziehe 1 Karte (Regressionstest: onDeath ist typ-agnostisch) - PLUS aktivierte Fähigkeit mit sacrificeSelf-Zusatzkosten
+export const DESTROY_ANY_SPELL = "test.reap-edict"; // {generic:1}, fast, zerstöre ein beliebiges gegnerisches Permanent (Unit ODER Nicht-Unit) deiner Wahl
+export const EXILE_ANY_SPELL = "test.banish-rite"; // {generic:1}, fast, verbanne ein beliebiges Permanent deiner Wahl (Regressionstest: KEIN Tod, onDeath darf NICHT feuern)
+export const RETURN_ANY_SPELL = "test.recall-rite"; // {generic:1}, fast, hole ein beliebiges Permanent deiner Wahl auf die Hand zurück (Regressionstest: KEIN Tod, onDeath darf NICHT feuern)
+
 export function buildTestPool(): CardPool {
   return {
     [FLAME_TERRAIN]: {
@@ -562,6 +583,111 @@ export function buildTestPool(): CardPool {
       power: 2,
       toughness: 2,
       isToken: true,
+    },
+    [DEATH_REMOVAL_UNIT]: {
+      id: DEATH_REMOVAL_UNIT,
+      name: "Testgruftwächter",
+      type: "unit",
+      set: "test",
+      cost: { generic: 1 },
+      power: 1,
+      toughness: 1,
+      abilities: [
+        {
+          kind: "triggered",
+          trigger: { kind: "onUnitDied", controller: "own" },
+          effects: [
+            { kind: "drawCards", who: "controller", count: 1 },
+            { kind: "destroyPermanent", what: "eventSubject" },
+            { kind: "exilePermanent", what: "eventSubject" },
+            { kind: "returnToHand", what: "eventSubject" },
+          ],
+          text:
+            "Wenn eine eigene Unit stirbt: ziehe 1 Karte. (Regressionstest 9.14: " +
+            "destroyPermanent/exilePermanent/returnToHand auf eventSubject laufen " +
+            "bei einem bereits toten Objekt still ins Leere.)",
+        },
+      ],
+    },
+    [SELF_DEATH_UNIT]: {
+      id: SELF_DEATH_UNIT,
+      name: "Testwispernte",
+      type: "unit",
+      set: "test",
+      cost: { generic: 1 },
+      power: 2,
+      toughness: 1,
+      abilities: [
+        {
+          kind: "triggered",
+          trigger: { kind: "onDeath", what: "self" },
+          effects: [{ kind: "drawCards", who: "controller", count: 1 }],
+          text: "Wenn diese Unit stirbt, ziehe 1 Karte.",
+        },
+        {
+          kind: "activated",
+          additionalCosts: [{ kind: "sacrificeSelf" }],
+          effects: [{ kind: "gainLife", who: "controller", amount: 1 }],
+          text:
+            "Opfere diese Unit: gewinne 1 Leben. (Regressionstest 9.15: onDeath muss " +
+            "auch beim sacrificeSelf-Todespfad feuern, abilityIndex 1.)",
+        },
+      ],
+    },
+    [SELF_DEATH_RELIC]: {
+      id: SELF_DEATH_RELIC,
+      name: "Testabschiedswarte",
+      type: "relic",
+      set: "test",
+      cost: { generic: 1 },
+      abilities: [
+        {
+          kind: "triggered",
+          trigger: { kind: "onDeath", what: "self" },
+          effects: [{ kind: "drawCards", who: "controller", count: 1 }],
+          text:
+            "Wenn dieses Relic stirbt, ziehe 1 Karte. (Regressionstest 9.15: onDeath " +
+            "ist typ-agnostisch, feuert also auch für Nicht-Units.)",
+        },
+        {
+          kind: "activated",
+          additionalCosts: [{ kind: "sacrificeSelf" }],
+          effects: [{ kind: "gainLife", who: "controller", amount: 1 }],
+          text: "Opfere dieses Relic: gewinne 1 Leben. (sacrificeSelf-Todespfad, Nicht-Unit.)",
+        },
+      ],
+    },
+    [DESTROY_ANY_SPELL]: {
+      id: DESTROY_ANY_SPELL,
+      name: "Testerntenritual",
+      type: "spell",
+      speed: "fast",
+      set: "test",
+      cost: { generic: 1 },
+      // Bewusst OHNE cardTypes-Filter (= alle Permanent-Typen legal) - deckt
+      // sowohl Unit- als auch Nicht-Unit-Ziele für den 9.15-Regressionstest ab.
+      targets: [{ kind: "permanent", controller: "opponent" }],
+      effects: [{ kind: "destroyPermanent", what: { target: 0 } }],
+    },
+    [EXILE_ANY_SPELL]: {
+      id: EXILE_ANY_SPELL,
+      name: "Testbannritual",
+      type: "spell",
+      speed: "fast",
+      set: "test",
+      cost: { generic: 1 },
+      targets: [{ kind: "permanent", controller: "opponent" }],
+      effects: [{ kind: "exilePermanent", what: { target: 0 } }],
+    },
+    [RETURN_ANY_SPELL]: {
+      id: RETURN_ANY_SPELL,
+      name: "Testrückrufritual",
+      type: "spell",
+      speed: "fast",
+      set: "test",
+      cost: { generic: 1 },
+      targets: [{ kind: "permanent", controller: "opponent" }],
+      effects: [{ kind: "returnToHand", what: { target: 0 } }],
     },
   };
 }

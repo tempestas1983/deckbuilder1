@@ -50,6 +50,7 @@ import {
   canBlockPairEffective,
   effectiveStats,
   evaluateState,
+  expandModalCandidate,
   fightOutcome,
   hasEffectiveKeyword,
   manaCostTotal,
@@ -425,6 +426,20 @@ function chooseBestCastOrActivateHard(
 
   for (const action of legal) {
     if (action.kind === "castSpell") {
+      // Modale Kandidaten kommen laut getLegalActions-Vertrag OHNE
+      // chosenMode/chosenTargets — roh eingereicht (auch in der Simulation)
+      // lehnt applyAction sie ab; vorher wurden sie dadurch still verworfen
+      // (Fund der Farb-Balance-Analyse, docs/ai-status.md Abschnitt 10).
+      // Jetzt: engine-validierte Vervollständigungen erzeugen; jede einzelne
+      // durchläuft anschließend das normale Lookahead.
+      const modalCompletions = expandModalCandidate(engine, pool, state, action);
+      if (modalCompletions !== undefined) {
+        for (const completed of modalCompletions) {
+          if (completed.kind !== "castSpell") continue;
+          candidates.push({ action: completed, staticScore: staticCastScore(pool, state, player, completed) });
+        }
+        continue;
+      }
       candidates.push({ action, staticScore: staticCastScore(pool, state, player, action) });
       continue;
     }
@@ -438,6 +453,15 @@ function chooseBestCastOrActivateHard(
         continue;
       }
       if (wouldTapPotentialAttackerHard(pool, state, player, action, ability)) continue;
+      // Modale Fähigkeiten: analog zu castSpell vervollständigen.
+      const modalCompletions = expandModalCandidate(engine, pool, state, action);
+      if (modalCompletions !== undefined) {
+        for (const completed of modalCompletions) {
+          if (completed.kind !== "activateAbility") continue;
+          candidates.push({ action: completed, staticScore: staticActivateScore(pool, state, player, completed, ability) });
+        }
+        continue;
+      }
       candidates.push({ action, staticScore: staticActivateScore(pool, state, player, action, ability) });
     }
   }
