@@ -11,41 +11,48 @@ import { fileURLToPath } from "node:url";
  */
 
 const PROJECT_ROOT = fileURLToPath(new URL(".", import.meta.url));
-const ARTWORK_SOURCE_DIR = join(PROJECT_ROOT, "docs", "cards", "artworks");
-const ARTWORK_URL_PREFIX = "/cards/artworks/";
-const ARTWORK_OUT_SUBDIR = join("cards", "artworks");
 
 const MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
+  ".mp3": "audio/mpeg",
 };
 
 /**
- * Liefert die extern generierten Karten-Artworks aus `docs/cards/artworks/`
- * unter `/cards/artworks/<datei>` aus (s. `docs/cards/card-art-brief.md` +
- * `src/ui/components/cardArt.ts`).
+ * Liefert extern generierte, gitignorete Bild-Assets aus einem `docs/`-
+ * Unterordner unter einer festen URL aus (Dev-Middleware + Build-
+ * Kopierschritt) - gemeinsame Grundlage für zwei Asset-Sets, die beide
+ * nach demselben "Nutzer legt Dateien lokal ab, UI zeigt sie an, sofern
+ * vorhanden" -Workflow funktionieren:
+ * - Karten-Artwork: `docs/cards/artworks/` -> `/cards/artworks/<id>.png`
+ *   (s. `docs/cards/card-art-brief.md` + `src/ui/components/cardArt.ts`)
+ * - Szenen-Artwork (Board-Hintergrund + Bot-Avatare):
+ *   `docs/scene-art/` -> `/scene-art/<datei>.png`
+ *   (s. `docs/scene-art-brief.md` + `src/ui/components/sceneArt.ts`)
+ * - Hintergrundmusik: `docs/music/` -> `/music/<datei>.mp3`
  *
- * `docs/cards/artworks/` liegt bewusst NICHT in `public/` — der Nutzer legt
- * dort laufend neue, extern generierte Bilder ab, und dieser Ablageort/
- * Workflow soll sich durch die UI-Anbindung nicht ändern. Statt die Dateien
+ * `docs/<...>/` liegt bewusst NICHT in `public/` — der Nutzer legt dort
+ * laufend neue, extern generierte Bilder ab, und dieser Ablageort/Workflow
+ * soll sich durch die UI-Anbindung nicht ändern. Statt die Dateien
  * zusätzlich nach `public/` zu duplizieren/verschieben, übernimmt dieses
  * Plugin die Auslieferung selbst:
  * - **Dev** (`npm run dev`): eine eigene Server-Middleware liest Dateien
- *   direkt aus `docs/cards/artworks/` und liefert sie unter der o.g. URL aus
+ *   direkt aus dem Quellordner und liefert sie unter der o.g. URL aus
  *   (kein Kopieren nötig — neu abgelegte Dateien sind ohne Server-Neustart
  *   sofort verfügbar).
  * - **Build** (`npm run build:ui`): ein Kopierschritt beim Bundle-Abschluss
- *   dupliziert `docs/cards/artworks/*` nach `<outDir>/cards/artworks/`, da
- *   ein Produktions-Build keinen Node-Server mehr hat, der zur Laufzeit
+ *   dupliziert den Quellordner nach `<outDir>/<urlPrefix>`, da ein
+ *   Produktions-Build keinen Node-Server mehr hat, der zur Laufzeit
  *   nachschauen könnte.
  */
-function cardArtworkPlugin(): Plugin {
+function staticArtPlugin(opts: { name: string; sourceDir: string; urlPrefix: string; outSubdir: string }): Plugin {
+  const { name, sourceDir, urlPrefix, outSubdir } = opts;
   let outDirAbs = "";
   let isBuildCommand = false;
   return {
-    name: "card-artwork-static-serve",
+    name,
     configResolved(config) {
       outDirAbs = resolve(config.root, config.build.outDir);
       // `closeBundle` wird nicht nur bei einem echten `vite build`
@@ -59,22 +66,22 @@ function cardArtworkPlugin(): Plugin {
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (!req.url || !req.url.startsWith(ARTWORK_URL_PREFIX)) {
+        if (!req.url || !req.url.startsWith(urlPrefix)) {
           next();
           return;
         }
-        const rawName = req.url.slice(ARTWORK_URL_PREFIX.length).split("?")[0] ?? "";
+        const rawName = req.url.slice(urlPrefix.length).split("?")[0] ?? "";
         const fileName = decodeURIComponent(rawName);
         // Kein Directory-Traversal über den Dateinamen zulassen.
         if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) {
           next();
           return;
         }
-        const filePath = join(ARTWORK_SOURCE_DIR, fileName);
+        const filePath = join(sourceDir, fileName);
         if (!existsSync(filePath)) {
-          // Normalfall für die meisten der 300 Karten (Artwork fehlt noch) —
-          // einfach durchreichen, damit der Browser ein reguläres 404 sieht
-          // (löst im Frontend den Fallback auf den Farbverlauf aus).
+          // Normalfall, solange das jeweilige Bild (noch) nicht abgelegt
+          // wurde — einfach durchreichen, damit der Browser ein reguläres
+          // 404 sieht (löst im Frontend den jeweiligen CSS-Fallback aus).
           next();
           return;
         }
@@ -85,19 +92,62 @@ function cardArtworkPlugin(): Plugin {
     },
     closeBundle() {
       if (!isBuildCommand) return;
-      if (!existsSync(ARTWORK_SOURCE_DIR)) return;
-      const outDir = join(outDirAbs, ARTWORK_OUT_SUBDIR);
+      if (!existsSync(sourceDir)) return;
+      const outDir = join(outDirAbs, outSubdir);
       mkdirSync(outDir, { recursive: true });
-      for (const entry of readdirSync(ARTWORK_SOURCE_DIR)) {
-        copyFileSync(join(ARTWORK_SOURCE_DIR, entry), join(outDir, entry));
+      for (const entry of readdirSync(sourceDir)) {
+        copyFileSync(join(sourceDir, entry), join(outDir, entry));
       }
     },
   };
 }
 
+function cardArtworkPlugin(): Plugin {
+  return staticArtPlugin({
+    name: "card-artwork-static-serve",
+    sourceDir: join(PROJECT_ROOT, "docs", "cards", "artworks"),
+    urlPrefix: "/cards/artworks/",
+    outSubdir: join("cards", "artworks"),
+  });
+}
+
+function sceneArtPlugin(): Plugin {
+  return staticArtPlugin({
+    name: "scene-art-static-serve",
+    sourceDir: join(PROJECT_ROOT, "docs", "scene-art"),
+    urlPrefix: "/scene-art/",
+    outSubdir: "scene-art",
+  });
+}
+
+function musicPlugin(): Plugin {
+  return staticArtPlugin({
+    name: "music-static-serve",
+    sourceDir: join(PROJECT_ROOT, "docs", "music"),
+    urlPrefix: "/music/",
+    outSubdir: "music",
+  });
+}
+
+/**
+ * Kurze Soundeffekte (`docs/sfx/` -> `/sfx/<datei>.mp3`) - anders als die
+ * drei Asset-Ordner oben ist `docs/sfx/` diesmal NICHT gitignored (nur ~330
+ * KB Gesamtgröße, kein Platzproblem, s. docs/sfx/SOURCES.md), läuft aber aus
+ * Konsistenzgründen über denselben Dev-Middleware+Build-Kopierschritt statt
+ * die Dateien nach `public/` zu verschieben oder einen Sonderfall zu bauen.
+ */
+function sfxPlugin(): Plugin {
+  return staticArtPlugin({
+    name: "sfx-static-serve",
+    sourceDir: join(PROJECT_ROOT, "docs", "sfx"),
+    urlPrefix: "/sfx/",
+    outSubdir: "sfx",
+  });
+}
+
 export default defineConfig({
   root: ".",
-  plugins: [cardArtworkPlugin()],
+  plugins: [cardArtworkPlugin(), sceneArtPlugin(), musicPlugin(), sfxPlugin()],
   server: {
     port: 5173,
   },

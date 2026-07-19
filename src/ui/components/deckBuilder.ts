@@ -28,9 +28,15 @@ import {
   closeKeywordGlossaryPanel,
   getOpenKeywordGlossary,
   isKeywordGlossaryPanelOpen,
+  isMusicEnabled,
+  isSfxEnabled,
   toggleKeywordGlossaryPanel,
+  toggleMusicEnabled,
+  toggleSfxEnabled,
 } from "../store";
 import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./keywordGlossaryPanel";
+import { musicToggleButton } from "./musicToggle";
+import { sfxToggleButton } from "./sfxToggle";
 import { validateDecklist } from "../deckValidation";
 
 const TYPE_OPTIONS: Array<{ value: CardType | "all"; label: string }> = [
@@ -258,7 +264,14 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
     openKeywordPopover ? keywordPopoverBubble(openKeywordPopover, () => closeKeywordGlossary()) : undefined,
     h("div", { class: "deckbuilder-header-row" }, [
       h("h2", { class: "deckbuilder-title" }, [text(`Deckbau: ${player}`)]),
-      keywordGlossaryButton(() => toggleKeywordGlossaryPanel()),
+      h("div", { class: "deckbuilder-header-actions" }, [
+        // App-weite Hintergrundmusik (s. musicPlayer.ts): auch im Deckbau
+        // jederzeit erreichbar/sichtbar, es gibt keinen eigenen Titelbildschirm
+        // (das Spiel startet direkt hier).
+        musicToggleButton(isMusicEnabled(), () => toggleMusicEnabled()),
+        sfxToggleButton(isSfxEnabled(), () => toggleSfxEnabled()),
+        keywordGlossaryButton(() => toggleKeywordGlossaryPanel()),
+      ]),
     ]),
     tutorialBox,
     aiToggle,

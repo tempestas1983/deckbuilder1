@@ -13,6 +13,7 @@ export {
   chooseActionForDifficulty,
   BOT_DIFFICULTIES,
   BOT_DIFFICULTY_LABELS,
+  BOT_DISPLAY_NAMES,
   DEFAULT_BOT_DIFFICULTY,
   type BotDifficulty,
 } from "./difficulty";

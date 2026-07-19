@@ -64,8 +64,16 @@ describe("Modaler Spell casten (v0.1.6)", () => {
 
     keepAllMulligans(root);
 
-    const activePlayer = getState().activePlayer;
-    const opponent = activePlayer === "player1" ? "player2" : "player1";
+    // Bewusst fest "player1" statt (vormals) `getState().activePlayer`: seit
+    // "Gegner-Hand ist komplett sichtbar" (render.ts#handZone) zeigt die UI
+    // NUR player1s Hand interaktiv an (jede andere Hand nur verdeckt/nicht
+    // klickbar) - der globale "Modus wählen"-Button-Klick unten würde bei
+    // einem zufällig als player2 startenden Münzwurf nicht existieren.
+    // `autoAdvanceToReadyMain1` ist ohnehin turn-/spielerunabhängig (spielt
+    // einfach so viele eigene Züge des Zielspielers wie nötig durch), das
+    // Testverhalten bleibt inhaltlich unverändert.
+    const humanPlayer = "player1";
+    const opponent = "player2";
 
     // Autopilot: passt Priority, spielt automatisch void-rift im eigenen
     // Main1, bis der aktive Spieler 3 Terrains kontrolliert UND
@@ -76,7 +84,7 @@ describe("Modaler Spell casten (v0.1.6)", () => {
       terrainId: VOID_RIFT,
       targetTerrainCount: 3,
       protectedCardId: VOID_COVENANT,
-      targetPlayer: activePlayer,
+      targetPlayer: humanPlayer,
     });
 
     const terrainName = starterSet[VOID_RIFT]!.name;
@@ -84,7 +92,7 @@ describe("Modaler Spell casten (v0.1.6)", () => {
     tapUntappedPermanent(root, terrainName);
     tapUntappedPermanent(root, terrainName);
 
-    const manaPoolBefore = getState().players[activePlayer].manaPool;
+    const manaPoolBefore = getState().players[humanPlayer].manaPool;
     expect(manaPoolBefore.void).toBeGreaterThanOrEqual(1);
     expect(manaPoolBefore.void + manaPoolBefore.colorless).toBeGreaterThanOrEqual(3);
 

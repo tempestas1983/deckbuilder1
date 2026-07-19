@@ -36,6 +36,22 @@ export const BOT_DIFFICULTY_LABELS: Record<BotDifficulty, string> = {
 export const DEFAULT_BOT_DIFFICULTY: BotDifficulty = "medium";
 
 /**
+ * Erfundene Tavernen-Namen für den bot-gesteuerten Gegner (UI-Wunsch: "player2"
+ * ist als Anzeigename langweilig) - rein kosmetisches Label, NICHT die
+ * `PlayerId` selbst, die bleibt überall (Engine, Store, DOM-Attribute wie
+ * `data-player`) unangetastet "player1"/"player2". Ton passend zu den
+ * generierten Avatar-Bildern (docs/scene-art-brief.md, avatar-<difficulty>.png):
+ * "easy" = tollpatschiger Neuling, "medium" = solider Stammgast, "hard" =
+ * abgebrühter Kartenhai. Verwendung: src/ui/render.ts#playerDisplayName -
+ * nur wenn der jeweilige Spieler tatsächlich bot-gesteuert ist, s. dort.
+ */
+export const BOT_DISPLAY_NAMES: Record<BotDifficulty, string> = {
+  easy: "Ollo Wackelhand",
+  medium: "Guntram Eichenfaust",
+  hard: "Silas Kaltblick",
+};
+
+/**
  * Wählt eine legale Aktion für `player` in der gewünschten Schwierigkeitsstufe.
  * Signatur/Nutzungsvertrag identisch zu simpleBot.ts#chooseAction (plus
  * `difficulty`): nur für den tatsächlich handelnden Spieler aufrufen, der

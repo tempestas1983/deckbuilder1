@@ -6,3 +6,9 @@ dist-ui/
 # fürs Repo (~500 MB) und lokal beim Nutzer vorhanden statt versioniert.
 docs/cards/artworks/
 tools/output_images/
+
+# Szenen-Artwork (Taverne-Hintergrund, Gegner-Avatare): gleicher Grund wie oben.
+docs/scene-art/
+
+# Hintergrundmusik: gleicher Grund wie oben (großes Binary, lokal beim Nutzer).
+docs/music/

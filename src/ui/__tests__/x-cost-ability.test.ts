@@ -62,8 +62,16 @@ describe("X-Kosten-Fähigkeit aktivieren (v0.1.6)", () => {
 
     keepAllMulligans(root);
 
-    const activePlayer = getState().activePlayer;
-    const opponent = activePlayer === "player1" ? "player2" : "player1";
+    // Bewusst fest "player1" statt (vormals) `getState().activePlayer`: seit
+    // "Gegner-Hand ist komplett sichtbar" (render.ts#handZone) zeigt die UI
+    // NUR player1s Hand interaktiv an (jede andere Hand nur verdeckt/nicht
+    // klickbar) - der `.hand-card`-Klick unten (Relikt "Spielen") würde bei
+    // einem zufällig als player2 startenden Münzwurf ins Leere laufen.
+    // `autoAdvanceToReadyMain1` ist ohnehin turn-/spielerunabhängig (spielt
+    // einfach so viele eigene Züge des Zielspielers wie nötig durch), das
+    // Testverhalten bleibt inhaltlich unverändert.
+    const humanPlayer = "player1";
+    const opponent = "player2";
 
     // Autopilot: 4 Terrains nötig, um {generic:4} für das Relikt zu bezahlen.
     autoAdvanceToReadyMain1({
@@ -72,13 +80,13 @@ describe("X-Kosten-Fähigkeit aktivieren (v0.1.6)", () => {
       terrainId: VOID_RIFT,
       targetTerrainCount: 4,
       protectedCardId: CINDERWRACK_ENGINE,
-      targetPlayer: activePlayer,
+      targetPlayer: humanPlayer,
     });
 
     const terrainName = starterSet[VOID_RIFT]!.name;
     for (let i = 0; i < 4; i++) tapUntappedPermanent(root, terrainName);
 
-    const manaBefore = getState().players[activePlayer].manaPool;
+    const manaBefore = getState().players[humanPlayer].manaPool;
     expect(manaBefore.void + manaBefore.colorless).toBeGreaterThanOrEqual(4);
 
     // Relikt casten: keine Modi/X auf dem Spell selbst -> direkter "Spielen"-Button.
@@ -98,11 +106,11 @@ describe("X-Kosten-Fähigkeit aktivieren (v0.1.6)", () => {
 
     let state = getState();
     expect(state.stack.length).toBe(0);
-    expect(state.players[activePlayer].battlefield.some((id) => state.cards[id]?.definitionId === CINDERWRACK_ENGINE)).toBe(
+    expect(state.players[humanPlayer].battlefield.some((id) => state.cards[id]?.definitionId === CINDERWRACK_ENGINE)).toBe(
       true,
     );
     expect(state.step).toBe("main1");
-    expect(state.priorityPlayer).toBe(activePlayer);
+    expect(state.priorityPlayer).toBe(humanPlayer);
 
     // Interaktion unter Test: getLegalActions liefert für X-Kosten-
     // Fähigkeiten laut Vertrag GAR KEINEN Kandidaten (docs/engine-status.md,

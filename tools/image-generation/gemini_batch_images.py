@@ -25,7 +25,7 @@ from google import genai
 # ---------------------------------------------------------------------------
 
 MODEL = "gemini-2.5-flash-image"   # guenstig, ~$0.039 pro Bild
-CSV_FILE = "card_artwork_prompts.csv"   # Spalten: Filename, AI Prompt
+CSV_FILE = "scene_artwork_prompts.csv"   # Spalten: Filename, AI Prompt  
 OUTPUT_DIR = Path("output_images")
 DELAY_BETWEEN_CALLS_SEC = 1.0      # schont Rate-Limits, bei Bedarf erhoehen
 LIMIT = None                       # z.B. 10 zum Testen einer kleinen Charge, None = alle

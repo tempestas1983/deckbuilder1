@@ -11,7 +11,7 @@
  * `error` der Engine anzeigt.
  */
 
-import type { ActivatedAbility, GameState, PlayerAction, PlayerId } from "../model";
+import type { ActivatedAbility, GameState, InstanceId, PlayerAction, PlayerId } from "../model";
 import {
   backToDeckbuilder,
   closeKeywordGlossary,
@@ -31,9 +31,12 @@ import {
   getState,
   getTutorialActiveStep,
   getTutorialHighlight,
+  getTutorialPassPriorityBlockReason,
   getUiMode,
   isBotControlled,
   isKeywordGlossaryPanelOpen,
+  isMusicEnabled,
+  isSfxEnabled,
   isTutorialActive,
   isTutorialBubbleVisible,
   isTutorialHelpOpen,
@@ -46,18 +49,23 @@ import {
   skipTutorialStep,
   startTutorial,
   toggleKeywordGlossaryPanel,
+  toggleMusicEnabled,
+  toggleSfxEnabled,
   toggleTutorialHelp,
 } from "./store";
-import { BOT_DIFFICULTY_LABELS } from "../ai";
+import { BOT_DIFFICULTY_LABELS, BOT_DISPLAY_NAMES, type BotDifficulty } from "../ai";
 import { cardDef } from "./cardInfo";
 import { tutorialHelpButton, tutorialHelpPanel, tutorialInstructionBanner, tutorialModalBubble } from "./components/tutorialOverlay";
 import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./components/keywordGlossaryPanel";
+import { musicToggleButton } from "./components/musicToggle";
+import { sfxToggleButton } from "./components/sfxToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
 import { deckBuilderScreen } from "./components/deckBuilder";
 import { buildDemoDeck } from "./deck";
-import { handCard, handCardDiscardToggle } from "./components/handCard";
+import { handCard, handCardDiscardToggle, handCardHidden } from "./components/handCard";
 import { playerPanel } from "./components/playerPanel";
+import { boardArtLayer, botAvatarImg } from "./components/sceneArt";
 import { stackPanel } from "./components/stackPanel";
 import { logPanel } from "./components/logPanel";
 import {
@@ -89,6 +97,86 @@ const PLAYER_IDS: PlayerId[] = ["player1", "player2"];
 
 function otherOf(p: PlayerId): PlayerId {
   return p === "player1" ? "player2" : "player1";
+}
+
+/**
+ * Anzeigename für user-facing Statustexte (Panel-Kopfzeile, Statusleiste,
+ * Mulligan-/Sieger-Banner): der erfundene Tavernen-Name (s.
+ * src/ai/difficulty.ts#BOT_DISPLAY_NAMES) statt der rohen `PlayerId`, aber
+ * NUR wenn der Spieler tatsächlich bot-gesteuert ist - für den menschlichen
+ * player1 und einen hotseat-menschlichen player2 bleibt es beim bisherigen
+ * "player1"/"player2". Bewusst NICHT im Ereignis-Log verwendet (s.
+ * store.ts#getLog/describeEvent) - das Log bleibt an der rohen `PlayerId`,
+ * damit es beim Debuggen technisch eindeutig bleibt.
+ */
+function playerDisplayName(playerId: PlayerId): string {
+  return isBotControlled(playerId) ? BOT_DISPLAY_NAMES[getBotDifficulty(playerId)] : playerId;
+}
+
+// ---------------------------------------------------------------------------
+// Sichtbare Übergänge statt Hard-Cut (Auftrag "Bot-Züge sichtbar statt Snap"):
+// `render()` baut das DOM weiterhin komplett neu auf (s. Dateikommentar oben,
+// unverändert) - NEU ist nur, dass dieser Rebuild, wenn möglich, innerhalb
+// von `document.startViewTransition()` läuft. Die View Transitions API
+// snapshotet automatisch den alten/neuen DOM-Zustand und blendet dazwischen
+// über, ganz ohne eigene Diffing-/Bewegungslogik - passt damit ungewöhnlich
+// gut zum bestehenden "State rein, DOM raus"-Rebuild-Muster dieser Datei.
+// Einzelne Karten-Kacheln tragen zusätzlich ein `view-transition-name`
+// (s. cardTile.ts/handCard.ts, Schema `card-<instanceId>`) - dieselbe
+// Karten-Instanz "morpht" dadurch automatisch zwischen Hand/Battlefield/
+// Friedhof statt nur weg- und neu eingeblendet zu werden (Auftrag Punkt 2+4).
+//
+// Bewusst NUR für Rebuilds INNERHALB der laufenden Partie aktiv (beide,
+// vorheriger UND neuer AppPhase-Wert, müssen "playing" sein) - der Deckbau-
+// Screen (bis zu 300 Pool-Karten gleichzeitig, s. deckBuilder.ts) bekäme bei
+// jedem +/--Klick eine potenziell teure Voll-Screenshot-Transition ohne
+// erkennbaren Nutzen (dort ändert sich nur ein Zähler, keine Karte bewegt
+// sich zwischen Zonen) - hier bewusst NICHT aktiviert. Der Phasenwechsel
+// selbst (Deckbau -> Spielbrett) bleibt ebenfalls ein Hard-Cut (komplett
+// andere Ansicht, kein Bedarf an einer Crossfade-Animation).
+//
+// Defensiv wie im gesamten Projekt üblich (s. cardArt.ts/sceneArt.ts-
+// Kommentare zu fehlenden Bild-Dateien): fehlt die API (Browser ohne
+// Unterstützung, z.B. aktuell Firefox/Safari) oder wünscht der Nutzer
+// reduzierte Bewegung (`prefers-reduced-motion: reduce`), bleibt es beim
+// bisherigen direkten Rebuild ohne Transition - keine Regression, keine
+// Fehlerbehandlung nötig.
+// ---------------------------------------------------------------------------
+
+function supportsViewTransitions(): boolean {
+  return typeof document !== "undefined" && typeof document.startViewTransition === "function";
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+let hasRenderedOnce = false;
+let previousAppPhaseKind: "deckbuild" | "playing" | undefined;
+
+/**
+ * Lebenspunkte-"Ticken" (Auftrag Punkt 3): reiner Anzeige-Zustand außerhalb
+ * des GameState (wie tutorialLastBuffTarget etc. in store.ts) - merkt sich
+ * den zuletzt GERENDERTEN Lebenswert je Spieler, damit `playerArea` bei einer
+ * Änderung eine kurze Puls-/Flash-Klasse an `playerPanel` durchreichen kann
+ * (s. playerPanel.ts#lifePulse, style.css). Bewusst UNABHÄNGIG von der View-
+ * Transitions-Unterstützung des Browsers (reines CSS-`animation`, läuft
+ * überall) - ein reiner Zahlen-Crossfade allein liefert laut Auftrag nicht
+ * das gewünschte "spürbare Reagieren". Wird bei jedem Verlassen der
+ * Spielphase geleert, damit die erste Anzeige einer NEUEN Partie nicht
+ * gegen die Lebenswerte der vorherigen Partie "pulst".
+ */
+let lifePulseTracking: Partial<Record<PlayerId, number>> = {};
+
+function computeLifePulse(playerId: PlayerId, life: number): "up" | "down" | undefined {
+  const previous = lifePulseTracking[playerId];
+  lifePulseTracking[playerId] = life;
+  if (previous === undefined || previous === life) return undefined;
+  return life > previous ? "up" : "down";
 }
 
 /**
@@ -155,8 +243,41 @@ function autoEnterForcedModes(state: GameState): void {
  * (AppPhase "deckbuild", vor dem ersten `initGame`) und dem eigentlichen
  * Spielbrett (AppPhase "playing"). Siehe types.ts#AppPhase - reiner
  * App-Ebene-UI-Zustand, kein Teil des GameState.
+ *
+ * Entscheidet zusätzlich, OB dieser Rebuild in eine View Transition
+ * eingepackt wird (s. Kommentarblock oben) - der eigentliche Rebuild selbst
+ * (`paint()`/`renderRoot`) ist unverändert derselbe komplette DOM-Neuaufbau
+ * wie zuvor.
  */
 export function render(root: HTMLElement): void {
+  const phase = getAppPhase();
+  const wasPlayingBefore = previousAppPhaseKind === "playing";
+  const animate =
+    hasRenderedOnce && wasPlayingBefore && phase.kind === "playing" && supportsViewTransitions() && !prefersReducedMotion();
+  hasRenderedOnce = true;
+  previousAppPhaseKind = phase.kind;
+  if (phase.kind !== "playing") {
+    // Partie verlassen/noch nicht gestartet - nächste Partie soll ohne
+    // "Pulsen" gegen die Lebenswerte der vorherigen Partie starten (s.o.).
+    lifePulseTracking = {};
+  }
+
+  const paint = () => renderRoot(root);
+  if (!animate) {
+    paint();
+    return;
+  }
+  const transition = document.startViewTransition(paint);
+  // Defensiv (s.o.): das DOM ist durch `paint()` bereits synchron
+  // aktualisiert, sobald die Browser-Engine den Callback aufruft - eine
+  // abgelehnte ready/finished-Promise (z.B. der seltene Grenzfall
+  // "doppelter view-transition-name") darf dennoch nie als unhandled
+  // rejection auffallen; es entfällt in dem Fall nur die Animation selbst.
+  transition.ready.catch(() => undefined);
+  transition.finished.catch(() => undefined);
+}
+
+function renderRoot(root: HTMLElement): void {
   const phase = getAppPhase();
   root.innerHTML = "";
   if (phase.kind === "deckbuild") {
@@ -273,23 +394,40 @@ function statusBar(state: GameState): HTMLElement {
   // priorityPlayer === undefined, siehe turn.ts).
   const canPass = state.priorityPlayer !== undefined && !state.pendingDecision;
   const priorityPlayer = state.priorityPlayer;
+  // Bug/Auftrag "Tutorial-Terrain-Sackgasse" (s. store.ts#getTutorialPassPriorityBlockReason
+  // + tutorialContent.ts#TutorialStep["mainPhaseOnly"]): solange ein Tutorial-
+  // Schritt aktiv ist, der NUR in der eigenen Hauptphase legal ist (playTerrain/
+  // castCreature), UND player1 gerade tatsächlich eine passende Kandidatenaktion
+  // hat, wird der Button gesperrt statt die Hauptphase unbemerkt zu verlassen.
+  const passBlockReason = priorityPlayer ? getTutorialPassPriorityBlockReason(priorityPlayer) : undefined;
 
   return h("div", { class: "status-bar" }, [
     h("span", {}, [text(`Zug ${state.turnNumber} · Step: ${state.step}`)]),
-    h("span", {}, [text(`Aktiver Spieler: ${state.activePlayer}`)]),
+    h("span", {}, [text(`Aktiver Spieler: ${playerDisplayName(state.activePlayer)}`)]),
     h(
       "span",
       {},
-      [text(priorityPlayer ? `Priority: ${priorityPlayer}` : "Priority: (Engine verarbeitet Turn-Based Action)")],
+      [
+        text(
+          priorityPlayer
+            ? `Priority: ${playerDisplayName(priorityPlayer)}`
+            : "Priority: (Engine verarbeitet Turn-Based Action)",
+        ),
+      ],
     ),
     canPass && priorityPlayer
       ? h(
           "button",
           {
             class: "btn btn-pass",
-            onclick: () => dispatch({ kind: "passPriority", player: priorityPlayer }),
+            disabled: !!passBlockReason,
+            title: passBlockReason,
+            onclick: () => {
+              if (passBlockReason) return;
+              dispatch({ kind: "passPriority", player: priorityPlayer });
+            },
           },
-          [text(`Priorität passen (${priorityPlayer})`)],
+          [text(`Priorität passen (${playerDisplayName(priorityPlayer)})`)],
         )
       : undefined,
     // v0.1.11: im Tutorial-Modus jederzeit alle bereits erklärten (und noch
@@ -301,6 +439,13 @@ function statusBar(state: GameState): HTMLElement {
     // isTutorialActive()-Einschränkung (Nutzer-Feedback trat in einer
     // normalen/Tutorial-Partie auf, nicht spezifisch im geführten Tutorial).
     keywordGlossaryButton(() => toggleKeywordGlossaryPanel()),
+    // App-weite Hintergrundmusik (s. musicPlayer.ts): Mute/Play-Umschalter
+    // ist analog zum Schlüsselwörter-Button jederzeit sichtbar/erreichbar,
+    // unabhängig vom Tutorial-Modus.
+    musicToggleButton(isMusicEnabled(), () => toggleMusicEnabled()),
+    // Soundeffekte (s. sfxPlayer.ts): eigenständiger Mute-Zustand neben dem
+    // Musik-Toggle, s. store.ts#isSfxEnabled-Dateikommentar.
+    sfxToggleButton(isSfxEnabled(), () => toggleSfxEnabled()),
     h(
       "button",
       { class: "btn btn-cancel", onclick: () => backToDeckbuilder() },
@@ -310,7 +455,9 @@ function statusBar(state: GameState): HTMLElement {
 }
 
 function gameOverBanner(state: GameState): HTMLElement {
-  return h("div", { class: "game-over-banner" }, [text(`Spiel beendet - Sieger: ${state.winner}`)]);
+  const winnerLabel =
+    state.winner === "player1" || state.winner === "player2" ? playerDisplayName(state.winner) : state.winner;
+  return h("div", { class: "game-over-banner" }, [text(`Spiel beendet - Sieger: ${winnerLabel}`)]);
 }
 
 /** Zentrale Ziel-/Eingabe-Kandidaten für die aktuelle PendingDecision (falls vorhanden). */
@@ -325,7 +472,7 @@ function actionBanner(state: GameState, mode: UiMode): HTMLElement[] {
       const decision = state.pendingDecision;
       return [
         mulliganPanel(
-          decision.player,
+          playerDisplayName(decision.player),
           decision.timesMulliganed,
           () =>
             dispatch({
@@ -513,11 +660,41 @@ function boardSection(state: GameState, pool: ReturnType<typeof getPool>, mode: 
   const targetCandidates = state.pendingDecision ? pendingDecisionCandidates(state) : mode.kind === "targeting" ? mode.candidates : [];
   const targetMap = candidatesByTargetKey(targetCandidates);
 
-  return h(
+  const board = h(
     "div",
     { class: "board" },
-    PLAYER_IDS.map((playerId) => playerArea(state, pool, playerId, mode, targetMap)),
+    // Szenen-Artwork (docs/scene-art-brief.md): Taverne-Hintergrundbild als
+    // erstes Kind - liegt damit über der Holzmaserung/dem Rauschen
+    // (.board::before) aber unter dem animierten Kerzenschein-Glow
+    // (.board::after) und den Spielerbereichen, s. Stacking-Kommentar in
+    // style.css / sceneArt.ts#boardArtLayer.
+    [boardArtLayer(), ...PLAYER_IDS.map((playerId) => playerArea(state, pool, playerId, mode, targetMap))],
   );
+
+  // Großer Gegner-Avatar rechts neben dem Spielfeld (statt des früheren
+  // kleinen Inline-Porträts im Panel-Header, s. sceneArt.ts#botAvatarImg):
+  // "der Gegner" ist UI-seitig immer player2 - nur dessen Deckbau-Screen
+  // bietet den KI-Umschalter überhaupt an (components/deckBuilder.ts,
+  // "aiToggle nur für player2"), player1 ist nie bot-gesteuert. Ohne
+  // aktiven Bot (Hotseat-Mensch als player2) bleibt die Spalte einfach weg -
+  // .board-row degradiert dann per CSS (flex) zu einer einspaltigen
+  // Vollbreiten-Ansicht, keine Lücke.
+  const opponentAvatar = isBotControlled("player2") ? opponentAvatarColumn(getBotDifficulty("player2")) : undefined;
+
+  return h("div", { class: "board-row" }, [board, opponentAvatar]);
+}
+
+/**
+ * Rechte Board-Spalte mit dem großformatigen Charakterporträt des
+ * bot-gesteuerten Gegners (Auftrag "Avatar größer + an den rechten Rand
+ * des Spielfelds"). Bild-Lade-/Fallback-Verhalten kommt unverändert aus
+ * sceneArt.ts#botAvatarImg (nur Größe/Position per CSS geändert, s.
+ * `.board-opponent-avatar-img` in style.css) - fehlt die Bilddatei, entfernt
+ * sich nur das <img>, die Spalte selbst bleibt (mit CSS-Fallback-Rahmen)
+ * stehen, kein Layoutbruch.
+ */
+function opponentAvatarColumn(difficulty: BotDifficulty): HTMLElement {
+  return h("div", { class: "board-opponent-avatar" }, [botAvatarImg(difficulty)]);
 }
 
 function playerArea(
@@ -537,15 +714,26 @@ function playerArea(
   // Engine schon lange unterstützte PlayerAction (game-state.ts), hier nur
   // ans UI verdrahtet.
   const canConcede = state.winner === undefined && !state.players[playerId].hasLost && !isBotControlled(playerId);
+  // Auftrag Punkt 3 ("Angriff/Schaden ... Lebenspunkte, die spürbar
+  // reagieren statt zu springen"): reine Anzeige-Ableitung, s.
+  // computeLifePulse oben - MUSS pro Render genau einmal pro Spieler
+  // aufgerufen werden (aktualisiert den Tracking-Zustand als Nebeneffekt).
+  const lifePulse = computeLifePulse(playerId, state.players[playerId].life);
 
   return h("div", { class: "player-area" }, [
     playerPanel(state, playerId, {
+      lifePulse,
       botControlled: isBotControlled(playerId),
       // v0.1.9: Anzeige der aktiven Bot-Schwierigkeitsstufe im Spielbrett-
       // Header (docs/ai-status.md Abschnitt 9.8, Punkt 3, optional) - nur
       // relevant, wenn der Spieler tatsächlich bot-gesteuert ist (playerPanel
       // zeigt das "KI"-Badge ohnehin nur dann an, s. dortiger Code).
       botDifficultyLabel: isBotControlled(playerId) ? BOT_DIFFICULTY_LABELS[getBotDifficulty(playerId)] : undefined,
+      // Erfundener Tavernen-Name statt der rohen PlayerId, nur bei
+      // bot-gesteuerten Spielern (s. playerDisplayName oben). Das
+      // großformatige Porträt selbst hängt nicht mehr am Panel-Header,
+      // s. boardSection#opponentAvatarColumn.
+      displayName: playerDisplayName(playerId),
       targetable: !!playerCandidate || xTargetsPlayer,
       onClick: playerCandidate
         ? () => dispatch(playerCandidate)
@@ -583,16 +771,46 @@ function playerArea(
 function handZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: PlayerId, mode: UiMode): HTMLElement {
   const hand = state.players[playerId].hand;
 
+  // Cleanup-Abwurf (rules-engine.md 2, discardToHandSize): eine erzwungene,
+  // nicht überspringbare Entscheidung OHNE automatischen Lösungsweg außer der
+  // Auswahl selbst (kein "Priorität passen" möglich, s. statusBar - während
+  // dieser Entscheidung ist priorityPlayer immer undefined). Bewusst VOR der
+  // Verdeckungs-Regel unten geprüft und von ihr ausgenommen: das ist keine
+  // passive Drittsicht auf fremde Karten, sondern DER Moment, in dem
+  // `playerId` selbst (ob player1 oder nicht) am Zug ist, seine eigenen
+  // Karten auszuwählen - ohne diese Ausnahme gäbe es für einen nicht bot-
+  // gesteuerten player2 (Hotseat) gar keinen Weg mehr, hand.length > 7
+  // aufzulösen (echter Deadlock statt nur eingeschränkter Bedienbarkeit, s.
+  // Verdeckungs-Kommentar unten für den bewusst hingenommenen Grenzfall
+  // "spielt aus der Hand").
   if (mode.kind === "discarding" && mode.player === playerId) {
     const tiles = hand.map((id) => {
       const def = cardDef(pool, state, id);
       const selected = mode.selected.includes(id);
-      return handCardDiscardToggle(def, selected, () => {
+      return handCardDiscardToggle(id, def, selected, () => {
         const next = selected ? mode.selected.filter((x) => x !== id) : [...mode.selected, id];
         setUiMode({ ...mode, selected: next });
       });
     });
     return h("div", { class: "hand-zone" }, tiles);
+  }
+
+  // Verdeckte Information (Auftrag "Gegner-Hand ist komplett sichtbar"):
+  // dieselbe Konvention wie beim Tutorial-Highlight unten - player1 ist IMMER
+  // die lokale/menschliche Sicht (s. store.ts#startTutorial). JEDE andere
+  // Hand (aktuell nur player2, generisch für künftige Erweiterungen offen
+  // gehalten statt hart auf "player2" verdrahtet) zeigt deshalb NIE volle
+  // Kartendetails (Name/Kosten/Regeltext) beim bloßen Betrachten/Ausspielen -
+  // unabhängig davon, ob dieser Spieler gerade bot-gesteuert ist oder (im
+  // lokalen Hotseat-Fall) ein zweiter Mensch am selben Bildschirm. Bewusst
+  // KEIN echtes Pass-and-Play-Verdeckungssystem (Bildschirm umdrehen,
+  // Sichtbarkeit abhängig von "wer ist gerade dran" o.ä.) - außerhalb des
+  // Auftrags; ein echter zweiter Mensch kann in diesem Modus dadurch aktuell
+  // keine Karte aus seiner Hand aktiv aussuchen/spielen (bewusst hingenommene
+  // Einschränkung laut Auftrag - anders als beim Abwurf oben gibt es hierfür
+  // keinen erzwungenen Deadlock, der Zug läuft einfach ohne diese Aktion weiter).
+  if (playerId !== "player1") {
+    return hiddenHandZone(hand);
   }
 
   const isActingPlayer = state.priorityPlayer === playerId && !state.pendingDecision;
@@ -630,6 +848,19 @@ function handZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: 
     });
   });
   return h("div", { class: "hand-zone" }, tiles);
+}
+
+/**
+ * Verdeckte Darstellung einer fremden Hand (s. handZone oben, Auftrag
+ * "Gegner-Hand ist komplett sichtbar"): nur Kartenrückseiten + Gesamtzahl,
+ * keine Namen/Kosten/Regeltexte, nichts davon anklickbar.
+ */
+function hiddenHandZone(hand: readonly InstanceId[]): HTMLElement {
+  const tiles = hand.map((id) => handCardHidden(id));
+  return h("div", { class: "hand-zone hand-zone-hidden" }, [
+    ...tiles,
+    h("div", { class: "hand-zone-hidden-count" }, [text(`${hand.length} ${hand.length === 1 ? "Karte" : "Karten"}`)]),
+  ]);
 }
 
 function battlefieldZone(

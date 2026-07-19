@@ -31,6 +31,20 @@
   --mana-void-dark: #3a2560;
   --mana-colorless-dark: #33373f;
 
+  /* Taverne/Spielbrett-Atmosphäre (reines CSS/SVG, keine Bild-Assets, s.
+     Auftrag "Taverne, in der das Spiel gespielt wird") - eigene Variablen
+     statt die generischen --panel/--border/--muted-Werte umzudefinieren, da
+     letztere auch außerhalb des Spielbretts (Deckbau-Screen, Tutorial-
+     Overlays, ...) verwendet werden und dort unverändert bleiben sollen. */
+  --wood-1: #4a3018;
+  --wood-2: #2c1c0e;
+  --wood-3: #19100a;
+  --tavern-panel-a: rgba(58, 42, 26, 0.92);
+  --tavern-panel-b: rgba(30, 21, 13, 0.94);
+  --tavern-border: rgba(224, 185, 90, 0.2);
+  --candle-glow: rgba(255, 178, 104, 0.14);
+  --parchment-muted: #cdb996;
+
   font-family: "Segoe UI", system-ui, sans-serif;
 }
 
@@ -38,10 +52,19 @@
   box-sizing: border-box;
 }
 
+/* Warmer, gedämpfter Raum-Hintergrund hinter dem gesamten Board - dunkler
+   Verlauf mit sanfter "Kerzenschein"-Aufhellung nahe der Mitte/oben statt
+   eines flachen --bg-Tons, s. Auftrag Punkt 1 ("Vignette, Ränder
+   abgedunkelt, Mitte heller"). Rein dekorativ (background, kein Bild-Asset). */
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
   color: var(--text);
+  background:
+    radial-gradient(ellipse 900px 520px at 50% -8%, rgba(255, 196, 130, 0.1), transparent 60%),
+    radial-gradient(ellipse 1500px 950px at 50% 32%, #241a10 0%, #140d07 55%, #070502 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
 
 #app {
@@ -57,11 +80,12 @@ body {
   display: flex;
   gap: 16px;
   align-items: center;
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--tavern-panel-a), var(--tavern-panel-b));
+  border: 1px solid var(--tavern-border);
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 14px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
 }
 
 .status-bar .btn {
@@ -195,27 +219,178 @@ body {
   font-size: 13px;
 }
 
+/* Wrapper um `.board` + die optionale rechte Gegner-Avatar-Spalte (Auftrag
+   "Avatar größer + an den rechten Rand des Spielfelds", s.
+   render.ts#boardSection/opponentAvatarColumn). Ohne aktiven Bot (Hotseat-
+   Mensch als player2) rendert render.ts die Spalte gar nicht erst - `.board`
+   bleibt dann als einziges Flex-Kind einfach vollbreit, keine Lücke. Bei
+   schmaleren Fenstern (Auftrag: "auch in einem normalen Browserfenster, nicht
+   nur Vollbild") blendet die Media Query weiter unten die Spalte aus, statt
+   das Spielfeld zu quetschen. */
+.board-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 14px;
+}
+
+/* "Tischplatte", auf der das Spiel stattfindet (Auftrag Punkt 2): warmer
+   Holz-Verlauf + feines, per SVG-feTurbulence erzeugtes Maserungs-Rauschen
+   (::before, mix-blend-mode: overlay, sehr geringe Deckkraft) + zwei sanft
+   "flackernde" Kerzenschein-Pools (::after) an den oberen Ecken. `isolation:
+   isolate` + `overflow: hidden` halten diese rein dekorativen Layer auf den
+   Tisch beschränkt; `.player-area` bekommt weiter unten einen eigenen
+   Stacking-Context (position: relative + z-index), damit Karten/Text immer
+   über dem Kerzenschein-Layer bleiben (Lesbarkeit, s. Auftrag). */
 .board {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 18px 14px 20px;
+  border-radius: 14px;
+  /* Flex-Item in `.board-row`: darf schrumpfen (min-width: 0 hebt den
+     Flexbox-Default `min-width: auto` auf, der sonst Karteninhalte über die
+     verfügbare Breite hinaus drücken würde) und nimmt den gesamten
+     verbleibenden Platz neben der schmaleren Avatar-Spalte ein. */
+  flex: 1 1 auto;
+  min-width: 0;
+  background:
+    repeating-linear-gradient(92deg, rgba(0, 0, 0, 0.1) 0px, rgba(0, 0, 0, 0.1) 1px, transparent 1px, transparent 5px),
+    linear-gradient(165deg, var(--wood-1) 0%, var(--wood-2) 55%, var(--wood-3) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.5),
+    inset 0 44px 70px -34px rgba(0, 0, 0, 0.7),
+    0 14px 30px rgba(0, 0, 0, 0.55);
 }
 
+.board::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.board::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 55% 40% at 18% 0%, var(--candle-glow), transparent 62%),
+    radial-gradient(ellipse 55% 40% at 82% 0%, var(--candle-glow), transparent 62%);
+  animation: tavern-flicker 6s ease-in-out infinite;
+}
+
+@keyframes tavern-flicker {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  35% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.68;
+  }
+  72% {
+    opacity: 0.95;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board::after {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   View Transitions (render.ts#render, Auftrag "Bot-Züge sichtbar statt
+   Snap"): `document.startViewTransition()` snapshotet automatisch den
+   alten/neuen DOM-Zustand jedes kompletten Board-Rebuilds und blendet
+   dazwischen über. Hier nur global auf ein etwas knackigeres Timing als der
+   Browser-Default (~250ms) gebracht (Richtwert 150-400ms lt. Auftrag) -
+   keine eigene Bewegungslogik nötig, der Browser übernimmt Positions-/
+   Größenänderungen einzelner benannter Elemente (`view-transition-name`,
+   s. cardTile.ts/handCard.ts) automatisch als "Morph". Läuft nur, wenn
+   render.ts die Transition überhaupt startet (Browser-Unterstützung +
+   `prefers-reduced-motion` bereits dort geprüft) - dieser Block wird in
+   Browsern ohne Unterstützung schlicht nie wirksam (keine Pseudo-Elemente
+   entstehen), keine Regression. */
+::view-transition-group(*) {
+  animation-duration: 260ms;
+  animation-timing-function: ease-in-out;
+}
+
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 220ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Zusätzliches Sicherheitsnetz - render.ts startet bei reduzierter
+     Bewegung ohnehin gar keine Transition mehr, dieser Block greift also im
+     Normalfall nie, verhindert aber jede Restanimation, falls doch einmal
+     eine View Transition läuft (z.B. künftiger Code-Pfad). */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* Szenen-Artwork (docs/scene-art-brief.md / components/sceneArt.ts): das
+   Taverne-Hintergrundbild liegt als erstes Kind von .board im DOM, dadurch
+   in der Malreihenfolge über der Holzmaserung/dem Rauschen (::before) aber
+   unter dem animierten Kerzenschein-Glow (::after, s.o.) und den
+   Spielerbereichen (.player-area hat z-index: 1) - ergänzt die bestehende
+   CSS-Atmosphäre statt sie zu ersetzen: fehlt die Datei, entfernt sich das
+   <img> selbst (s. sceneArt.ts#boardArtLayer) und GENAU der bisherige
+   Holzmaserung-Verlauf von .board bleibt unverändert sichtbar. Bis zum
+   "load"-Event unsichtbar (kein Blitzen eines kaputten Icons), .board's
+   `overflow: hidden` übernimmt das Zuschneiden auf die abgerundeten Ecken. */
+.board-art-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.board-art-img-loaded {
+  opacity: 0.85;
+}
+
+/* "Sitzplatz" am Tisch statt reiner Infobox (Auftrag Punkt 3): eigener
+   Stacking-Context (s. Kommentar oben) + Tiefenschatten + minimaler warmer
+   Glanzsaum oben. */
 .player-area {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--tavern-panel-a) 0%, var(--tavern-panel-b) 100%);
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 210, 160, 0.06);
 }
 
 .zone-label {
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  letter-spacing: 0.06em;
+  color: var(--parchment-muted);
+  opacity: 0.85;
   margin-top: 4px;
 }
 
@@ -225,7 +400,11 @@ body {
   gap: 2px;
   padding: 6px 8px;
   border-radius: 6px;
-  background: var(--panel-2);
+  background: linear-gradient(135deg, rgba(74, 54, 32, 0.9), rgba(40, 29, 18, 0.92));
+  border: 1px solid var(--tavern-border);
+  box-shadow:
+    0 0 10px rgba(255, 176, 102, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .player-panel-head {
@@ -236,6 +415,66 @@ body {
 
 .player-panel-name {
   font-weight: 700;
+}
+
+/* Großer Gegner-Avatar rechts neben dem Spielfeld (Szenen-Artwork, s.
+   docs/scene-art-brief.md / components/sceneArt.ts#botAvatarImg) - ersetzt
+   das frühere kleine 22px-Porträt im Panel-Header (s. render.ts#boardSection
+   für die Sichtbarkeits-Logik: nur gerendert, wenn player2 bot-gesteuert
+   ist). Eigener "Rahmen" im Taverne-Look, damit selbst OHNE Bilddatei (CSS-
+   Fallback, `error`-Event entfernt nur das <img>, s. sceneArt.ts) eine
+   plausible leere Bildnische statt eines kaputten Layouts steht. flex-shrink:
+   0 hält die Spalte auf fester Breite, während `.board` daneben schrumpft/
+   wächst (s. `.board` min-width: 0 oben). */
+.board-opponent-avatar {
+  flex: 0 0 220px;
+  width: 220px;
+  /* Quadratisch, wie die generierten Brustporträts selbst (s.
+     docs/scene-art-brief.md, "quadratisch, 1:1") - gesetzt auf den Rahmen
+     statt nur auf das <img>, damit die Nische ihre Größe/Form auch OHNE
+     geladenes Bild (CSS-Fallback) behält, statt auf 0 Höhe zu kollabieren.
+     `align-self: flex-start` verhindert, dass `.board-row`s
+     `align-items: stretch` die Spalte auf die volle (viel größere)
+     Board-Höhe zieht. */
+  aspect-ratio: 1 / 1;
+  align-self: flex-start;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--tavern-panel-a) 0%, var(--tavern-panel-b) 100%);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 210, 160, 0.06);
+  overflow: hidden;
+}
+
+.board-opponent-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.board-opponent-avatar-img-loaded {
+  opacity: 1;
+}
+
+/* Auftrag "auch in einem normalen Browserfenster, nicht nur Vollbild
+   nutzbar": unter dieser Breite verdrängt die feste 220px-Avatar-Spalte zu
+   viel Platz vom eigentlichen Spielfeld (Hand-/Battlefield-Kacheln) - die
+   Spalte blendet sich hier komplett aus, `.board` nimmt wieder die volle
+   Breite ein (s. `.board-row`). Rein kosmetisches Element, kein
+   Funktionsverlust. */
+@media (max-width: 900px) {
+  .board-opponent-avatar {
+    display: none;
+  }
 }
 
 .btn-concede {
@@ -288,6 +527,75 @@ body {
   color: var(--muted);
 }
 
+/* Auftrag Punkt 3 ("Angriff/Schaden ... Lebenspunkte, die spürbar
+   reagieren statt zu springen"): kurzer Puls-/Flash-Effekt beim Ändern des
+   Lebenswerts (s. playerPanel.ts#lifePulse/render.ts#computeLifePulse) -
+   bewusst als eigenständiges CSS-`animation`-Keyframe statt über die View-
+   Transitions-API gelöst: ein reiner Crossfade des alten/neuen Zahlenwerts
+   liefert nicht das gewünschte "Ticken", und dieser Effekt soll UNABHÄNGIG
+   von der Browser-Unterstützung der View Transitions API überall laufen
+   (jedes Element wird bei jedem Rebuild frisch erzeugt - die Animation
+   spielt dadurch automatisch einmal ab, sobald die Klasse gesetzt ist, ohne
+   eigene Start-/Cleanup-Logik in JS). `display: inline-block` nur hier
+   nötig, damit `transform: scale()` einen sauberen Skalierungsmittelpunkt
+   hat, ohne das sonstige Block-Layout der Zeile zu verändern. */
+.player-panel-life {
+  display: inline-block;
+}
+
+.player-panel-life.life-pulse-down {
+  animation: life-pulse-down 450ms ease-out;
+}
+
+.player-panel-life.life-pulse-up {
+  animation: life-pulse-up 450ms ease-out;
+}
+
+@keyframes life-pulse-down {
+  0% {
+    transform: scale(1);
+    color: var(--muted);
+  }
+  30% {
+    transform: scale(1.22);
+    color: var(--bad);
+    text-shadow: 0 0 8px rgba(224, 90, 90, 0.7);
+  }
+  100% {
+    transform: scale(1);
+    color: var(--muted);
+    text-shadow: none;
+  }
+}
+
+@keyframes life-pulse-up {
+  0% {
+    transform: scale(1);
+    color: var(--muted);
+  }
+  30% {
+    transform: scale(1.22);
+    color: var(--good);
+    text-shadow: 0 0 8px rgba(63, 191, 107, 0.7);
+  }
+  100% {
+    transform: scale(1);
+    color: var(--muted);
+    text-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-panel-life.life-pulse-down,
+  .player-panel-life.life-pulse-up {
+    animation: none;
+  }
+}
+
+/* Zonen als leicht eingelassene Flächen auf dem Tisch statt formularartiger,
+   nackter Flex-Reihen - .battlefield-zone bekommt zusätzlich eine eigene,
+   deutlichere Holzmaserung, da hier das eigentliche Spielgeschehen
+   stattfindet ("Tischplatte" im engeren Sinn, s. Auftrag Punkt 2). */
 .hand-zone,
 .battlefield-zone,
 .graveyard-zone {
@@ -295,6 +603,19 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   min-height: 40px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
+}
+
+.battlefield-zone {
+  background:
+    repeating-linear-gradient(95deg, rgba(255, 255, 255, 0.02) 0px, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 6px),
+    linear-gradient(175deg, #3a2a18 0%, #21160c 100%);
+  box-shadow:
+    inset 0 3px 10px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.3);
 }
 
 .empty-hint {
@@ -544,6 +865,37 @@ body {
   color: var(--muted);
 }
 
+/* Verdeckte fremde Hand (Auftrag "Gegner-Hand ist komplett sichtbar", s.
+   render.ts#hiddenHandZone/components/handCard.ts#handCardHidden): reine
+   Kartenrückseiten-Optik statt des vollen Kartenrahmens - bewusst ohne
+   Kopfzeile/Textbereich, damit auf keinen Fall Name/Kosten/Regeltext
+   durchscheinen. */
+.hand-card-hidden {
+  cursor: default;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+}
+
+.hand-card-hidden-back {
+  width: 100%;
+  height: 100%;
+  min-height: 140px;
+  border-radius: 4px;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 6px, transparent 6px, transparent 12px),
+    linear-gradient(155deg, var(--mana-colorless) 0%, var(--mana-colorless-dark) 100%);
+  border: 1px solid var(--border);
+}
+
+.hand-zone-hidden-count {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+  padding: 6px;
+}
+
 .card-tile.targetable {
   cursor: pointer;
 }
@@ -563,10 +915,11 @@ body {
 }
 
 .stack-panel {
-  border: 1px solid var(--border);
+  border: 1px solid var(--tavern-border);
   border-radius: 8px;
-  background: var(--panel);
+  background: linear-gradient(135deg, rgba(48, 36, 22, 0.92), rgba(26, 19, 12, 0.94));
   padding: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .stack-panel-title,
@@ -610,12 +963,13 @@ body {
 }
 
 .log-panel {
-  border: 1px solid var(--border);
+  border: 1px solid var(--tavern-border);
   border-radius: 8px;
-  background: var(--panel);
+  background: linear-gradient(135deg, rgba(48, 36, 22, 0.92), rgba(26, 19, 12, 0.94));
   padding: 10px;
   max-height: 220px;
   overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .log-list {
@@ -649,6 +1003,12 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.deckbuilder-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .deckbuilder-controls {
@@ -929,6 +1289,12 @@ body {
 }
 
 .tutorial-help-btn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.music-toggle-btn,
+.sfx-toggle-btn {
   border-color: var(--accent);
   color: var(--accent);
 }

@@ -103,11 +103,46 @@ export function handCard(
     children.push(h("div", { class: "hand-card-actions" }, actions));
   }
 
-  return h("div", { class: classes.join(" ") }, children);
+  return h(
+    "div",
+    {
+      class: classes.join(" "),
+      // Sichtbare Übergänge (s. render.ts-Kommentarblock zu View
+      // Transitions / cardTile.ts): GLEICHES Namensschema wie cardTile.ts -
+      // dieselbe Karten-Instanz "morpht" dadurch automatisch von der Hand
+      // aufs Battlefield beim Ausspielen (Auftrag Punkt 2), auch wenn Hand-
+      // und Board-Darstellung strukturell unterschiedliches Markup haben.
+      style: `view-transition-name: card-${cardInstanceId}`,
+    },
+    children,
+  );
+}
+
+/**
+ * Verdeckte Handkarten-Kachel (Kartenrückseite) für JEDE Hand außer der von
+ * player1 (dem lokalen menschlichen Spieler, s. render.ts#handZone) - zeigt
+ * bewusst WEDER Name noch Kosten noch Regeltext (verdeckte Information ist
+ * Kern eines Kartenspiels wie diesem), NICHT klickbar/interaktiv (anders als
+ * `handCardDiscardToggle` unten, das nur strukturell als Vorbild für eine
+ * vereinfachte Kachel diente). Trägt denselben `view-transition-name` wie
+ * `handCard`/`cardTile` (Schema `card-<instanceId>`), damit der Karten-Morph-
+ * Übergang beim Ausspielen einer zuvor verdeckten Karte (Hand -> Battlefield)
+ * weiterhin funktioniert.
+ */
+export function handCardHidden(cardInstanceId: InstanceId): HTMLElement {
+  return h(
+    "div",
+    {
+      class: "hand-card hand-card-hidden",
+      style: `view-transition-name: card-${cardInstanceId}`,
+    },
+    [h("div", { class: "hand-card-hidden-back" }, [])],
+  );
 }
 
 /** Vereinfachte Handkarten-Kachel für den Cleanup-Abwurf: nur Name/Kosten + Auswahl-Toggle. */
 export function handCardDiscardToggle(
+  cardInstanceId: InstanceId,
   def: CardDefinition,
   selected: boolean,
   onToggle: () => void,
@@ -115,15 +150,19 @@ export function handCardDiscardToggle(
   const cost = "cost" in def ? def.cost : undefined;
   const classes = ["hand-card", "discard-toggle", dominantColorClass(cost ?? {})];
   if (selected) classes.push("selected");
-  return h("div", { class: classes.join(" "), onclick: onToggle }, [
-    h("div", { class: "card-frame-header" }, [
-      h("div", { class: "card-frame-name hand-card-name" }, [text(def.name)]),
-      cost ? manaCostBadge(cost) : undefined,
-    ]),
-    h("div", { class: "card-frame-frame" }, [
-      cardFrameArt(def),
-      h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
-    ]),
-    h("div", { class: "discard-toggle-hint" }, [text(selected ? "wird abgeworfen" : "anklicken zum Abwerfen")]),
-  ]);
+  return h(
+    "div",
+    { class: classes.join(" "), style: `view-transition-name: card-${cardInstanceId}`, onclick: onToggle },
+    [
+      h("div", { class: "card-frame-header" }, [
+        h("div", { class: "card-frame-name hand-card-name" }, [text(def.name)]),
+        cost ? manaCostBadge(cost) : undefined,
+      ]),
+      h("div", { class: "card-frame-frame" }, [
+        cardFrameArt(def),
+        h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
+      ]),
+      h("div", { class: "discard-toggle-hint" }, [text(selected ? "wird abgeworfen" : "anklicken zum Abwerfen")]),
+    ],
+  );
 }

@@ -84,6 +84,31 @@ export interface TutorialStep {
   /** Bestätigung/Ergebnis-Erklärung — NACHDEM die erwartete Aktion erkannt wurde (modale Sprechblase). Bei `infoOnly`-Schritten ungenutzt. */
   confirmation: TutorialStepText;
   /**
+   * true = die erwartete Aktion dieses Schritts ist nur zu "Hexerei-Timing"
+   * legal (eigener Zug, Main-Phase, leerer Stack — spiegelt
+   * src/engine/legality.ts#isMainPhaseTimingOk; reines Kennzeichnungsfeld,
+   * KEINE eigene Regelentscheidung, s. Dateikommentar oben). Bug/Auftrag
+   * "Terrain-Sackgasse": solange dieser Schritt aktiv, noch nicht erledigt
+   * ist UND player1 gerade tatsächlich eine passende Kandidatenaktion zur
+   * Verfügung hat, blockiert store.ts#getTutorialPassPriorityBlockReason den
+   * "Priorität passen"-Button — ein Klick würde sonst unbemerkt die Main-
+   * Phase verlassen (z.B. Richtung `declareAttackers`) und die Aktion für
+   * den Rest des Zugs unerreichbar machen (bei `playTerrain` sogar für den
+   * gesamten Rest der Partie, da nur 1 Terrain pro Zug erlaubt ist), OHNE
+   * dass am unverändert weiter angezeigten Instruktionstext noch erkennbar
+   * wäre, warum der erwartete Button plötzlich verschwunden ist.
+   *
+   * Bewusst NICHT gesetzt für `castDamageSpell`/`castBuffSpell`: die
+   * zugehörigen Testkarten (core.fire-jolt/core.blazing-frenzy, s.
+   * TUTORIAL_STEP_HAND_CARD_IDS unten) sind beide `speed: "fast"`
+   * (Spontanzauber) — laut legality.ts#canCastNow bleiben die JEDERZEIT
+   * castbar, solange der Spieler Priority hat, auch außerhalb der eigenen
+   * Hauptphase/des eigenen Zugs. Das Verlassen der Hauptphase kostet die
+   * Aktion dort also nie — dieselbe Sackgassen-Gefahr besteht dort nicht,
+   * eine Sperre wäre dort nur unnötig einschränkend.
+   */
+  mainPhaseOnly?: boolean;
+  /**
    * Erkennt, ob dieser Schritt gerade "erledigt"/"jetzt erreicht" ist. Wird
    * von `store.ts` nach JEDER Aktion für JEDEN Schritt aufgerufen (nicht nur
    * den aktiven), s. Dateikommentar oben. Bei Aktions-Schritten typischerweise
@@ -143,11 +168,13 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     id: "playTerrain",
+    mainPhaseOnly: true,
     instruction: {
       title: "Terrain spielen",
       body:
-        "Legt jetzt das hervorgehobene Terrain (Flammenkuppe) aus eurer Hand. Pro Zug dürft ihr genau eines " +
-        "spielen — es ist eure Manaquelle für den Rest der Partie.",
+        "Legt jetzt das hervorgehobene Terrain (Flammenkuppe) aus eurer Hand: Klickt dazu auf der Handkarte den " +
+        "Button \"Terrain legen\". Pro Zug dürft ihr genau eines spielen — es ist eure Manaquelle für den Rest " +
+        "der Partie.",
     },
     confirmation: {
       title: "Terrain gespielt",
@@ -181,6 +208,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     id: "castCreature",
+    mainPhaseOnly: true,
     instruction: {
       title: "Eine Kreatur beschwören",
       body:

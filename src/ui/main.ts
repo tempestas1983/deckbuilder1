@@ -11,6 +11,8 @@
 import "./style.css";
 import { subscribe } from "./store";
 import { render } from "./render";
+import { initMusicPlayer } from "./musicPlayer";
+import { initSfxPlayer } from "./sfxPlayer";
 
 const root = document.getElementById("app");
 if (!root) {
@@ -19,3 +21,15 @@ if (!root) {
 
 subscribe(() => render(root));
 render(root);
+
+// App-weite Hintergrundmusik (s. musicPlayer.ts-Dateikommentar): eigenes
+// Singleton-<audio>-Element AUSSERHALB von #app, überlebt damit jeden
+// render()-Rebuild unangetastet. Bewusst NUR hier aufgerufen (App-
+// Einstiegspunkt), nicht in store.ts/render.ts selbst.
+initMusicPlayer();
+
+// Kurze Soundeffekte (s. sfxPlayer.ts-Dateikommentar): analog NUR hier
+// initialisiert (Testsicherheit) - store.ts/render.ts rufen zwar
+// `playSfx()`/`playSfxForEvent()` auf, erzeugen aber selbst keine
+// `<audio>`-Elemente.
+initSfxPlayer();

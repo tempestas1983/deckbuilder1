@@ -65,7 +65,13 @@ describe("Frontend Golden Path (End-to-End ab App-Start, v0.1.5)", () => {
     // aber nicht-null Wahrscheinlichkeit flaky (Starthand ohne Terrain).
     // Die Engine-eigene RNG (src/engine/rng.ts) ist ohnehin unabhängig von
     // Math.random() (eigener geseedeter mulberry32-State im GameState).
-    randomSpy = vi.spyOn(Math, "random").mockImplementation(makeSeededRandom(20260709));
+    // Seed 20260711 statt (vormals) 20260709: mit diesem konkreten Seed
+    // gewinnt player1 den Münzwurf (engine/create-game.ts) und hat 4 Terrains
+    // in der Starthand - relevant seit "Gegner-Hand ist komplett sichtbar"
+    // (render.ts#handZone zeigt jetzt NUR player1s Hand interaktiv an, s.
+    // dortiger Kommentar); der "Terrain legen"-Klick unten setzt daher
+    // voraus, dass player1 (nicht player2) die Priorität in Main1 hat.
+    randomSpy = vi.spyOn(Math, "random").mockImplementation(makeSeededRandom(20260711));
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 

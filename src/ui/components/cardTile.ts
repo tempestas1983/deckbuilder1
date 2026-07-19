@@ -95,6 +95,13 @@ export function cardTile(
     {
       class: classes.join(" "),
       title: def.rulesText ?? def.name,
+      // Sichtbare Übergänge (s. render.ts-Kommentarblock zu View
+      // Transitions): eindeutiger Name je Karten-Instanz - dieselbe Karte
+      // "morpht" dadurch automatisch zwischen Zonen (z.B. Battlefield ->
+      // Friedhof, Auftrag Punkt 4), statt nur weg- und neu eingeblendet zu
+      // werden. Browser ohne API-Unterstützung ignorieren die unbekannte
+      // CSS-Deklaration einfach - keine Fehlerbehandlung nötig.
+      style: `view-transition-name: card-${instanceId}`,
       onclick: opts.onClick as ((ev: Event) => void) | undefined,
     },
     [

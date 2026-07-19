@@ -10,6 +10,7 @@
 import { createRulesEngine } from "../engine";
 import { starterSet } from "../cards/starter-set";
 import { chooseActionForDifficulty, DEFAULT_BOT_DIFFICULTY, type BotDifficulty } from "../ai";
+import { playSfx } from "./sfxPlayer";
 import type { CardPool, GameEvent, GameState, InstanceId, Keyword, PlayerAction, PlayerId, RulesEngine } from "../model";
 import type { AppPhase, UiMode } from "./types";
 import {
@@ -110,6 +111,101 @@ function notify(): void {
 export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+// ---------------------------------------------------------------------------
+// Hintergrundmusik-Präferenz (an/aus): reine UI-Einstellung, kein Teil des
+// GameState, exakt gleiches Persistenz-Muster wie die Decklisten oben
+// (localStorage-Fallback, defensiv gegen fehlendes/deaktiviertes
+// localStorage - darf die App nie zum Absturz bringen). Das eigentliche
+// `<audio>`-Element inkl. Play/Pause/Browser-Autoplay-Handling lebt bewusst
+// NICHT hier, sondern in einem eigenen Singleton-Modul (`./musicPlayer.ts`),
+// das sich per `subscribe()` genau wie `render()` an Store-Änderungen hängt -
+// so bleibt store.ts frei von DOM-/Audio-API-Zugriffen (reiner Zustand +
+// Persistenz), während musicPlayer.ts das dauerhafte, Rebuild-sichere
+// `<audio>`-Element verwaltet (s. dortiger Dateikommentar).
+// ---------------------------------------------------------------------------
+
+const MUSIC_ENABLED_STORAGE_KEY = "deckbuilder1.musicEnabled";
+
+/** Defensiv wie loadDeckFromLocalStorage: fehlt/ist ungültig der gespeicherte Wert, startet Musik standardmäßig AN. */
+function loadMusicEnabledFromLocalStorage(): boolean {
+  try {
+    const raw = window.localStorage.getItem(MUSIC_ENABLED_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function saveMusicEnabledToLocalStorage(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(MUSIC_ENABLED_STORAGE_KEY, String(enabled));
+  } catch {
+    // localStorage nicht verfügbar/voll/deaktiviert - einfach ignorieren (s.o.).
+  }
+}
+
+let musicEnabled: boolean = loadMusicEnabledFromLocalStorage();
+
+/** Aktuell gewünschter Musik-Zustand (persistiert über Sessions hinweg, s.o.). */
+export function isMusicEnabled(): boolean {
+  return musicEnabled;
+}
+
+/** Mute/Play-Umschalter (Klick auf den Musik-Button in der Statusleiste/im Deckbau-Header). */
+export function toggleMusicEnabled(): void {
+  musicEnabled = !musicEnabled;
+  saveMusicEnabledToLocalStorage(musicEnabled);
+  notify();
+}
+
+// ---------------------------------------------------------------------------
+// Soundeffekt-Präferenz (an/aus): eigenständiger Mute-Zustand, UNABHÄNGIG von
+// `musicEnabled` oben (Auftrag: "eigener Mute-Zustand") - wer z.B. nur die
+// Hintergrundmusik stört, aber Karten-/Kampf-Soundeffekte behalten möchte
+// (oder umgekehrt), kann beide getrennt umschalten. Exakt gleiches
+// Persistenz-/Delegations-Muster wie oben: reiner Zustand + localStorage
+// hier in store.ts, das eigentliche Abspielen (inkl. `<audio>`-Element-
+// Erzeugung) lebt in `./sfxPlayer.ts` (s. dortiger Dateikommentar für die
+// Testsicherheits-Begründung, warum das ein separates, nur explizit aus
+// main.ts initialisiertes Modul ist).
+// ---------------------------------------------------------------------------
+
+const SFX_ENABLED_STORAGE_KEY = "deckbuilder1.sfxEnabled";
+
+/** Defensiv wie loadMusicEnabledFromLocalStorage: fehlt/ist ungültig der gespeicherte Wert, starten Soundeffekte standardmäßig AN. */
+function loadSfxEnabledFromLocalStorage(): boolean {
+  try {
+    const raw = window.localStorage.getItem(SFX_ENABLED_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function saveSfxEnabledToLocalStorage(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(SFX_ENABLED_STORAGE_KEY, String(enabled));
+  } catch {
+    // localStorage nicht verfügbar/voll/deaktiviert - einfach ignorieren (s.o.).
+  }
+}
+
+let sfxEnabled: boolean = loadSfxEnabledFromLocalStorage();
+
+/** Aktuell gewünschter Soundeffekt-Zustand (persistiert über Sessions hinweg, s.o.). */
+export function isSfxEnabled(): boolean {
+  return sfxEnabled;
+}
+
+/** Mute/Play-Umschalter für Soundeffekte (Klick auf den eigenen Button neben dem Musik-Toggle). */
+export function toggleSfxEnabled(): void {
+  sfxEnabled = !sfxEnabled;
+  saveSfxEnabledToLocalStorage(sfxEnabled);
+  notify();
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +607,42 @@ export function getTutorialHighlight(): TutorialHighlight | undefined {
 }
 
 /**
+ * Bug/Auftrag "Tutorial-Terrain-Sackgasse" (s. tutorialContent.ts#TutorialStep
+ * ["mainPhaseOnly"] für die ausführliche Begründung): solange der aktive
+ * Tutorial-Schritt `mainPhaseOnly` ist, noch nicht erledigt ist (Phase
+ * "instruction") UND player1 GERADE eine dazu passende Kandidatenaktion zur
+ * Verfügung hat (aus `legalActions`, keine eigene Legalitätsprüfung - reine
+ * Wiedererkennung wie überall sonst in diesem Store), liefert diese Funktion
+ * einen Hinweistext statt `undefined` - render.ts sperrt den "Priorität
+ * passen"-Button dann genau in diesem Moment (mit dem Text als Tooltip), statt
+ * den Spieler unbemerkt aus der Hauptphase (und damit aus der einzig legalen
+ * Gelegenheit für diese Aktion) heraus passen zu lassen.
+ *
+ * Bewusst NUR für player1 (die vom Tutorial geführte, lokale/menschliche
+ * Sicht, s. store.ts#startTutorial) - der Bot-Zug-Loop nutzt diesen Button
+ * ohnehin nie (er dispatcht automatisiert direkt, s. runBotStep).
+ */
+export function getTutorialPassPriorityBlockReason(player: PlayerId): string | undefined {
+  if (!tutorialActive || tutorialSequenceFinished || player !== "player1") return undefined;
+  const step = getTutorialActiveStep();
+  if (!step || !step.mainPhaseOnly || tutorialPhase !== "instruction") return undefined;
+
+  const hasPendingCandidate = legalActions(player).some((action) => {
+    if (step.id === "playTerrain") return action.kind === "playTerrain";
+    if (step.id === "castCreature") {
+      if (action.kind !== "castSpell") return false;
+      const card = state.cards[action.cardInstanceId];
+      const def = card ? pool[card.definitionId] : undefined;
+      return def?.type === "unit";
+    }
+    return false;
+  });
+  if (!hasPendingCandidate) return undefined;
+
+  return "Schließt zuerst diesen Tutorial-Schritt ab (siehe Anweisung oben) oder überspringt ihn, bevor ihr die Hauptphase verlasst.";
+}
+
+/**
  * Prüft nach JEDER Zustandsänderung während einer Tutorial-Partie (menschliche
  * Aktion, automatischer Bot-Zug, `initGame`), welche der in tutorialContent.ts
  * beschriebenen Schritt-Fakten gerade eingetreten sind (ALLE Schritte, nicht
@@ -609,8 +741,18 @@ function otherPlayerId(p: PlayerId): PlayerId {
  * werden. `setBotMoveDelayMs` ist für Tests gedacht (dort auf 0 gesetzt, s.
  * src/ui/__tests__), damit Testläufe nicht auf echte Wartezeiten angewiesen
  * sind.
+ *
+ * Wert (v0.1.17, "Bot-Züge sichtbar statt Snap"): bewusst etwas über der
+ * View-Transition-Standarddauer (s. render.ts#render/style.css, ~250-260ms)
+ * gehalten, statt exakt gleichauf - jeder Bot-Schritt löst über `notify()`
+ * einen eigenen `render()`-Aufruf (und damit ggf. eine eigene View
+ * Transition) aus; würde der nächste Schritt VOR Abschluss der vorherigen
+ * Animation starten, würde deren Übergang mitten in der Bewegung "geskippt"
+ * (der Browser bricht eine laufende View Transition beim nächsten
+ * `startViewTransition()`-Aufruf sofort ab). Bleibt trotzdem im vom Auftrag
+ * vorgegebenen Richtwert (150-400ms) - kein spürbares "Trödeln".
  */
-let botMoveDelayMs = 250;
+let botMoveDelayMs = 320;
 
 export function setBotMoveDelayMs(ms: number): void {
   botMoveDelayMs = Math.max(0, ms);
@@ -701,9 +843,11 @@ function runBotStep(): void {
   lastError = undefined;
   state = result.state;
   uiMode = { kind: "idle" };
+  const suppressCardDrawn = batchContainsMulligan(result.events);
   for (const e of result.events) {
     const t = describeEvent(e);
     if (t) log.push(t);
+    playSfxForEvent(e, { suppressCardDrawn });
   }
   if (log.length > 300) log = log.slice(-300);
   maybeAdvanceTutorialProgress(action);
@@ -759,6 +903,72 @@ function describeEvent(e: GameEvent): string | undefined {
 }
 
 /**
+ * PARALLELE Funktion zu `describeEvent` oben (gleiche drei Aufrufstellen,
+ * gleiches Prinzip: reine Beobachtung der von der Engine bereits gelieferten
+ * `GameEvent`s, keine eigene Regel-/Legalitätslogik hier) - übersetzt ein
+ * Event in einen kurzen, überlappenden Soundeffekt (s. `./sfxPlayer.ts`).
+ * `playSfx()` selbst ist defensiv (No-Op ohne `initSfxPlayer()`/bei
+ * `isSfxEnabled() === false`), diese Funktion muss sich darum nicht kümmern.
+ *
+ * `suppressCardDrawn`: s. Dateikommentar bei den drei Aufrufstellen unten -
+ * die 7 `cardDrawn`-Events der Start-/Mulligan-Neuverteilung sollen NICHT
+ * einzeln vertont werden (klänge wie ein kaputter Stotter-Effekt statt
+ * "Karten austeilen"), normale Zug-für-Zug-Draws im Draw-Step dagegen schon.
+ */
+function playSfxForEvent(e: GameEvent, opts: { suppressCardDrawn: boolean }): void {
+  switch (e.kind) {
+    case "cardDrawn":
+      if (!opts.suppressCardDrawn) playSfx("card-draw");
+      return;
+    case "mulliganTaken":
+      playSfx("deck-shuffle");
+      return;
+    case "spellCast":
+      // Deckt sowohl Zaubersprüche als auch Kreaturen ab (beide gehen auf
+      // den Stack) - s. Auftrag, das ist gewollt, kein Bug. Terrains lösen
+      // KEIN spellCast aus (gehen am Stack vorbei, s. zoneChanged-Zweig
+      // unten), sondern nur "card-play".
+      playSfx("spell-cast");
+      return;
+    case "zoneChanged":
+      // Terrain wird gelegt: einziger Weg, wie eine Karte direkt von der
+      // Hand auf das Battlefield wandert, OHNE über den Stack zu gehen
+      // (Kreaturen/Zauber nehmen hand->stack, s. engine/actions.ts#castSpell
+      // + engine/stack.ts). Reine Beobachtung des bereits von der Engine
+      // gelieferten Events, keine eigene Terrain-Erkennung über den Pool.
+      if (e.from === "hand" && e.to === "battlefield") playSfx("card-play");
+      return;
+    case "attackersDeclared":
+      playSfx("attack-swing");
+      return;
+    case "damageDealt":
+      playSfx("combat-hit");
+      return;
+    case "unitDied":
+      playSfx("creature-death");
+      return;
+    case "lifeChanged":
+      if (e.delta < 0) playSfx("life-loss");
+      else if (e.delta > 0) playSfx("life-gain");
+      return;
+    case "gameEnded":
+      // Aus Sicht player1 (der lokalen menschlichen Sicht, s. bestehende
+      // Konvention für "Sieger"/"Verlierer" in render.ts/store.ts) - bei
+      // einem Unentschieden ertönt bewusst weder victory noch defeat.
+      if (e.winner === "player1") playSfx("victory");
+      else if (e.winner === "player2") playSfx("defeat");
+      return;
+    default:
+      return;
+  }
+}
+
+/** s. `playSfxForEvent`-Dateikommentar: true, wenn dieser Event-Batch die Start-/Mulligan-Neuverteilung ist (7+ cardDrawn ohne einzelne Vertonung). */
+function batchContainsMulligan(events: GameEvent[]): boolean {
+  return events.some((e) => e.kind === "mulliganTaken");
+}
+
+/**
  * Startet die eigentliche Partie aus zwei fertigen Decklisten (aus dem
  * Deckbau-Screen, s. `confirmDeck` oben). Ersetzt die frühere Signatur ohne
  * Parameter, die intern immer `buildDemoDeck` für beide Spieler aufrief
@@ -795,9 +1005,15 @@ export function initGame(
   log = [`Seed: ${seed}`];
   lastError = undefined;
   uiMode = { kind: "idle" };
+  // Die initiale Starthand-Verteilung (7 cardDrawn-Events je Spieler) wird
+  // NIE einzeln vertont (s. playSfxForEvent-Dateikommentar) - anders als bei
+  // den beiden anderen Aufrufstellen kommt hier ohnehin nie ein
+  // mulliganTaken-Event vor (createGame nutzt drawCard direkt, nicht den
+  // mulligan.ts-Pfad), daher fest `true` statt batchContainsMulligan(events).
   for (const e of events) {
     const t = describeEvent(e);
     if (t) log.push(t);
+    playSfxForEvent(e, { suppressCardDrawn: true });
   }
   maybeAdvanceTutorialProgress(undefined);
   notify();
@@ -831,9 +1047,11 @@ export function dispatch(action: PlayerAction): void {
   lastError = undefined;
   state = result.state;
   uiMode = { kind: "idle" };
+  const suppressCardDrawn = batchContainsMulligan(result.events);
   for (const e of result.events) {
     const t = describeEvent(e);
     if (t) log.push(t);
+    playSfxForEvent(e, { suppressCardDrawn });
   }
   if (log.length > 300) log = log.slice(-300);
   maybeAdvanceTutorialProgress(action);

@@ -21,6 +21,16 @@ export interface PlayerPanelOptions {
    */
   botDifficultyLabel?: string;
   /**
+   * Anzeigename in der Kopfzeile: bei bot-gesteuerten Spielern der erfundene
+   * Tavernen-Name passend zur Schwierigkeitsstufe (s. src/ai/difficulty.ts
+   * #BOT_DISPLAY_NAMES / render.ts#playerDisplayName), sonst die rohe
+   * `PlayerId` ("player1"/"player2"). Optional mit Fallback auf `playerId`,
+   * damit playerPanel auch ohne render.ts-Anbindung (z.B. künftige Tests)
+   * sinnvoll funktioniert - die `PlayerId` selbst (data-player-Attribut
+   * unten) bleibt davon komplett unberührt.
+   */
+  displayName?: string;
+  /**
    * v0.1.8 (concede-Button): Callback für "Aufgeben". Nur gesetzt, wenn der
    * Button für diesen Spieler überhaupt angezeigt werden soll (render.ts
    * entscheidet das - z.B. nicht für bot-gesteuerte Spieler, nicht nach
@@ -28,6 +38,18 @@ export interface PlayerPanelOptions {
    * "Button vorhanden, wenn Callback vorhanden".
    */
   onConcede?: () => void;
+  /**
+   * Auftrag Punkt 3 ("Angriff/Schaden ... Lebenspunkte, die spürbar
+   * reagieren statt zu springen"): `"up"`/`"down"`, wenn sich `p.life`
+   * gegenüber dem zuletzt gerenderten Wert geändert hat (s.
+   * render.ts#computeLifePulse - reine Anzeige-Ableitung, kein Teil des
+   * GameState), sonst `undefined`. Löst eine kurze CSS-Puls-/Flash-Animation
+   * aus (style.css `.life-pulse-up`/`.life-pulse-down`) - bewusst per
+   * eigenständigem `animation`-Keyframe statt auf die View-Transitions-API
+   * angewiesen zu sein (s. render.ts-Kommentarblock), damit das "Ticken"
+   * auch in Browsern ohne deren Unterstützung sichtbar bleibt.
+   */
+  lifePulse?: "up" | "down";
 }
 
 export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPanelOptions = {}): HTMLElement {
@@ -64,7 +86,7 @@ export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPa
     },
     [
       h("div", { class: "player-panel-head" }, [
-        h("span", { class: "player-panel-name" }, [text(playerId)]),
+        h("span", { class: "player-panel-name" }, [text(opts.displayName ?? playerId)]),
         ...badges,
         opts.onConcede
           ? h(
@@ -84,7 +106,9 @@ export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPa
             )
           : undefined,
       ]),
-      h("div", { class: "player-panel-life" }, [text(`❤ ${p.life}`)]),
+      h("div", { class: `player-panel-life${opts.lifePulse ? ` life-pulse-${opts.lifePulse}` : ""}` }, [
+        text(`❤ ${p.life}`),
+      ]),
       h("div", { class: "player-panel-mana" }, [text(manaBits.length ? `Mana: ${manaBits.join(", ")}` : "Mana: leer")]),
       h("div", { class: "player-panel-zones" }, [
         text(`Hand ${p.hand.length} · Bibliothek ${p.library.length} · Friedhof ${p.graveyard.length} · Exil ${p.exile.length}`),
