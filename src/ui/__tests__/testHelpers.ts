@@ -210,6 +210,18 @@ export function autoAdvanceToReadyMain1(opts: AutoAdvanceOptions): void {
       continue;
     }
 
+    // Nutzer-Feedback (Auftrag "Priorität passen vs. Überspringen"): sobald
+    // das auffällige Entscheidungs-Spotlight für den aktuellen priorityPlayer
+    // angezeigt wird, versteckt render.ts#statusBar den kleinen ".btn-pass"
+    // bewusst (dieselbe passPriority-Aktion, nur der auffällige
+    // "Überspringen"-Button im Banner bleibt als einziger Auslöser übrig) -
+    // dieser Helper muss also denselben Fallback kennen wie ein echter Klick.
+    const spotlightSkipBtn = root.querySelector<HTMLButtonElement>(".decision-spotlight-skip-btn");
+    if (spotlightSkipBtn) {
+      click(spotlightSkipBtn);
+      continue;
+    }
+
     const noAttackers = buttonWithText(root, ".btn.btn-cancel", "Keine Angreifer");
     if (noAttackers) {
       click(noAttackers);

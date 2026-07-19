@@ -37,6 +37,7 @@ import {
   getTutorialHighlight,
   getTutorialPassPriorityBlockReason,
   getUiMode,
+  hasRealPriorityChoice,
   isBotControlled,
   isKeywordGlossaryPanelOpen,
   isMusicEnabled,
@@ -223,18 +224,6 @@ function hasRealDeclareBlockersChoice(state: GameState): boolean {
     (a): a is Extract<PlayerAction, { kind: "declareBlockers" }> => a.kind === "declareBlockers",
   );
   return !(candidates.length === 1 && candidates[0]!.blocks.length === 0);
-}
-
-/**
- * true, wenn `player` bei Priority GERADE eine echte Wahl hat (`legalActions`
- * bietet mehr als nur `passPriority`/`concede` an) - exakt dieselbe
- * Erkennung wie store.ts#autoResolvableActionFor (dort entscheidet sie, ob
- * automatisch gepasst wird; hier, ob Auftrag Teil 3 etwas hervorheben soll).
- * Reine Anzeige-Ableitung über die bereits vorhandene `legalActions`-Anfrage,
- * keine eigene Regellogik.
- */
-function hasRealPriorityChoice(player: PlayerId): boolean {
-  return legalActions(player).some((a) => a.kind !== "passPriority" && a.kind !== "concede");
 }
 
 /**
@@ -480,7 +469,7 @@ function renderGameBoard(root: HTMLElement): void {
     // Tutorial-Modus, ausgelöst durch Klick auf ein hervorgehobenes
     // Keyword-Wort im Kartentext (s. components/keywordText.ts).
     openKeywordPopover ? keywordPopoverBubble(openKeywordPopover, () => closeKeywordGlossary()) : undefined,
-    statusBar(state),
+    statusBar(state, mode),
     err ? h("div", { class: "error-banner" }, [text(`Nicht erlaubt: ${err}`)]) : undefined,
     // Auftrag Teil 3b: auffällige, NICHT-blockierende Hervorhebung eines
     // echten Entscheidungsmoments (Auto-Pass aus Teil 1 greift bewusst
@@ -532,7 +521,7 @@ function musicPanelOptions() {
   };
 }
 
-function statusBar(state: GameState): HTMLElement {
+function statusBar(state: GameState, mode: UiMode): HTMLElement {
   // "Priorität passen" ist der normale Weg, einen Priority-Moment zu
   // verlassen, ohne etwas (weiteres) zu tun - ohne diesen Button gibt es
   // sonst kein UI-Element dafür (getLegalActions liefert passPriority zwar
@@ -542,6 +531,14 @@ function statusBar(state: GameState): HTMLElement {
   // priorityPlayer === undefined, siehe turn.ts).
   const canPass = state.priorityPlayer !== undefined && !state.pendingDecision;
   const priorityPlayer = state.priorityPlayer;
+  // Nutzer-Feedback: "Priorität passen" hier und der "Überspringen"-Button
+  // im auffälligen Spotlight-Banner (s. Aufruf von decisionSpotlightPlayer
+  // weiter unten im Wurzel-Render) lösen exakt dieselbe passPriority-Aktion
+  // aus - zwei sichtbare Buttons für denselben Klick sind verwirrend. Sobald
+  // das Spotlight-Banner für DIESEN priorityPlayer sowieso schon angezeigt
+  // wird, bleibt dieser kleine Button hier versteckt (der große im Banner
+  // reicht dann als einziger Auslöser).
+  const spotlightAlreadyShown = !!priorityPlayer && decisionSpotlightPlayer(state, mode) === priorityPlayer;
   // Bug/Auftrag "Tutorial-Terrain-Sackgasse" (s. store.ts#getTutorialPassPriorityBlockReason
   // + tutorialContent.ts#TutorialStep["mainPhaseOnly"]): solange ein Tutorial-
   // Schritt aktiv ist, der NUR in der eigenen Hauptphase legal ist (playTerrain/
@@ -563,7 +560,7 @@ function statusBar(state: GameState): HTMLElement {
         ),
       ],
     ),
-    canPass && priorityPlayer
+    canPass && priorityPlayer && !spotlightAlreadyShown
       ? h(
           "button",
           {

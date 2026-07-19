@@ -20,6 +20,7 @@ import {
   type TutorialStep,
 } from "./tutorialContent";
 import { TUTORIAL_DECK_PLAYER1, TUTORIAL_DECK_PLAYER2, TUTORIAL_SEED } from "./tutorialDeck";
+import { cardDef } from "./cardInfo";
 
 const pool: CardPool = starterSet;
 const engine: RulesEngine = createRulesEngine(pool);
@@ -992,15 +993,19 @@ function advanceAutomation(): void {
  * ab, beide rein über bereits vorhandene Engine-Anfragen (legalActions) ohne
  * eigene Regellogik:
  *
- * - Priority-Fenster: `legalActions` enthält NUR `passPriority`/`concede`
- *   (kein castSpell/playTerrain/activateAbility) -> automatisch passen. Das
- *   bestehende Tutorial-Blocking (getTutorialPassPriorityBlockReason) bleibt
- *   unangetastet wirksam - es greift laut seinem eigenen Kommentar NUR dann,
- *   wenn der Spieler eine passende Kandidatenaktion (playTerrain/castSpell
- *   einer Kreatur) tatsächlich zur Verfügung hat; genau dann enthält
- *   `legalActions` bereits mehr als passPriority/concede, und diese Funktion
- *   liefert schon deshalb `undefined` (keine Automatik, Button bleibt
- *   sichtbar/gesperrt wie bisher).
+ * - Priority-Fenster: `hasRealPriorityChoice(player)` (s.u.) ist `false` ->
+ *   automatisch passen. Das ist NICHT gleichbedeutend mit "`legalActions`
+ *   enthält NUR passPriority/concede" - reine Mana-Fähigkeiten (Terrain fürs
+ *   Mana antippen, `isManaAbility: true`) zählen bewusst NICHT als echte Wahl
+ *   (Bugfix: Terrains bieten diese Fähigkeit praktisch immer an, auch wenn
+ *   der Spieler nichts hat, wofür sich das Mana lohnen würde - s. Kommentar
+ *   an hasRealPriorityChoice). Das bestehende Tutorial-Blocking
+ *   (getTutorialPassPriorityBlockReason) bleibt unangetastet wirksam - es
+ *   greift laut seinem eigenen Kommentar NUR dann, wenn der Spieler eine
+ *   passende Kandidatenaktion (playTerrain/castSpell einer Kreatur)
+ *   tatsächlich zur Verfügung hat; genau dann liefert hasRealPriorityChoice
+ *   bereits `true`, und diese Funktion liefert schon deshalb `undefined`
+ *   (keine Automatik, Button bleibt sichtbar/gesperrt wie bisher).
  * - erzwungener Kampf-Deklarationsschritt (declareAttackers/declareBlockers,
  *   kein Priority-Fenster): `combatCandidates` (engine/legal-actions.ts)
  *   liefert GENAU EINEN Kandidaten (die leere Deklaration), wenn keine
@@ -1014,8 +1019,7 @@ function autoResolvableActionFor(player: PlayerId): PlayerAction | undefined {
   if (isBotControlled(player)) return undefined;
   if (state.pendingDecision) return undefined; // Mulligan/chooseMode/orderBlockers/Zielwahl: nie automatisch
   if (state.priorityPlayer === player) {
-    const hasRealChoice = legalActions(player).some((a) => a.kind !== "passPriority" && a.kind !== "concede");
-    return hasRealChoice ? undefined : { kind: "passPriority", player };
+    return hasRealPriorityChoice(player) ? undefined : { kind: "passPriority", player };
   }
   if (state.step === "declareAttackers" && state.activePlayer === player) {
     const attackerActions = legalActions(player).filter(
@@ -1320,6 +1324,48 @@ export function initGame(
 /** Legale Aktions-Kandidaten für player im aktuellen State (delegiert an die Engine). */
 export function legalActions(player: import("../model").PlayerId): PlayerAction[] {
   return engine.getLegalActions(state, player);
+}
+
+/**
+ * true, wenn ein `legalActions`-Kandidat als "echte Wahl" bei Priority zählt.
+ * Schließt `passPriority`/`concede` aus (das ist keine Wahl, sondern die
+ * Standardoption) UND - Bugfix v0.1.19 - reine Mana-Fähigkeiten
+ * (`activateAbility` auf einer Ability mit `isManaAbility: true`, i.d.R. das
+ * kostenlose Antippen eines Terrains fürs Mana): Terrains bieten diese
+ * Fähigkeit praktisch IMMER an, solange sie ungetappt sind, unabhängig davon,
+ * ob der Spieler gerade überhaupt etwas hat, wofür sich das Mana lohnen
+ * würde. Ohne diesen Ausschluss zählte "ich könnte mein Terrain antippen"
+ * fälschlich als echte Entscheidung, obwohl der Spieler faktisch nichts
+ * Sinnvolles tun kann - Auto-Pass griff dann nie, und das Spotlight-Banner
+ * (render.ts#decisionSpotlightPlayer) erschien ständig unnötig. Das reine
+ * Antippen fürs Mana bleibt weiterhin normal manuell klickbar (z.B. um Mana
+ * für später im selben Schritt vorzuhalten) - es zählt nur nicht ALLEIN als
+ * "hier gibt's was zu entscheiden". Hat der Spieler zusätzlich etwas ANDERES
+ * Sinnvolles (bezahlbarer Zauber, Nicht-Mana-Fähigkeit, ausspielbares
+ * Terrain), zählt das weiterhin ganz normal als echte Wahl.
+ */
+function isRealPriorityCandidate(action: PlayerAction): boolean {
+  if (action.kind === "passPriority" || action.kind === "concede") return false;
+  if (action.kind === "activateAbility") {
+    const def = cardDef(getPool(), state, action.sourceInstanceId);
+    const ability = "abilities" in def ? def.abilities?.[action.abilityIndex] : undefined;
+    if (ability?.kind === "activated" && ability.isManaAbility) return false;
+  }
+  return true;
+}
+
+/**
+ * true, wenn `player` bei Priority GERADE eine echte Wahl hat (`legalActions`
+ * bietet mehr als nur passPriority/concede/reine-Mana-Fähigkeiten an) -
+ * gemeinsam genutzt von autoResolvableActionFor (unten, entscheidet ob
+ * automatisch gepasst wird) und render.ts#decidingPlayer (Auftrag Teil 3,
+ * entscheidet ob das Spotlight-Banner erscheinen soll). Bewusst hier EINMAL
+ * exportiert statt in beiden Modulen dupliziert - zwei unabhängige Kopien
+ * derselben Erkennung liefen zuvor genau deshalb auseinander (s. Bugfix-
+ * Kommentar an isRealPriorityCandidate oben).
+ */
+export function hasRealPriorityChoice(player: PlayerId): boolean {
+  return legalActions(player).some(isRealPriorityCandidate);
 }
 
 /**
