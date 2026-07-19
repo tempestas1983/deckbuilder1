@@ -154,10 +154,143 @@ export function isMusicEnabled(): boolean {
   return musicEnabled;
 }
 
-/** Mute/Play-Umschalter (Klick auf den Musik-Button in der Statusleiste/im Deckbau-Header). */
+/** Mute/Play-Umschalter (Klick auf "An/Aus" im Musik-Panel, s. components/musicPanel.ts). */
 export function toggleMusicEnabled(): void {
   musicEnabled = !musicEnabled;
   saveMusicEnabledToLocalStorage(musicEnabled);
+  notify();
+}
+
+// ---------------------------------------------------------------------------
+// Musik-Playlist (Titelauswahl + Wiederholungsmodus): erweitert die simple
+// an/aus-Präferenz oben um eine echte Playlist-Steuerung, nachdem der Nutzer
+// mehrere Titel unter docs/music/ abgelegt hat (bisher genau eine hartkodierte
+// Datei). Drei Teile:
+// - `musicTracks`: die Liste der aktuell verfügbaren Dateinamen. NICHT
+//   persistiert (kein localStorage) und NICHT hier ermittelt - store.ts macht
+//   bewusst keine Netzwerkaufrufe (siehe Datei-Kommentar oben). `musicPlayer.ts`
+//   lädt `/music/index.json` (Auto-Discovery, s. vite.config.ts#musicIndexPlugin)
+//   und meldet das Ergebnis EINMALIG über `setMusicTracks()` zurück - exakt das
+//   gleiche Delegationsmuster wie beim `<audio>`-Element selbst (Zustand hier,
+//   Browser-/Netzwerk-API dort).
+// - `musicCurrentTrackPreference`: der zuletzt vom Nutzer gewählte Titel
+//   (Dateiname), persistiert wie `musicEnabled` oben. `getMusicCurrentTrack()`
+//   validiert das gegen die tatsächlich vorhandene Liste und fällt robust auf
+//   den ersten verfügbaren Titel zurück, falls die gespeicherte Datei
+//   inzwischen gelöscht wurde (Auftrag: "robust ... statt zu crashen").
+// - `musicRepeatMode`: "track" (aktuellen Titel in Dauerschleife) oder
+//   "playlist" (alle Titel der Reihe nach, danach wieder von vorne) -
+//   ebenfalls persistiert. Das eigentliche Umschalten beim `ended`-Event
+//   passiert in musicPlayer.ts (dort hängt der Event-Listener am `<audio>`-
+//   Element); `advanceToNextMusicTrack()` unten ist nur die reine
+//   Index-Arithmetik dafür, damit musicPlayer.ts selbst keine Playlist-Logik
+//   duplizieren muss.
+// ---------------------------------------------------------------------------
+
+export type MusicRepeatMode = "track" | "playlist";
+
+const MUSIC_CURRENT_TRACK_STORAGE_KEY = "deckbuilder1.musicCurrentTrack";
+const MUSIC_REPEAT_MODE_STORAGE_KEY = "deckbuilder1.musicRepeatMode";
+
+function loadMusicCurrentTrackFromLocalStorage(): string | undefined {
+  try {
+    const raw = window.localStorage.getItem(MUSIC_CURRENT_TRACK_STORAGE_KEY);
+    return raw ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveMusicCurrentTrackToLocalStorage(track: string): void {
+  try {
+    window.localStorage.setItem(MUSIC_CURRENT_TRACK_STORAGE_KEY, track);
+  } catch {
+    // s.o. - localStorage nicht verfügbar/voll/deaktiviert, einfach ignorieren.
+  }
+}
+
+/** Defensiv wie loadMusicEnabledFromLocalStorage: fehlt/ist der gespeicherte Wert ungültig, startet der Playlist-Modus standardmäßig im Playlist-Loop (alle Titel nacheinander). */
+function loadMusicRepeatModeFromLocalStorage(): MusicRepeatMode {
+  try {
+    const raw = window.localStorage.getItem(MUSIC_REPEAT_MODE_STORAGE_KEY);
+    return raw === "track" || raw === "playlist" ? raw : "playlist";
+  } catch {
+    return "playlist";
+  }
+}
+
+function saveMusicRepeatModeToLocalStorage(mode: MusicRepeatMode): void {
+  try {
+    window.localStorage.setItem(MUSIC_REPEAT_MODE_STORAGE_KEY, mode);
+  } catch {
+    // s.o.
+  }
+}
+
+let musicTracks: string[] = [];
+let musicCurrentTrackPreference: string | undefined = loadMusicCurrentTrackFromLocalStorage();
+let musicRepeatMode: MusicRepeatMode = loadMusicRepeatModeFromLocalStorage();
+let musicPanelOpen = false;
+
+/** Aktuell bekannte Titel-Liste (Dateinamen unter docs/music/), s.o. - leer, solange musicPlayer.ts noch nicht geladen hat oder der Ordner leer ist. */
+export function getMusicTracks(): string[] {
+  return musicTracks;
+}
+
+/** NUR von musicPlayer.ts nach dem Laden von `/music/index.json` aufgerufen (s.o.) - store.ts selbst führt keine Netzwerkaufrufe aus. */
+export function setMusicTracks(tracks: string[]): void {
+  musicTracks = tracks;
+  notify();
+}
+
+/** Aktuell effektiv aktiver Titel (Dateiname), `undefined` solange keiner verfügbar ist (Ordner leer/Liste noch nicht geladen). Fällt robust auf den ersten verfügbaren Titel zurück, falls die gespeicherte Präferenz nicht mehr existiert. */
+export function getMusicCurrentTrack(): string | undefined {
+  if (musicTracks.length === 0) return undefined;
+  if (musicCurrentTrackPreference && musicTracks.includes(musicCurrentTrackPreference)) {
+    return musicCurrentTrackPreference;
+  }
+  return musicTracks[0];
+}
+
+/** Gezielte Titelauswahl (Klick auf einen Titel in der Playlist im Musik-Panel). */
+export function selectMusicTrack(track: string): void {
+  musicCurrentTrackPreference = track;
+  saveMusicCurrentTrackToLocalStorage(track);
+  notify();
+}
+
+export function getMusicRepeatMode(): MusicRepeatMode {
+  return musicRepeatMode;
+}
+
+export function setMusicRepeatMode(mode: MusicRepeatMode): void {
+  musicRepeatMode = mode;
+  saveMusicRepeatModeToLocalStorage(mode);
+  notify();
+}
+
+/** Playlist-Modus, `ended`-Event: wechselt zum nächsten Titel (mit Wrap-Around zum Anfang nach dem letzten). No-op ohne verfügbare Titel. */
+export function advanceToNextMusicTrack(): void {
+  if (musicTracks.length === 0) return;
+  const current = getMusicCurrentTrack();
+  const currentIndex = current ? musicTracks.indexOf(current) : -1;
+  const nextIndex = (currentIndex + 1) % musicTracks.length;
+  const nextTrack = musicTracks[nextIndex];
+  if (nextTrack) selectMusicTrack(nextTrack);
+}
+
+/** Musik-Panel (Titelauswahl + Wiederholungsmodus, s. components/musicPanel.ts) - analog zu isKeywordGlossaryPanelOpen unten. */
+export function isMusicPanelOpen(): boolean {
+  return musicPanelOpen;
+}
+
+export function toggleMusicPanel(): void {
+  musicPanelOpen = !musicPanelOpen;
+  notify();
+}
+
+export function closeMusicPanel(): void {
+  musicPanelOpen = false;
   notify();
 }
 
@@ -372,6 +505,7 @@ export function backToDeckbuilder(): void {
   // nicht unsichtbar "offen" in den nächsten Deckbau-Screen durchschlagen.
   openKeywordPopover = undefined;
   keywordGlossaryPanelOpen = false;
+  musicPanelOpen = false;
   stopBotLoop();
   notify();
 }
@@ -562,15 +696,16 @@ function advanceTutorialStep(): void {
   if (tutorialStepIndex >= TUTORIAL_STEPS.length - 1) {
     tutorialSequenceFinished = true;
     notify();
-    triggerBotLoop();
+    triggerAutomation();
     return;
   }
   tutorialStepIndex += 1;
   resetTutorialStepEntry();
   notify();
-  // Der Bot-Zug-Loop pausiert nur während einer modalen Bubble (s.o.) - nach
-  // dem Weiterrücken ggf. weiterspielen lassen.
-  triggerBotLoop();
+  // Der Automatik-Loop (Bot-Züge UND automatische Menschen-Pässe, s.
+  // triggerAutomation unten) pausiert nur während einer modalen Bubble (s.o.)
+  // - nach dem Weiterrücken ggf. weiterspielen lassen.
+  triggerAutomation();
 }
 
 export function isTutorialHelpOpen(): boolean {
@@ -774,7 +909,7 @@ function stopBotLoop(): void {
 
 /**
  * Sicherheitslimit pro "Zyklus" (ab einer menschlichen dispatch()-Aktion bzw.
- * ab initGame() gezählt, s. triggerBotLoop) - analog zum 2000er-Aktionslimit
+ * ab initGame() gezählt, s. triggerAutomation) - analog zum 2000er-Aktionslimit
  * der Bot-vs-Bot-Tests (src/ai/__tests__/simpleBot.test.ts), hier niedriger
  * angesetzt, weil pro Zyklus nur EIN Spieler automatisch zieht (der andere
  * ist ja der Mensch, der gerade erst gehandelt hat). Verhindert eine
@@ -784,10 +919,158 @@ function stopBotLoop(): void {
 const MAX_BOT_ACTIONS_PER_CYCLE = 1000;
 let botCycleGuard = 0;
 
-/** Wird nach jeder erfolgreichen menschlichen Aktion (dispatch) und nach initGame() aufgerufen. */
-function triggerBotLoop(): void {
+/**
+ * Sicherheitslimit für AUFEINANDERFOLGENDE automatische Menschen-"Pässe" pro
+ * Zyklus (s. autoResolvableActionFor/applyAutomaticAction unten) - exakt
+ * dasselbe Muster wie MAX_BOT_ACTIONS_PER_CYCLE oben, nur für den neuen
+ * "automatisch entscheiden, wenn's keine echte Wahl gibt"-Pfad (Auftrag Teil
+ * 1+2). Getrennter Zähler, weil beide Mechanismen unabhängig voneinander
+ * (auch abwechselnd) laufen können und je EIGENEN Zyklus ab der letzten
+ * echten menschlichen Aktion zählen sollen.
+ */
+const MAX_AUTO_HUMAN_ACTIONS_PER_CYCLE = 1000;
+let autoHumanCycleGuard = 0;
+
+/** Wird nach jeder erfolgreichen menschlichen Aktion (dispatch), nach initGame() UND (mit unverändertem Zähler-Stand) nach jedem automatischen Bot-/Auto-Pass-Schritt selbst aufgerufen - s. triggerAutomation/advanceAutomation unten. */
+function triggerAutomation(): void {
   botCycleGuard = 0;
-  scheduleBotStepIfNeeded();
+  autoHumanCycleGuard = 0;
+  advanceAutomation();
+}
+
+/**
+ * Gemeinsamer "Nachbrenner" für ZWEI unabhängige Automatik-Mechanismen, die
+ * beide dasselbe Ziel haben (kein unnötiger Klick, wo es ohnehin keine echte
+ * Wahl gibt):
+ * - Bot-gesteuerte Spieler (bestehendes Verhalten, s. scheduleBotStepIfNeeded/
+ *   runBotStep): ein ganzer automatischer Zug läuft mit sichtbarer Verzögerung
+ *   (botMoveDelayMs) über echte setTimeout()-Ticks.
+ * - NICHT-bot-gesteuerte (menschliche/hotseat) Spieler (NEU, Auftrag Teil
+ *   1+2): steht laut `legalActions` gerade GAR KEINE echte Alternative zur
+ *   Verfügung (nur `passPriority`/`concede`, bzw. beim erzwungenen Kampf-
+ *   Deklarationsschritt nur die leere Deklaration), wird diese einzige
+ *   sinnvolle Aktion SOFORT synchron ausgelöst (kein Timer, kein Klick nötig)
+ *   - s. autoResolvableActionFor/applyAutomaticAction unten.
+ * Wird rekursiv über applyAutomaticAction/runBotStep erneut aufgerufen, bis
+ * entweder niemand mehr handeln muss, ein bot-gesteuerter Spieler in seinen
+ * (asynchronen) Timer-Loop übergeben wurde, oder ein Spieler tatsächlich eine
+ * echte Entscheidung treffen muss (dann bleibt es hier stehen).
+ */
+function advanceAutomation(): void {
+  // v0.1.16: Solange eine MODALE Tutorial-Sprechblase aussteht, pausiert JEDE
+  // Automatik (Bot UND Auto-Pass) - sonst würde sich das Board unter der
+  // gerade gelesenen Erklärung weiterbewegen (s. dismissTutorialBubble/
+  // skipTutorialStep oben, die triggerAutomation() nach dem Weiterrücken
+  // erneut anstoßen). Die nicht-modale Instruktions-Phase eines Aktions-
+  // Schritts pausiert NICHTS (s. isTutorialModalBubbleShowing-Kommentar).
+  if (isTutorialModalBubbleShowing()) return;
+  const actor = actingPlayer(state);
+  if (!actor) return;
+  if (isBotControlled(actor)) {
+    scheduleBotStepIfNeeded();
+    return;
+  }
+  if (autoHumanCycleGuard >= MAX_AUTO_HUMAN_ACTIONS_PER_CYCLE) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `Auto-Pass-Sicherheitslimit erreicht (${MAX_AUTO_HUMAN_ACTIONS_PER_CYCLE} automatische Aktionen ohne echte ` +
+        "menschliche Zwischenaktion) - automatisches Weiterspielen angehalten. Das ist ein Hinweis auf einen Bug, kein normaler Spielverlauf.",
+    );
+    return;
+  }
+  const auto = autoResolvableActionFor(actor);
+  if (!auto) return; // echte Entscheidung nötig - hier stehenbleiben, s. render.ts
+  autoHumanCycleGuard++;
+  applyAutomaticAction(auto);
+}
+
+/**
+ * Liefert die einzige tatsächlich sinnvolle Aktion für `player` GENAU DANN,
+ * wenn `legalActions(player)` gerade keine echte Wahl anbietet - `undefined`,
+ * sobald mindestens eine echte Alternative existiert (dann muss der Spieler
+ * selbst entscheiden). Deckt die zwei in Auftrag Teil 1+2 beschriebenen Fälle
+ * ab, beide rein über bereits vorhandene Engine-Anfragen (legalActions) ohne
+ * eigene Regellogik:
+ *
+ * - Priority-Fenster: `legalActions` enthält NUR `passPriority`/`concede`
+ *   (kein castSpell/playTerrain/activateAbility) -> automatisch passen. Das
+ *   bestehende Tutorial-Blocking (getTutorialPassPriorityBlockReason) bleibt
+ *   unangetastet wirksam - es greift laut seinem eigenen Kommentar NUR dann,
+ *   wenn der Spieler eine passende Kandidatenaktion (playTerrain/castSpell
+ *   einer Kreatur) tatsächlich zur Verfügung hat; genau dann enthält
+ *   `legalActions` bereits mehr als passPriority/concede, und diese Funktion
+ *   liefert schon deshalb `undefined` (keine Automatik, Button bleibt
+ *   sichtbar/gesperrt wie bisher).
+ * - erzwungener Kampf-Deklarationsschritt (declareAttackers/declareBlockers,
+ *   kein Priority-Fenster): `combatCandidates` (engine/legal-actions.ts)
+ *   liefert GENAU EINEN Kandidaten (die leere Deklaration), wenn keine
+ *   einzige eigene Einheit überhaupt als Angreifer/Blocker infrage kommt.
+ *   Liefert die Engine dagegen GAR KEINEN Kandidaten (guardian-Mehrfachblock-
+ *   Sonderfall, s. legal-actions.ts-Dateikommentar), ist das bewusst KEINE
+ *   automatisch lösbare Situation (eine echte, nur nicht enumerierbare
+ *   Entscheidung) - hier wird NICHT automatisch entschieden.
+ */
+function autoResolvableActionFor(player: PlayerId): PlayerAction | undefined {
+  if (isBotControlled(player)) return undefined;
+  if (state.pendingDecision) return undefined; // Mulligan/chooseMode/orderBlockers/Zielwahl: nie automatisch
+  if (state.priorityPlayer === player) {
+    const hasRealChoice = legalActions(player).some((a) => a.kind !== "passPriority" && a.kind !== "concede");
+    return hasRealChoice ? undefined : { kind: "passPriority", player };
+  }
+  if (state.step === "declareAttackers" && state.activePlayer === player) {
+    const attackerActions = legalActions(player).filter(
+      (a): a is Extract<PlayerAction, { kind: "declareAttackers" }> => a.kind === "declareAttackers",
+    );
+    if (attackerActions.length === 1 && attackerActions[0]!.attackers.length === 0) {
+      return { kind: "declareAttackers", player, attackers: [] };
+    }
+    return undefined;
+  }
+  if (state.step === "declareBlockers" && otherPlayerId(state.activePlayer) === player) {
+    const blockerActions = legalActions(player).filter(
+      (a): a is Extract<PlayerAction, { kind: "declareBlockers" }> => a.kind === "declareBlockers",
+    );
+    if (blockerActions.length === 1 && blockerActions[0]!.blocks.length === 0) {
+      return { kind: "declareBlockers", player, blocks: [] };
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Wendet eine der oben erkannten, automatisch entscheidbaren Aktionen an -
+ * strukturell identisch zu `dispatch`/`runBotStep` (gleiche Events-/Log-/SFX-/
+ * Tutorial-Fortschritt-Behandlung), ruft am Ende aber `advanceAutomation()`
+ * statt `triggerAutomation()` auf: die Sicherheitszähler dürfen NICHT
+ * zurückgesetzt werden, sie zählen laut Auftrag "ab der letzten ECHTEN
+ * menschlichen Aktion".
+ */
+function applyAutomaticAction(action: PlayerAction): void {
+  const result = engine.applyAction(state, action);
+  if (result.error) {
+    // Sollte laut Konstruktion nie eintreten (autoResolvableActionFor liefert
+    // ausschließlich von legalActions gelieferte Kandidaten) - reines
+    // Sicherheitsnetz analog zu runBotStep unten.
+    lastError = result.error;
+    // eslint-disable-next-line no-console
+    console.error(`Automatische Aktion wurde von der Engine abgelehnt (sollte nicht vorkommen): ${result.error}`);
+    notify();
+    return;
+  }
+  lastError = undefined;
+  state = result.state;
+  uiMode = { kind: "idle" };
+  const suppressCardDrawn = batchContainsMulligan(result.events);
+  for (const e of result.events) {
+    const t = describeEvent(e);
+    if (t) log.push(t);
+    playSfxForEvent(e, { suppressCardDrawn });
+  }
+  if (log.length > 300) log = log.slice(-300);
+  maybeAdvanceTutorialProgress(action);
+  notify();
+  advanceAutomation();
 }
 
 function scheduleBotStepIfNeeded(): void {
@@ -852,7 +1135,15 @@ function runBotStep(): void {
   if (log.length > 300) log = log.slice(-300);
   maybeAdvanceTutorialProgress(action);
   notify();
-  scheduleBotStepIfNeeded();
+  // v0.1.18 (Auftrag Teil 1+2): nicht mehr nur den nächsten Bot-Schritt
+  // planen, sondern advanceAutomation() - deckt zusätzlich den Fall ab, dass
+  // NACH diesem Bot-Zug ein NICHT-bot-gesteuerter Spieler an der Reihe ist,
+  // dessen Priority-/Kampf-Deklarationsfenster gerade keine echte Wahl bietet
+  // (dann automatisch weiter, ohne auf einen Klick zu warten). Bewusst NICHT
+  // triggerAutomation() (das würde die Sicherheitszähler zurücksetzen - hier
+  // handelt es sich um eine Fortsetzung desselben automatischen Zyklus, nicht
+  // um eine neue echte menschliche Aktion).
+  advanceAutomation();
 }
 
 function describeEvent(e: GameEvent): string | undefined {
@@ -1020,8 +1311,10 @@ export function initGame(
   // v0.1.7: Ist der (nach dem Münzwurf feststehende) erste Akteur bereits
   // bot-gesteuert - z.B. player2 ist KI und beginnt mit der ersten Mulligan-
   // Entscheidung oder direkt mit Priority -, spielt der Bot ab hier
-  // automatisch weiter, bis wieder ein Mensch an der Reihe ist.
-  triggerBotLoop();
+  // automatisch weiter, bis wieder ein Mensch an der Reihe ist. **v0.1.18**:
+  // deckt zusätzlich den Fall ab, dass der erste Akteur ein NICHT-bot-
+  // gesteuerter Spieler ohne echte Wahl ist (Auftrag Teil 1+2).
+  triggerAutomation();
 }
 
 /** Legale Aktions-Kandidaten für player im aktuellen State (delegiert an die Engine). */
@@ -1035,7 +1328,7 @@ export function legalActions(player: import("../model").PlayerId): PlayerAction[
  * strukturell identische, aber eigene `runBotStep` (oben) - dispatch() bleibt
  * damit "menschlicher Nutzer hat geklickt"-spezifisch (z.B. setzt es uiMode
  * zurück, was für automatische Bot-Züge irrelevant, aber auch unschädlich
- * wäre; der Haupt-Unterschied ist `triggerBotLoop()` am Ende, s.u.).
+ * wäre; der Haupt-Unterschied ist `triggerAutomation()` am Ende, s.u.).
  */
 export function dispatch(action: PlayerAction): void {
   const result = engine.applyAction(state, action);
@@ -1058,7 +1351,10 @@ export function dispatch(action: PlayerAction): void {
   notify();
   // v0.1.7: Nach jeder menschlichen Aktion prüfen, ob jetzt ein bot-
   // gesteuerter Spieler handeln muss - falls ja, automatisch weiterspielen
-  // (siehe triggerBotLoop/runBotStep oben), bis wieder ein Mensch dran ist
-  // oder das Spiel endet.
-  triggerBotLoop();
+  // (siehe triggerAutomation/runBotStep oben), bis wieder ein Mensch dran ist
+  // oder das Spiel endet. **v0.1.18**: triggerAutomation() deckt zusätzlich
+  // den Fall ab, dass JETZT ein NICHT-bot-gesteuerter Spieler ohne echte Wahl
+  // an der Reihe ist (Auftrag Teil 1+2: automatisches Passen/"keine
+  // Angreifer"/"keine Blocker", wenn das die einzig legale Aktion ist).
+  triggerAutomation();
 }

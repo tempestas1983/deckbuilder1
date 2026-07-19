@@ -16,6 +16,7 @@ import {
   backToDeckbuilder,
   closeKeywordGlossary,
   closeKeywordGlossaryPanel,
+  closeMusicPanel,
   confirmDeck,
   copyDeckFromPlayer1,
   closeTutorialHelp,
@@ -26,6 +27,9 @@ import {
   getDecklist,
   getLastError,
   getLog,
+  getMusicCurrentTrack,
+  getMusicRepeatMode,
+  getMusicTracks,
   getOpenKeywordGlossary,
   getPool,
   getState,
@@ -36,20 +40,24 @@ import {
   isBotControlled,
   isKeywordGlossaryPanelOpen,
   isMusicEnabled,
+  isMusicPanelOpen,
   isSfxEnabled,
   isTutorialActive,
   isTutorialBubbleVisible,
   isTutorialHelpOpen,
   legalActions,
   resetUiMode,
+  selectMusicTrack,
   setBotControlled,
   setBotDifficulty,
   setDecklist,
+  setMusicRepeatMode,
   setUiMode,
   skipTutorialStep,
   startTutorial,
   toggleKeywordGlossaryPanel,
   toggleMusicEnabled,
+  toggleMusicPanel,
   toggleSfxEnabled,
   toggleTutorialHelp,
 } from "./store";
@@ -57,7 +65,8 @@ import { BOT_DIFFICULTY_LABELS, BOT_DISPLAY_NAMES, type BotDifficulty } from "..
 import { cardDef } from "./cardInfo";
 import { tutorialHelpButton, tutorialHelpPanel, tutorialInstructionBanner, tutorialModalBubble } from "./components/tutorialOverlay";
 import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./components/keywordGlossaryPanel";
-import { musicToggleButton } from "./components/musicToggle";
+import { decisionSpotlightBanner } from "./components/decisionSpotlight";
+import { musicPanel, musicPanelButton } from "./components/musicPanel";
 import { sfxToggleButton } from "./components/sfxToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
@@ -65,7 +74,7 @@ import { deckBuilderScreen } from "./components/deckBuilder";
 import { buildDemoDeck } from "./deck";
 import { handCard, handCardDiscardToggle, handCardHidden } from "./components/handCard";
 import { playerPanel } from "./components/playerPanel";
-import { boardArtLayer, botAvatarImg } from "./components/sceneArt";
+import { botAvatarImg } from "./components/sceneArt";
 import { stackPanel } from "./components/stackPanel";
 import { logPanel } from "./components/logPanel";
 import {
@@ -180,6 +189,100 @@ function computeLifePulse(playerId: PlayerId, life: number): "up" | "down" | und
 }
 
 /**
+ * true, wenn der aktive Spieler beim Eintritt in `declareAttackers`
+ * tatsächlich mindestens EINE Einheit hat, die als Angreifer infrage kommt -
+ * reine Wiedererkennung über `legalActions` (engine/legal-actions.ts
+ * #combatCandidates liefert IMMER den leeren Kandidaten `{ attackers: [] }`
+ * zusätzlich zu einem Kandidaten PRO legalem Einzelangreifer), keine eigene
+ * Legalitätsprüfung. Exakt dieselbe Erkennung wie
+ * store.ts#autoResolvableActionFor - siehe dortiger Kommentar für die
+ * Begründung, warum "genau 1 Kandidat mit leerer Liste" gleichbedeutend mit
+ * "keine echte Wahl" ist.
+ */
+function hasRealDeclareAttackersChoice(state: GameState): boolean {
+  const candidates = legalActions(state.activePlayer).filter(
+    (a): a is Extract<PlayerAction, { kind: "declareAttackers" }> => a.kind === "declareAttackers",
+  );
+  return !(candidates.length === 1 && candidates[0]!.attackers.length === 0);
+}
+
+/**
+ * Analog zu `hasRealDeclareAttackersChoice` oben, für `declareBlockers`.
+ * Bewusst NICHT einfach "gibt es mindestens einen Kandidaten mit
+ * blocks.length > 0" - bei einer gleichzeitigen Mehrfach-guardian-Pflicht
+ * (rules-engine.md 6, s. legal-actions.ts-Dateikommentar) liefert die Engine
+ * ABSICHTLICH GAR KEINEN Kandidaten (kombinatorisch nicht enumeriert), obwohl
+ * eine ECHTE Entscheidung ansteht - "kein Kandidat" ist dort also gerade NICHT
+ * gleichbedeutend mit "keine Wahl". Nur der Fall "genau 1 Kandidat, und der
+ * ist die leere Deklaration" bedeutet zweifelsfrei "keine eigene Einheit kann
+ * überhaupt blocken".
+ */
+function hasRealDeclareBlockersChoice(state: GameState): boolean {
+  const defender = otherOf(state.activePlayer);
+  const candidates = legalActions(defender).filter(
+    (a): a is Extract<PlayerAction, { kind: "declareBlockers" }> => a.kind === "declareBlockers",
+  );
+  return !(candidates.length === 1 && candidates[0]!.blocks.length === 0);
+}
+
+/**
+ * true, wenn `player` bei Priority GERADE eine echte Wahl hat (`legalActions`
+ * bietet mehr als nur `passPriority`/`concede` an) - exakt dieselbe
+ * Erkennung wie store.ts#autoResolvableActionFor (dort entscheidet sie, ob
+ * automatisch gepasst wird; hier, ob Auftrag Teil 3 etwas hervorheben soll).
+ * Reine Anzeige-Ableitung über die bereits vorhandene `legalActions`-Anfrage,
+ * keine eigene Regellogik.
+ */
+function hasRealPriorityChoice(player: PlayerId): boolean {
+  return legalActions(player).some((a) => a.kind !== "passPriority" && a.kind !== "concede");
+}
+
+/**
+ * Auftrag Teil 3a: wer hat GERADE tatsächlich das "Zepter" (eine echte
+ * Entscheidung zu treffen), nicht nur technisch Priority/den Zug? Grundlage
+ * für die Rahmen-Hervorhebung um `.player-area` (s. playerArea unten) -
+ * bewusst zurückhaltend: eine rein technische Priority-Übergabe (die dank
+ * Auftrag Teil 1 ohnehin meist automatisch und unsichtbar durchläuft, s.
+ * store.ts#advanceAutomation) zählt NICHT, nur ein Moment, in dem der
+ * jeweilige Spieler wirklich etwas zu entscheiden hat (echte Priority-Wahl,
+ * eine an ihn gerichtete PendingDecision, ein Kampf-Deklarationsschritt mit
+ * echten Kandidaten, oder ein erzwungener Cleanup-Abwurf). `undefined`, wenn
+ * gerade niemand in diesem Sinn "am Drücker" ist.
+ */
+function decidingPlayer(state: GameState): PlayerId | undefined {
+  if (state.winner !== undefined) return undefined;
+  if (state.pendingDecision) return state.pendingDecision.player;
+  if (state.priorityPlayer !== undefined) {
+    return hasRealPriorityChoice(state.priorityPlayer) ? state.priorityPlayer : undefined;
+  }
+  if (state.step === "declareAttackers") {
+    return hasRealDeclareAttackersChoice(state) ? state.activePlayer : undefined;
+  }
+  if (state.step === "declareBlockers") {
+    return hasRealDeclareBlockersChoice(state) ? otherOf(state.activePlayer) : undefined;
+  }
+  if (state.step === "cleanup" && state.players[state.activePlayer].hand.length > 7) {
+    return state.activePlayer;
+  }
+  return undefined;
+}
+
+/**
+ * Auftrag Teil 3b: `undefined`, außer GENAU DANN, wenn ein NICHT-bot-
+ * gesteuerter Spieler bei Priority eine echte Wahl hat (Auto-Pass aus Teil 1
+ * greift bewusst nicht) UND gerade kein anderer Interaktions-Flow (Targeting/
+ * X-Eingabe/Modus-Wahl/Kampf-Deklaration/Abwurf, `mode.kind !== "idle"`)
+ * bereits läuft - das auffällige Banner soll einen NEUEN Entscheidungsmoment
+ * ankündigen, nicht einen bereits begonnenen Klickpfad überlagern.
+ */
+function decisionSpotlightPlayer(state: GameState, mode: UiMode): PlayerId | undefined {
+  const player = state.priorityPlayer;
+  if (player === undefined || state.pendingDecision || mode.kind !== "idle") return undefined;
+  if (isBotControlled(player)) return undefined;
+  return hasRealPriorityChoice(player) ? player : undefined;
+}
+
+/**
  * Erzwungene Entscheidungspunkte, bei denen die Engine bewusst KEINE Priority
  * vergibt und auf eine bestimmte PlayerAction wartet (rules-engine.md 2/6),
  * werden hier anhand der dafür dokumentierten State-Signale erkannt (siehe
@@ -207,13 +310,27 @@ function autoEnterForcedModes(state: GameState): void {
 
   if (state.step === "declareAttackers" && state.priorityPlayer === undefined) {
     if (mode.kind !== "declaringAttackers") {
-      setUiMode({ kind: "declaringAttackers", player: state.activePlayer, selected: [] });
+      // Auftrag Teil 2: hat der aktive Spieler KEINE einzige Einheit, die
+      // überhaupt als Angreifer infrage kommt, zeigt store.ts#advanceAutomation
+      // automatisch `{ attackers: [] }` an, statt einen Klick auf "Keine
+      // Angreifer" zu verlangen - das Panel hier deshalb erst gar nicht
+      // aufbauen (verhindert außerdem ein sichtbares Aufblitzen des Panels
+      // kurz bevor store.ts es im selben synchronen Zug wieder verlässt, s.
+      // dortiger Kommentar). Reine Wiedererkennung über legalActions (exakt
+      // dieselbe Erkennung wie store.ts#autoResolvableActionFor), keine
+      // eigene Legalitätslogik.
+      if (hasRealDeclareAttackersChoice(state)) {
+        setUiMode({ kind: "declaringAttackers", player: state.activePlayer, selected: [] });
+      }
     }
     return;
   }
   if (state.step === "declareBlockers" && state.priorityPlayer === undefined) {
     if (mode.kind !== "declaringBlockers") {
-      setUiMode({ kind: "declaringBlockers", player: otherOf(state.activePlayer), pairs: [] });
+      // s. Kommentar bei declareAttackers oben - analog für "Keine Blocker".
+      if (hasRealDeclareBlockersChoice(state)) {
+        setUiMode({ kind: "declaringBlockers", player: otherOf(state.activePlayer), pairs: [] });
+      }
     }
     return;
   }
@@ -365,6 +482,19 @@ function renderGameBoard(root: HTMLElement): void {
     openKeywordPopover ? keywordPopoverBubble(openKeywordPopover, () => closeKeywordGlossary()) : undefined,
     statusBar(state),
     err ? h("div", { class: "error-banner" }, [text(`Nicht erlaubt: ${err}`)]) : undefined,
+    // Auftrag Teil 3b: auffällige, NICHT-blockierende Hervorhebung eines
+    // echten Entscheidungsmoments (Auto-Pass aus Teil 1 greift bewusst
+    // nicht) - Handkarten/Fähigkeiten bleiben normal klickbar, der
+    // "Überspringen"-Button dispatcht dieselbe passPriority-Aktion wie der
+    // Button in der Statusleiste (inkl. desselben Tutorial-Sperrgrunds).
+    (() => {
+      const spotlightPlayer = decisionSpotlightPlayer(state, mode);
+      if (!spotlightPlayer) return undefined;
+      const blockReason = getTutorialPassPriorityBlockReason(spotlightPlayer);
+      return decisionSpotlightBanner(playerDisplayName(spotlightPlayer), blockReason, () =>
+        dispatch({ kind: "passPriority", player: spotlightPlayer }),
+      );
+    })(),
     ...actionBanner(state, mode),
     state.winner !== undefined ? gameOverBanner(state) : undefined,
     boardSection(state, pool, mode),
@@ -375,6 +505,10 @@ function renderGameBoard(root: HTMLElement): void {
     // Partie erreichbar (nicht nur im Tutorial-Modus, anders als
     // tutorialHelpPanel oben) - eigener Zustand in store.ts.
     isKeywordGlossaryPanelOpen() ? keywordGlossaryPanel(() => closeKeywordGlossaryPanel()) : undefined,
+    // App-weite Hintergrundmusik (s. musicPlayer.ts): Titelauswahl +
+    // Wiederholungsmodus, analog zum Keyword-Nachschlagewerk oben jederzeit
+    // erreichbar, unabhängig vom Tutorial-Modus.
+    isMusicPanelOpen() ? musicPanel(musicPanelOptions()) : undefined,
   ];
 
   root.append(...children.filter((c): c is HTMLElement => !!c));
@@ -383,6 +517,20 @@ function renderGameBoard(root: HTMLElement): void {
 // ---------------------------------------------------------------------------
 // Status- / Banner-Zeilen
 // ---------------------------------------------------------------------------
+
+/** Options-Objekt für `musicPanel()` - bündelt Store-Reads + Store-Aktionen, damit sowohl render.ts als auch components/deckBuilder.ts das Panel identisch verdrahten. */
+function musicPanelOptions() {
+  return {
+    enabled: isMusicEnabled(),
+    tracks: getMusicTracks(),
+    currentTrack: getMusicCurrentTrack(),
+    repeatMode: getMusicRepeatMode(),
+    onToggleEnabled: () => toggleMusicEnabled(),
+    onSelectTrack: (track: string) => selectMusicTrack(track),
+    onSetRepeatMode: (mode: ReturnType<typeof getMusicRepeatMode>) => setMusicRepeatMode(mode),
+    onClose: () => closeMusicPanel(),
+  };
+}
 
 function statusBar(state: GameState): HTMLElement {
   // "Priorität passen" ist der normale Weg, einen Priority-Moment zu
@@ -439,10 +587,11 @@ function statusBar(state: GameState): HTMLElement {
     // isTutorialActive()-Einschränkung (Nutzer-Feedback trat in einer
     // normalen/Tutorial-Partie auf, nicht spezifisch im geführten Tutorial).
     keywordGlossaryButton(() => toggleKeywordGlossaryPanel()),
-    // App-weite Hintergrundmusik (s. musicPlayer.ts): Mute/Play-Umschalter
-    // ist analog zum Schlüsselwörter-Button jederzeit sichtbar/erreichbar,
-    // unabhängig vom Tutorial-Modus.
-    musicToggleButton(isMusicEnabled(), () => toggleMusicEnabled()),
+    // App-weite Hintergrundmusik (s. musicPlayer.ts): öffnet das Musik-Panel
+    // (An/Aus, Titelauswahl, Wiederholungsmodus) - analog zum
+    // Schlüsselwörter-Button jederzeit sichtbar/erreichbar, unabhängig vom
+    // Tutorial-Modus.
+    musicPanelButton(() => toggleMusicPanel()),
     // Soundeffekte (s. sfxPlayer.ts): eigenständiger Mute-Zustand neben dem
     // Musik-Toggle, s. store.ts#isSfxEnabled-Dateikommentar.
     sfxToggleButton(isSfxEnabled(), () => toggleSfxEnabled()),
@@ -663,12 +812,14 @@ function boardSection(state: GameState, pool: ReturnType<typeof getPool>, mode: 
   const board = h(
     "div",
     { class: "board" },
-    // Szenen-Artwork (docs/scene-art-brief.md): Taverne-Hintergrundbild als
-    // erstes Kind - liegt damit über der Holzmaserung/dem Rauschen
-    // (.board::before) aber unter dem animierten Kerzenschein-Glow
-    // (.board::after) und den Spielerbereichen, s. Stacking-Kommentar in
-    // style.css / sceneArt.ts#boardArtLayer.
-    [boardArtLayer(), ...PLAYER_IDS.map((playerId) => playerArea(state, pool, playerId, mode, targetMap))],
+    // Szenen-Artwork (docs/scene-art-brief.md): das Taverne-Hintergrundfoto
+    // selbst ist KEIN Kind von `.board` mehr (Auftrag "Hintergrund soll
+    // breiter wirken als das Spielfeld") - es hängt als Singleton direkt an
+    // `document.body`, s. sceneArt.ts#initBoardBackdrop (von main.ts einmalig
+    // aufgerufen). `.board` behält nur seine eigene reine CSS-Atmosphäre
+    // (Holzmaserung-Verlauf/Rauschen `.board::before`, Kerzenschein-Glow
+    // `.board::after`).
+    PLAYER_IDS.map((playerId) => playerArea(state, pool, playerId, mode, targetMap)),
   );
 
   // Großer Gegner-Avatar rechts neben dem Spielfeld (statt des früheren
@@ -719,8 +870,15 @@ function playerArea(
   // computeLifePulse oben - MUSS pro Render genau einmal pro Spieler
   // aufgerufen werden (aktualisiert den Tracking-Zustand als Nebeneffekt).
   const lifePulse = computeLifePulse(playerId, state.players[playerId].life);
+  // Auftrag Teil 3a: der Hand+Battlefield-Bereich des Spielers, der GERADE
+  // tatsächlich eine echte Entscheidung treffen muss/kann, sticht optisch
+  // hervor (s. decidingPlayer oben) - bewusst NUR bei einer echten
+  // Entscheidung, nicht bei jedem technischen Prioritätswechsel (Auto-Pass
+  // aus Teil 1 wechselt priorityPlayer u.U. sehr schnell hin und her, ohne
+  // dass hier je ein Rahmen aufblitzen würde).
+  const isDeciding = decidingPlayer(state) === playerId;
 
-  return h("div", { class: "player-area" }, [
+  return h("div", { class: isDeciding ? "player-area player-area-deciding" : "player-area" }, [
     playerPanel(state, playerId, {
       lifePulse,
       botControlled: isBotControlled(playerId),

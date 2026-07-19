@@ -18,6 +18,7 @@ import {
   autoAdvanceToReadyMain1,
   buildDeckByClicking,
   buttonWithText,
+  captureStateDuring,
   click,
   keepAllMulligans,
   makeSeededRandom,
@@ -95,14 +96,31 @@ describe("X-Kosten-Fähigkeit aktivieren (v0.1.6)", () => {
       (el) => el.querySelector(".hand-card-name")?.textContent === relicName,
     );
     expect(relicHandCard).toBeTruthy();
-    click(buttonWithText(relicHandCard as HTMLElement, ".btn.btn-play", "Spielen"));
 
-    // Spell auf dem Stack -> beide passen -> Relikt landet auf dem
-    // Battlefield (Summoning Sickness betrifft laut rules-engine.md 8 nur
-    // Units, das Relikt darf seine Tap-Fähigkeit im selben Zug nutzen).
-    expect(getState().stack.length).toBe(1);
-    click(queryOne(root, ".btn-pass"));
-    click(queryOne(root, ".btn-pass"));
+    // Seit store.ts#advanceAutomation (Auftrag "automatisch passen, wenn's
+    // keine echte Wahl gibt") kann dieser Klick SYNCHRON eine ganze Kette
+    // auslösen: casten -> beide Spieler passen automatisch (in diesem
+    // Testaufbau hat danach keiner von beiden irgendeine andere legale
+    // Aktion) -> das Relikt landet SOFORT auf dem Battlefield, ohne dass
+    // noch zwei manuelle "Priorität passen"-Klicks nötig wären.
+    // `captureStateDuring` fängt trotzdem den Zwischenzustand (Spell auf dem
+    // Stack) ab, BEVOR er automatisch wieder verschwindet.
+    const castState = captureStateDuring(
+      subscribe,
+      getState,
+      () => click(buttonWithText(relicHandCard as HTMLElement, ".btn.btn-play", "Spielen")),
+      (s) => s.stack.length === 1,
+    );
+    expect(castState).toBeDefined();
+
+    // Danach ggf. noch ausstehende "Priorität passen"-Klicks (falls doch
+    // noch eine echte Wahl bestand) - tolerant statt starr auf "genau 2
+    // Klicks", s.o.
+    while (getState().stack.length > 0) {
+      const passBtn = root.querySelector<HTMLButtonElement>(".btn-pass");
+      if (!passBtn) break;
+      click(passBtn);
+    }
 
     let state = getState();
     expect(state.stack.length).toBe(0);
@@ -134,22 +152,35 @@ describe("X-Kosten-Fähigkeit aktivieren (v0.1.6)", () => {
     expect(queryOne(root, ".action-banner").textContent).toContain("X=0");
 
     const opponentLifeBefore = getState().players[opponent].life;
-    click(queryOne(root, `.player-panel[data-player="${opponent}"]`));
+    const opponentPanel = queryOne(root, `.player-panel[data-player="${opponent}"]`);
 
-    state = getState();
-    expect(state.stack.length).toBe(1);
-    const stackObj = state.stack[0]!;
+    // s. Kommentar bei der Relikt-Cast-Stelle oben: derselbe Klick kann
+    // dank automatischem Passen (Auftrag) synchron bis zur Resolution
+    // durchlaufen - `captureStateDuring` sichert den Zwischenzustand
+    // (aktivierte Fähigkeit MIT chosenX/chosenTargets auf dem Stack) ab.
+    const activateState = captureStateDuring(
+      subscribe,
+      getState,
+      () => click(opponentPanel),
+      (s) => s.stack.length === 1 && s.stack[0]?.kind === "activatedAbility",
+    );
+    expect(activateState).toBeDefined();
+    const stackObj = activateState!.stack[0]!;
     expect(stackObj.kind).toBe("activatedAbility");
     if (stackObj.kind === "activatedAbility") {
       expect(stackObj.chosenX).toBe(0);
       expect(stackObj.chosenTargets).toEqual([{ kind: "player", playerId: opponent }]);
     }
 
-    // Beide passen -> Fähigkeit resolvt (X=0 Schaden ist laut rules-engine.md
-    // §6c/9.10 kein Schadensereignis - Leben bleibt unverändert, aber Stack/
-    // Ziel-/X-Wahl selbst sind hier bereits verifiziert).
-    click(queryOne(root, ".btn-pass"));
-    click(queryOne(root, ".btn-pass"));
+    // Danach ggf. noch ausstehende "Priorität passen"-Klicks (X=0 Schaden ist
+    // laut rules-engine.md §6c/9.10 kein Schadensereignis - Leben bleibt
+    // unverändert, aber Stack-/Ziel-/X-Wahl selbst sind oben bereits
+    // verifiziert) - tolerant statt starr auf "genau 2 Klicks", s.o.
+    while (getState().stack.length > 0) {
+      const passBtn = root.querySelector<HTMLButtonElement>(".btn-pass");
+      if (!passBtn) break;
+      click(passBtn);
+    }
 
     state = getState();
     expect(state.stack.length).toBe(0);

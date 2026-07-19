@@ -31,30 +31,61 @@ export function botAvatarUrl(difficulty: BotDifficulty): string {
 }
 
 /**
- * Bild-Layer für den Spielbrett-Hintergrund (`.board`, s. style.css) - liegt
- * als erstes Kind über dem Holzmaserung-Verlauf/Rauschen, aber unter dem
- * animierten Kerzenschein-Glow (`.board::after`) und den Spielerbereichen,
- * s. Stacking-Kommentar in style.css. Wird beim boardSection-Aufbau in
- * render.ts VOR den beiden playerArea-Elementen eingefügt.
+ * Taverne-Hintergrundfoto auf Seitenebene (Auftrag "Hintergrund soll breiter
+ * wirken als das Spielfeld"): anders als vor diesem Auftrag liegt das <img>
+ * NICHT mehr als erstes Kind von `.board` (das hätte es auf dessen Breite
+ * beschnitten, s. `.board`'s `overflow: hidden`), sondern als Singleton
+ * direkt an `document.body` - exakt dasselbe Pattern wie musicPlayer.ts
+ * (dortiger Dateikommentar) und aus demselben Grund: `render.ts#render()`
+ * baut `#app` bei JEDER Zustandsänderung per innerHTML komplett neu auf; ein
+ * Bild-Element innerhalb dieses Rebuild-Bereichs würde bei jedem Klick neu
+ * erzeugt (erneutes Ausblenden bis zum nächsten "load"-Event). Als
+ * body-Kind übersteht es jeden Rebuild unangetastet.
+ *
+ * `initBoardBackdrop()` wird darum bewusst NUR aus main.ts aufgerufen (s.
+ * dortiger Kommentar), NICHT aus store.ts/render.ts - die UI-Tests
+ * importieren gezielt nur store.ts/render.ts und laden main.ts nie, lösen
+ * also nie einen echten Bild-Request aus.
+ *
+ * Positionierung (`.board-backdrop-img` in style.css): `position: fixed` +
+ * `inset: 0` + `width: 100vw`/`height: 100vh` + `object-fit: cover` füllt
+ * den kompletten Browser-Viewport (also sichtbar breiter als `#app`, das per
+ * `max-width: 1400px` begrenzt ist) - `z-index: -1` hält es hinter JEDEM
+ * normalen Seiteninhalt (insbesondere `#app`/`.board`), aber als Kind von
+ * `body` automatisch VOR dessen eigenem Vignette-Hintergrund (reine
+ * CSS-Verlaufsfarbe, s. `body` in style.css) - ein Element mit negativem
+ * z-index malt zwar vor dem eigenen Elternhintergrund, aber erst NACH dem
+ * Hintergrund des Stacking-Context-Wurzelelements, hier effektiv `body`.
+ * `.board` selbst behält dabei seine eigene, unveränderte CSS-Atmosphäre
+ * (Holzmaserung-Verlauf, Kerzenschein-Glow-Keyframes, s. style.css `.board`)
+ * - die verdeckt dieses Foto in ihrem eigenen Bereich einfach weiterhin
+ * (undurchsichtiger Hintergrund), genau wie vor diesem Auftrag.
+ *
+ * Lade-/Fallback-Verhalten unverändert gegenüber vorher: bis zum
+ * "load"-Event unsichtbar (kein Blitzen eines kaputten Icons), bei "error"
+ * (Datei existiert noch nicht - Normalfall bis der Nutzer sie ablegt) wird
+ * das <img> ersatzlos aus dem DOM entfernt.
  */
-export function boardArtLayer(): HTMLElement {
-  return h("img", {
-    class: "board-art-img",
+let boardBackdropEl: HTMLImageElement | undefined;
+
+export function initBoardBackdrop(): void {
+  if (boardBackdropEl) return;
+  const el = h("img", {
+    class: "board-backdrop-img",
     src: boardArtUrl(),
     alt: "",
     loading: "eager",
     decoding: "async",
     onload: (ev: Event) => {
-      (ev.currentTarget as HTMLElement).classList.add("board-art-img-loaded");
+      (ev.currentTarget as HTMLElement).classList.add("board-backdrop-img-loaded");
     },
     onerror: (ev: Event) => {
-      // Datei existiert (noch) nicht - Normalfall bis der Nutzer sie ablegt:
-      // Bild-Element entfernen, damit die bisherige CSS-Atmosphäre von
-      // .board (Holzmaserung, Rauschen, Kerzenschein-Glow) unverändert
-      // sichtbar bleibt.
       (ev.currentTarget as HTMLElement).remove();
+      boardBackdropEl = undefined;
     },
-  });
+  }) as HTMLImageElement;
+  document.body.appendChild(el);
+  boardBackdropEl = el;
 }
 
 /**

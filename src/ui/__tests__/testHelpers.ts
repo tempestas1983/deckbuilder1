@@ -252,3 +252,41 @@ export function tapUntappedPermanent(root: ParentNode, name: string): void {
   if (!tile) throw new Error(`tapUntappedPermanent: kein antippbares Permanent "${name}" gefunden.`);
   click(tile);
 }
+
+/**
+ * Ruft `act()` auf und fängt dabei über einen ZUSÄTZLICHEN
+ * `store.ts#subscribe()`-Listener (kein Store-Bypass, der auslösende Klick
+ * bleibt ein echter DOM-Klick) den ERSTEN GameState-Zwischenzustand ab, für
+ * den `predicate` zutrifft.
+ *
+ * Nötig geworden seit store.ts#advanceAutomation (Auftrag "automatisch
+ * passen/deklarieren, wenn's keine echte Wahl gibt"): ein einzelner Klick
+ * (z.B. eine Karte casten) kann dadurch SYNCHRON eine ganze Kette weiterer
+ * automatischer Aktionen auslösen (z.B. beide Spieler passen automatisch ->
+ * der Stack resolvt sofort), BEVOR `act()` zurückkehrt - ein `getState()`
+ * DANACH zeigt dann bereits den fertig durchlaufenen Endzustand, nicht mehr
+ * den für den Test eigentlich interessanten Zwischenzustand (z.B. "frisch
+ * gecastetes Stack-Objekt MIT chosenMode/chosenTargets, bevor es automatisch
+ * resolvt"). `notify()` läuft in store.ts nach JEDER einzelnen Aktion (nicht
+ * erst am Ende der Kette) - der Zwischenzustand geht daher nie verloren,
+ * solange man wie hier während `act()` mithört.
+ */
+export function captureStateDuring<TState>(
+  subscribeFn: (listener: () => void) => () => void,
+  getStateFn: () => TState,
+  act: () => void,
+  predicate: (state: TState) => boolean,
+): TState | undefined {
+  let captured: TState | undefined;
+  const unsubscribe = subscribeFn(() => {
+    if (captured !== undefined) return; // nur den ERSTEN Treffer behalten
+    const s = getStateFn();
+    if (predicate(s)) captured = s;
+  });
+  try {
+    act();
+  } finally {
+    unsubscribe();
+  }
+  return captured;
+}

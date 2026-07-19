@@ -13,6 +13,7 @@ import { subscribe } from "./store";
 import { render } from "./render";
 import { initMusicPlayer } from "./musicPlayer";
 import { initSfxPlayer } from "./sfxPlayer";
+import { initBoardBackdrop } from "./components/sceneArt";
 
 const root = document.getElementById("app");
 if (!root) {
@@ -33,3 +34,10 @@ initMusicPlayer();
 // `playSfx()`/`playSfxForEvent()` auf, erzeugen aber selbst keine
 // `<audio>`-Elemente.
 initSfxPlayer();
+
+// Taverne-Hintergrundfoto (s. sceneArt.ts#initBoardBackdrop-Dateikommentar):
+// eigenes Singleton-<img>-Element AUSSERHALB von #app (viewport-breit statt
+// auf die Breite von `.board` beschränkt), überlebt damit jeden
+// render()-Rebuild unangetastet. Bewusst NUR hier aufgerufen, analog zu
+// initMusicPlayer/initSfxPlayer oben.
+initBoardBackdrop();

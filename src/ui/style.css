@@ -343,27 +343,33 @@ body {
   }
 }
 
-/* Szenen-Artwork (docs/scene-art-brief.md / components/sceneArt.ts): das
-   Taverne-Hintergrundbild liegt als erstes Kind von .board im DOM, dadurch
-   in der Malreihenfolge über der Holzmaserung/dem Rauschen (::before) aber
-   unter dem animierten Kerzenschein-Glow (::after, s.o.) und den
-   Spielerbereichen (.player-area hat z-index: 1) - ergänzt die bestehende
-   CSS-Atmosphäre statt sie zu ersetzen: fehlt die Datei, entfernt sich das
-   <img> selbst (s. sceneArt.ts#boardArtLayer) und GENAU der bisherige
-   Holzmaserung-Verlauf von .board bleibt unverändert sichtbar. Bis zum
-   "load"-Event unsichtbar (kein Blitzen eines kaputten Icons), .board's
-   `overflow: hidden` übernimmt das Zuschneiden auf die abgerundeten Ecken. */
-.board-art-img {
-  position: absolute;
+/* Szenen-Artwork (docs/scene-art-brief.md / components/sceneArt.ts, Auftrag
+   "Hintergrund soll breiter wirken als das Spielfeld"): das
+   Taverne-Hintergrundfoto ist KEIN Kind von `.board` mehr, sondern ein
+   Singleton-<img> direkt an `document.body` (s.
+   sceneArt.ts#initBoardBackdrop) - dadurch füllt es den kompletten
+   Browser-Viewport statt auf die Breite von `.board`/`#app` (max-width:
+   1400px, s.o.) beschränkt zu sein. `position: fixed` + `z-index: -1` halten
+   es hinter JEDEM normalen Seiteninhalt (insbesondere `#app`/`.board`), aber
+   als Kind von `body` automatisch VOR dessen eigenem Vignette-Hintergrund
+   (s. `body` oben) - `.board` selbst behält seine eigene, unveränderte
+   CSS-Atmosphäre (Holzmaserung-Verlauf ::before, Kerzenschein-Glow ::after,
+   s.o.) und verdeckt dieses Foto in ihrem eigenen Bereich weiterhin mit
+   ihrem eigenen undurchsichtigen Hintergrund. Fehlt die Bilddatei, entfernt
+   sich das <img> selbst (s. sceneArt.ts#initBoardBackdrop). Bis zum
+   "load"-Event unsichtbar (kein Blitzen eines kaputten Icons). */
+.board-backdrop-img {
+  position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   object-fit: cover;
+  z-index: -1;
   opacity: 0;
   transition: opacity 0.2s ease;
 }
 
-.board-art-img-loaded {
+.board-backdrop-img-loaded {
   opacity: 0.85;
 }
 
@@ -392,6 +398,121 @@ body {
   color: var(--parchment-muted);
   opacity: 0.85;
   margin-top: 4px;
+}
+
+/* Auftrag Teil 3a (Nutzer-Feedback, Screenshot mit eingekreistem Hand-/
+   Battlefield-Bereich): hebt den GESAMTEN `.player-area` desjenigen Spielers
+   hervor, der GERADE eine echte Entscheidung treffen muss (s.
+   render.ts#decidingPlayer) - bewusst dezent/ruhig (kein hektisches
+   Blinken wie `.tutorial-glow-pulse`, das eine einzelne Karte meint), da
+   dieser Rahmen bei jedem tatsächlichen Entscheidungswechsel erscheint,
+   nicht nur einmalig. Zeigt sich NUR bei einer echten Wahl (Auto-Pass aus
+   Teil 1 sorgt dafür, dass rein technische Prioritätswechsel gar nicht erst
+   hier ankommen) - kein nervöses Flackern bei jedem automatischen Pass. */
+.player-area-deciding {
+  outline: 2px solid var(--good);
+  outline-offset: 2px;
+  animation: player-area-deciding-glow 2.2s ease-in-out infinite;
+}
+
+@keyframes player-area-deciding-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 6px 16px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 210, 160, 0.06),
+      0 0 0 0 rgba(63, 191, 107, 0);
+  }
+  50% {
+    box-shadow:
+      0 6px 16px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 210, 160, 0.06),
+      0 0 16px 3px rgba(63, 191, 107, 0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-area-deciding {
+    animation: none;
+    box-shadow:
+      0 6px 16px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 210, 160, 0.06),
+      0 0 12px 2px rgba(63, 191, 107, 0.35);
+  }
+}
+
+/* Auftrag Teil 3b: deutlich auffälligeres, NICHT-blockierendes Banner für
+   einen echten Entscheidungsmoment (Auto-Pass greift bewusst nicht) -
+   sichtbar prominenter als `.action-banner`/`.tutorial-instruction-banner`
+   (kräftigere Farbe, Puls-Animation, größerer/eigenständiger
+   "Überspringen"-Button), s. components/decisionSpotlight.ts. Verdeckt/
+   sperrt NICHTS - Handkarten bleiben normal klickbar. */
+.decision-spotlight-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--good);
+  background: linear-gradient(135deg, rgba(63, 191, 107, 0.22), rgba(63, 191, 107, 0.07));
+  box-shadow:
+    0 0 0 1px rgba(63, 191, 107, 0.25),
+    0 4px 14px rgba(0, 0, 0, 0.35);
+  animation: decision-spotlight-pulse 1.8s ease-in-out infinite;
+}
+
+.decision-spotlight-icon {
+  font-size: 20px;
+  color: var(--good);
+  flex: 0 0 auto;
+}
+
+.decision-spotlight-text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.decision-spotlight-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--good);
+}
+
+.decision-spotlight-body {
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.9;
+}
+
+.decision-spotlight-skip-btn {
+  flex: 0 0 auto;
+  font-weight: 700;
+  padding: 8px 18px;
+  background: var(--good);
+  border-color: var(--good);
+  color: #0d2415;
+}
+
+@keyframes decision-spotlight-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(63, 191, 107, 0.25),
+      0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(63, 191, 107, 0.5),
+      0 4px 22px 4px rgba(63, 191, 107, 0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .decision-spotlight-banner {
+    animation: none;
+  }
 }
 
 .player-panel {
@@ -1355,6 +1476,57 @@ body {
   font-size: 13px;
   color: var(--muted);
   line-height: 1.4;
+}
+
+/* Musik-Panel ----------------------------------------------------------
+   Titelauswahl + Wiederholungsmodus (s. components/musicPanel.ts) - nutzt
+   Backdrop/Panel/Kopfzeile/Liste bewusst über dieselben `.tutorial-help-*`-
+   Klassen oben statt eigener Rahmen-Optik, nur die musik-spezifischen
+   Innereien (An/Aus-Button, Wiederholungs-Umschalter, Titel-Zeilen) bekommen
+   eigene Klassen. */
+.music-panel-enabled-btn {
+  align-self: flex-start;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.music-panel-repeat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.music-panel-repeat-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.music-panel-repeat-btn-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.music-panel-empty {
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.music-panel-track-list {
+  max-height: 40vh;
+}
+
+.music-panel-track {
+  width: 100%;
+  text-align: left;
+}
+
+.music-panel-track-current {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
 }
 
 /* Keyword-Klick-Popover (v0.1.14) ------------------------------------------

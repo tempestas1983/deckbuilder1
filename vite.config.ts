@@ -1,5 +1,5 @@
 import { defineConfig, type Plugin } from "vite";
-import { createReadStream, existsSync, mkdirSync, readdirSync, copyFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, copyFileSync, writeFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,7 +18,13 @@ const MIME_BY_EXT: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
   ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
+  ".wav": "audio/wav",
+  ".m4a": "audio/mp4",
 };
+
+/** Von musicIndexPlugin (s.u.) als Musiktitel erkannte Dateiendungen - Teilmenge der Schlüssel aus MIME_BY_EXT oben, auf tatsächlich als Musik erwartete Formate eingegrenzt. */
+const MUSIC_TRACK_EXTENSIONS = [".mp3", ".ogg", ".wav", ".m4a"];
 
 /**
  * Liefert extern generierte, gitignorete Bild-Assets aus einem `docs/`-
@@ -120,13 +126,72 @@ function sceneArtPlugin(): Plugin {
   });
 }
 
+const MUSIC_SOURCE_DIR = join(PROJECT_ROOT, "docs", "music");
+
 function musicPlugin(): Plugin {
   return staticArtPlugin({
     name: "music-static-serve",
-    sourceDir: join(PROJECT_ROOT, "docs", "music"),
+    sourceDir: MUSIC_SOURCE_DIR,
     urlPrefix: "/music/",
     outSubdir: "music",
   });
+}
+
+/** Live-Verzeichnis-Listing von docs/music/, gefiltert auf MUSIC_TRACK_EXTENSIONS, alphabetisch sortiert. Fehlt der Ordner (noch) komplett, liefert das eine leere Liste statt zu crashen (gleicher "Nutzer legt Dateien lokal ab"-Workflow wie beim Rest von staticArtPlugin). */
+function listMusicTracks(): string[] {
+  if (!existsSync(MUSIC_SOURCE_DIR)) return [];
+  return readdirSync(MUSIC_SOURCE_DIR)
+    .filter((entry) => MUSIC_TRACK_EXTENSIONS.includes(extname(entry).toLowerCase()))
+    .sort((a, b) => a.localeCompare(b, "de"));
+}
+
+/**
+ * Auto-Discovery der Musiktitel unter `docs/music/` (Auftrag: kein manuelles
+ * Verdrahten pro Datei) - ein schlanker Zusatz-Handler NEBEN `musicPlugin()`
+ * oben statt einer Erweiterung von `staticArtPlugin` selbst, da dessen
+ * Middleware/Kopierschritt rein dateibasiert ist (eine URL -> eine Datei) und
+ * eine Verzeichnis-Listing-Fähigkeit ein fremder Zusatz wäre.
+ *
+ * - **Dev**: `/music/index.json` wird bei JEDEM Request live neu ermittelt
+ *   (kein Cache) - neu abgelegte/gelöschte Dateien tauchen ohne
+ *   Server-Neustart sofort in der Liste auf, exakt das gleiche Versprechen
+ *   wie bei den anderen `docs/`-Asset-Ordnern (s. staticArtPlugin-Kommentar).
+ * - **Build**: derselbe Inhalt wird als Snapshot zum Build-Zeitpunkt nach
+ *   `<outDir>/music/index.json` geschrieben, da ein Produktions-Build keinen
+ *   Node-Server mehr hat, der zur Laufzeit nachschauen könnte (musicPlayer.ts
+ *   fragt dieselbe URL in Dev UND Build gleichermaßen per fetch() ab).
+ */
+function musicIndexPlugin(): Plugin {
+  let outDirAbs = "";
+  let isBuildCommand = false;
+  return {
+    name: "music-index-json",
+    configResolved(config) {
+      outDirAbs = resolve(config.root, config.build.outDir);
+      // s. staticArtPlugin#configResolved - gleicher Grund für die explizite
+      // Prüfung auf den echten Build-Befehl statt uns auf den bloßen
+      // closeBundle-Hook-Aufruf zu verlassen (Vitest ruft closeBundle auch
+      // mit einem nicht-existenten Platzhalter-outDir auf).
+      isBuildCommand = config.command === "build";
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.split("?")[0];
+        if (url !== "/music/index.json") {
+          next();
+          return;
+        }
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ tracks: listMusicTracks() }));
+      });
+    },
+    closeBundle() {
+      if (!isBuildCommand) return;
+      const outDir = join(outDirAbs, "music");
+      mkdirSync(outDir, { recursive: true });
+      writeFileSync(join(outDir, "index.json"), JSON.stringify({ tracks: listMusicTracks() }));
+    },
+  };
 }
 
 /**
@@ -147,7 +212,7 @@ function sfxPlugin(): Plugin {
 
 export default defineConfig({
   root: ".",
-  plugins: [cardArtworkPlugin(), sceneArtPlugin(), musicPlugin(), sfxPlugin()],
+  plugins: [cardArtworkPlugin(), sceneArtPlugin(), musicPlugin(), musicIndexPlugin(), sfxPlugin()],
   server: {
     port: 5173,
   },

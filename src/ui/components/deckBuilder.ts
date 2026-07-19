@@ -26,16 +26,24 @@ import { ruleTextNodes } from "./keywordText";
 import {
   closeKeywordGlossary,
   closeKeywordGlossaryPanel,
+  closeMusicPanel,
+  getMusicCurrentTrack,
+  getMusicRepeatMode,
+  getMusicTracks,
   getOpenKeywordGlossary,
   isKeywordGlossaryPanelOpen,
   isMusicEnabled,
+  isMusicPanelOpen,
   isSfxEnabled,
+  selectMusicTrack,
+  setMusicRepeatMode,
   toggleKeywordGlossaryPanel,
   toggleMusicEnabled,
+  toggleMusicPanel,
   toggleSfxEnabled,
 } from "../store";
 import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./keywordGlossaryPanel";
-import { musicToggleButton } from "./musicToggle";
+import { musicPanel, musicPanelButton } from "./musicPanel";
 import { sfxToggleButton } from "./sfxToggle";
 import { validateDecklist } from "../deckValidation";
 
@@ -268,7 +276,7 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
         // App-weite Hintergrundmusik (s. musicPlayer.ts): auch im Deckbau
         // jederzeit erreichbar/sichtbar, es gibt keinen eigenen Titelbildschirm
         // (das Spiel startet direkt hier).
-        musicToggleButton(isMusicEnabled(), () => toggleMusicEnabled()),
+        musicPanelButton(() => toggleMusicPanel()),
         sfxToggleButton(isSfxEnabled(), () => toggleSfxEnabled()),
         keywordGlossaryButton(() => toggleKeywordGlossaryPanel()),
       ]),
@@ -302,6 +310,18 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
       ),
     ]),
     isKeywordGlossaryPanelOpen() ? keywordGlossaryPanel(() => closeKeywordGlossaryPanel()) : undefined,
+    isMusicPanelOpen()
+      ? musicPanel({
+          enabled: isMusicEnabled(),
+          tracks: getMusicTracks(),
+          currentTrack: getMusicCurrentTrack(),
+          repeatMode: getMusicRepeatMode(),
+          onToggleEnabled: () => toggleMusicEnabled(),
+          onSelectTrack: (track) => selectMusicTrack(track),
+          onSetRepeatMode: (mode) => setMusicRepeatMode(mode),
+          onClose: () => closeMusicPanel(),
+        })
+      : undefined,
   ]);
 }
 

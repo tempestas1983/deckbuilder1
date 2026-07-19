@@ -1,7 +1,10 @@
 /**
  * Mute/Play-Umschalter für kurze Soundeffekte (Karte spielen, Angriff,
  * Treffer, ...) - s. `../sfxPlayer.ts` für das eigentliche Abspielen.
- * Exakt analog zu `musicToggle.ts`, aber ein EIGENSTÄNDIGER Zustand
+ * Analog zum simplen An/Aus-Button in `musicPanel.ts#musicPanelButton`
+ * (dessen Panel inzwischen zusätzlich Titelauswahl+Wiederholungsmodus bietet -
+ * SFX hat davon nichts, hier bleibt es bei einem reinen Mute-Umschalter), aber
+ * ein EIGENSTÄNDIGER Zustand
  * (`store.ts#isSfxEnabled/toggleSfxEnabled`), unabhängig vom Musik-Mute -
  * reine Anzeige-/Klick-Komponente, die tatsächliche Wiedergabe-Entscheidung
  * trifft `sfxPlayer.ts#playSfx` bei jedem Event (Observer-/Check-Muster).

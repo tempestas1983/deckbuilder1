@@ -19,6 +19,7 @@ import {
   autoAdvanceToReadyMain1,
   buildDeckByClicking,
   buttonWithText,
+  captureStateDuring,
   click,
   keepAllMulligans,
   makeSeededRandom,
@@ -120,25 +121,41 @@ describe("Modaler Spell casten (v0.1.6)", () => {
     // Ziel wählen: gegnerischer Spieler (Modus-Zielslot ist "unitOrPlayer",
     // ein Spieler ist ein legales Ziel dafür - kein Kreatur-Ziel nötig).
     const opponentPanel = queryOne(root, `.player-panel[data-player="${opponent}"]`);
-    click(opponentPanel);
 
-    // Jetzt liegt der Spell auf dem Stack, MIT gesetztem chosenMode und dem
-    // gewählten Ziel - das ist die Kernzusicherung dieses Tests (Stack/
-    // Priority-Nachvollziehbarkeit, Rollen-Vertrag dieses Agenten).
-    let state = getState();
-    expect(state.stack.length).toBe(1);
-    const stackObj = state.stack[0]!;
+    // Seit store.ts#advanceAutomation (Auftrag "automatisch passen, wenn's
+    // keine echte Wahl gibt") kann dieser eine Klick SYNCHRON eine ganze
+    // Kette auslösen: casten -> beide Spieler passen automatisch (in diesem
+    // Testaufbau hat danach keiner von beiden irgendeine andere legale
+    // Aktion) -> der Spell resolvt SOFORT, ohne dass noch zwei manuelle
+    // "Priorität passen"-Klicks nötig wären. `captureStateDuring` fängt den
+    // Zwischenzustand ab (Stack-Objekt MIT chosenMode/chosenTargets),
+    // BEVOR er automatisch wieder verschwindet - das ist die eigentliche
+    // Kernzusicherung dieses Tests (Stack-/Priority-Nachvollziehbarkeit).
+    const castState = captureStateDuring(
+      subscribe,
+      getState,
+      () => click(opponentPanel),
+      (s) => s.stack.length === 1 && s.stack[0]?.kind === "spell",
+    );
+    expect(castState).toBeDefined();
+    const stackObj = castState!.stack[0]!;
     expect(stackObj.kind).toBe("spell");
     if (stackObj.kind === "spell") {
       expect(stackObj.chosenMode).toBe(0);
       expect(stackObj.chosenTargets).toEqual([{ kind: "player", playerId: opponent }]);
     }
 
-    // Beide passen -> Spell resolvt -> Modus 0 ("2 Schaden") wird ausgeführt.
-    click(queryOne(root, ".btn-pass"));
-    click(queryOne(root, ".btn-pass"));
+    // Danach ggf. noch ausstehende "Priorität passen"-Klicks (falls doch
+    // noch eine echte Wahl bestand und der Automatik-Zyklus nicht bereits
+    // vollständig durchgelaufen ist) - tolerant statt starr auf "genau 2
+    // Klicks", s.o.
+    while (getState().stack.length > 0) {
+      const passBtn = root.querySelector<HTMLButtonElement>(".btn-pass");
+      if (!passBtn) break;
+      click(passBtn);
+    }
 
-    state = getState();
+    const state = getState();
     expect(state.stack.length).toBe(0);
     expect(state.players[opponent].life).toBe(opponentLifeBefore - 2);
 
