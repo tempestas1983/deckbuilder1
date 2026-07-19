@@ -14,22 +14,28 @@
 import type { ActivatedAbility, GameState, PlayerAction, PlayerId } from "../model";
 import {
   backToDeckbuilder,
+  closeKeywordGlossary,
+  closeKeywordGlossaryPanel,
   confirmDeck,
   copyDeckFromPlayer1,
   closeTutorialHelp,
-  dismissTutorialTip,
+  dismissTutorialBubble,
   dispatch,
   getAppPhase,
   getBotDifficulty,
   getDecklist,
   getLastError,
   getLog,
+  getOpenKeywordGlossary,
   getPool,
   getState,
-  getTutorialPendingTip,
+  getTutorialActiveStep,
+  getTutorialHighlight,
   getUiMode,
   isBotControlled,
+  isKeywordGlossaryPanelOpen,
   isTutorialActive,
+  isTutorialBubbleVisible,
   isTutorialHelpOpen,
   legalActions,
   resetUiMode,
@@ -37,13 +43,15 @@ import {
   setBotDifficulty,
   setDecklist,
   setUiMode,
+  skipTutorialStep,
   startTutorial,
+  toggleKeywordGlossaryPanel,
   toggleTutorialHelp,
 } from "./store";
 import { BOT_DIFFICULTY_LABELS } from "../ai";
 import { cardDef } from "./cardInfo";
-import { tutorialTip } from "./tutorialContent";
-import { tutorialHelpButton, tutorialHelpPanel, tutorialTipBubble } from "./components/tutorialOverlay";
+import { tutorialHelpButton, tutorialHelpPanel, tutorialInstructionBanner, tutorialModalBubble } from "./components/tutorialOverlay";
+import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./components/keywordGlossaryPanel";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
 import { deckBuilderScreen } from "./components/deckBuilder";
@@ -216,10 +224,24 @@ function renderGameBoard(root: HTMLElement): void {
   const mode = getUiMode();
   const err = getLastError();
   const tutorialActive = isTutorialActive();
-  const pendingTipId = tutorialActive ? getTutorialPendingTip() : undefined;
+  const tutorialStep = tutorialActive ? getTutorialActiveStep() : undefined;
+  const tutorialModalVisible = tutorialActive && isTutorialBubbleVisible();
+  const openKeywordPopover = getOpenKeywordGlossary();
 
   const children: (HTMLElement | undefined)[] = [
-    pendingTipId ? tutorialTipBubble(tutorialTip(pendingTipId), () => dismissTutorialTip()) : undefined,
+    // v0.1.16: geführte Schritt-Sequenz statt loser Einzel-Tipps (s.
+    // tutorialContent.ts/store.ts) - modale Bestätigungs-/Info-Sprechblase
+    // ODER (solange die erwartete Aktion eines Aktions-Schritts noch
+    // aussteht) ein nicht-modales Instruktions-Banner mit
+    // "Schritt überspringen"-Sicherheitsnetz.
+    tutorialStep && tutorialModalVisible ? tutorialModalBubble(tutorialStep, () => dismissTutorialBubble()) : undefined,
+    tutorialStep && !tutorialModalVisible && !tutorialStep.infoOnly
+      ? tutorialInstructionBanner(tutorialStep, () => skipTutorialStep())
+      : undefined,
+    // Keyword-Glossar-Klick-Sprechblase (Auftrag Punkt 2): unabhängig vom
+    // Tutorial-Modus, ausgelöst durch Klick auf ein hervorgehobenes
+    // Keyword-Wort im Kartentext (s. components/keywordText.ts).
+    openKeywordPopover ? keywordPopoverBubble(openKeywordPopover, () => closeKeywordGlossary()) : undefined,
     statusBar(state),
     err ? h("div", { class: "error-banner" }, [text(`Nicht erlaubt: ${err}`)]) : undefined,
     ...actionBanner(state, mode),
@@ -228,6 +250,10 @@ function renderGameBoard(root: HTMLElement): void {
     stackPanel(state, pool, stackPanelOptions(state, mode)),
     logPanel(getLog()),
     tutorialActive && isTutorialHelpOpen() ? tutorialHelpPanel(() => closeTutorialHelp()) : undefined,
+    // Auftrag Punkt 3: das globale Keyword-Nachschlagewerk ist in JEDER
+    // Partie erreichbar (nicht nur im Tutorial-Modus, anders als
+    // tutorialHelpPanel oben) - eigener Zustand in store.ts.
+    isKeywordGlossaryPanelOpen() ? keywordGlossaryPanel(() => closeKeywordGlossaryPanel()) : undefined,
   ];
 
   root.append(...children.filter((c): c is HTMLElement => !!c));
@@ -270,6 +296,11 @@ function statusBar(state: GameState): HTMLElement {
     // ausstehenden) Tipps erneut abrufbar (Auftrag Punkt 4) - unabhängig vom
     // aktuellen Spielstand, s. components/tutorialOverlay.ts#tutorialHelpPanel.
     isTutorialActive() ? tutorialHelpButton(() => toggleTutorialHelp()) : undefined,
+    // Keyword-Glossar (Auftrag Punkt 3): IMMER sichtbar, unabhängig vom
+    // Tutorial-Modus - anders als der Button darüber gilt hier bewusst KEINE
+    // isTutorialActive()-Einschränkung (Nutzer-Feedback trat in einer
+    // normalen/Tutorial-Partie auf, nicht spezifisch im geführten Tutorial).
+    keywordGlossaryButton(() => toggleKeywordGlossaryPanel()),
     h(
       "button",
       { class: "btn btn-cancel", onclick: () => backToDeckbuilder() },
@@ -566,6 +597,11 @@ function handZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: 
 
   const isActingPlayer = state.priorityPlayer === playerId && !state.pendingDecision;
   const candidates = isActingPlayer ? legalActions(playerId) : [];
+  // v0.1.16: geführtes Tutorial richtet sich immer an player1 (den
+  // menschlichen Spieler, s. store.ts#startTutorial) - Handkarten-Highlight
+  // deshalb nur in dessen Handzone anwenden.
+  const tutorialHandHighlightIds =
+    playerId === "player1" && isTutorialActive() ? getTutorialHighlight()?.handCardDefinitionIds : undefined;
   const tiles = hand.map((id) => {
     const def = cardDef(pool, state, id);
     const castCandidates = candidates.filter((a) => a.kind === "castSpell" && a.cardInstanceId === id);
@@ -590,6 +626,7 @@ function handZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: 
       onStartModeFlow: (cardInstanceId) =>
         setUiMode({ kind: "modeSelect", player: playerId, source: { kind: "spell", cardInstanceId }, modes: modes! }),
       onPlayTerrain: (action) => dispatch(action),
+      tutorialHighlighted: tutorialHandHighlightIds?.includes(def.id),
     });
   });
   return h("div", { class: "hand-zone" }, tiles);
@@ -604,19 +641,29 @@ function battlefieldZone(
 ): HTMLElement {
   const isActingPlayer = state.priorityPlayer === playerId && !state.pendingDecision;
   const candidates = isActingPlayer ? legalActions(playerId) : [];
+  // v0.1.16: geführtes Tutorial richtet sich immer an player1 (s. handZone
+  // oben) - Battlefield-Highlight (eigenes Terrain beim `tapForMana`-Schritt,
+  // konkrete Permanent-Instanz während der `castBuffSpell`-Bestätigung) daher
+  // nur für dessen Bereich berechnen.
+  const tutorialHighlight = playerId === "player1" && isTutorialActive() ? getTutorialHighlight() : undefined;
 
   const tiles = state.players[playerId].battlefield.map((id) => {
+    const def = cardDef(pool, state, id);
+    const tutorialHighlighted =
+      !!tutorialHighlight &&
+      ((!!tutorialHighlight.ownUntappedTerrain && def.type === "terrain" && !state.cards[id]?.permanentState?.tapped) ||
+        tutorialHighlight.permanentInstanceId === id);
+
     const key = targetKeyOf({ kind: "permanent", instanceId: id });
     const targetCandidate = targetMap.get(key);
     if (targetCandidate) {
-      return cardTile(state, pool, id, { targetable: true, onClick: () => dispatch(targetCandidate) });
+      return cardTile(state, pool, id, { targetable: true, onClick: () => dispatch(targetCandidate), tutorialHighlighted });
     }
-
-    const def = cardDef(pool, state, id);
 
     if (mode.kind === "xTarget" && xTargetShapeAllowsPermanent(mode.spec, def)) {
       return cardTile(state, pool, id, {
         targetable: true,
+        tutorialHighlighted,
         onClick: () =>
           dispatch(
             buildCastAction(
@@ -635,6 +682,7 @@ function battlefieldZone(
       return cardTile(state, pool, id, {
         targetable: true,
         selected,
+        tutorialHighlighted,
         onClick: () => {
           const next = selected ? mode.selected.filter((x) => x !== id) : [...mode.selected, id];
           setUiMode({ ...mode, selected: next });
@@ -650,6 +698,7 @@ function battlefieldZone(
         return cardTile(state, pool, id, {
           targetable: true,
           selected,
+          tutorialHighlighted,
           onClick: () => setUiMode({ ...mode, selectedBlocker: selected ? undefined : id }),
         });
       }
@@ -658,6 +707,7 @@ function battlefieldZone(
       if (isEnemyAttacker && mode.selectedBlocker) {
         return cardTile(state, pool, id, {
           targetable: true,
+          tutorialHighlighted,
           onClick: () =>
             setUiMode({
               ...mode,
@@ -687,6 +737,7 @@ function battlefieldZone(
         return cardTile(state, pool, id, {
           targetable: true,
           hinted: true,
+          tutorialHighlighted,
           onClick: () =>
             setUiMode({
               kind: "modeSelect",
@@ -699,11 +750,12 @@ function battlefieldZone(
 
       const zeroSlot = abilityCandidates.find((a) => a.chosenTargets.length === 0);
       if (zeroSlot && abilityCandidates.length === 1) {
-        return cardTile(state, pool, id, { targetable: true, hinted: true, onClick: () => dispatch(zeroSlot) });
+        return cardTile(state, pool, id, { targetable: true, hinted: true, tutorialHighlighted, onClick: () => dispatch(zeroSlot) });
       }
       return cardTile(state, pool, id, {
         targetable: true,
         hinted: true,
+        tutorialHighlighted,
         onClick: () => setUiMode({ kind: "targeting", title: `Ziel für Fähigkeit von „${def.name}“ wählen`, candidates: abilityCandidates }),
       });
     }
@@ -722,6 +774,7 @@ function battlefieldZone(
         return cardTile(state, pool, id, {
           targetable: true,
           hinted: true,
+          tutorialHighlighted,
           onClick: () =>
             setUiMode({
               kind: "xInput",
@@ -732,7 +785,7 @@ function battlefieldZone(
       }
     }
 
-    return cardTile(state, pool, id);
+    return cardTile(state, pool, id, { tutorialHighlighted });
   });
 
   return h("div", { class: "battlefield-zone" }, tiles);

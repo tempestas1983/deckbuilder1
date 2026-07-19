@@ -33,6 +33,11 @@ Engine-Tests allein (`src/engine/__tests__/*`) per Grep gegengezählt: **130**
 v0.3.5 = 130, exakt konsistent mit der arithmetischen Summe aus den
 Einzel-Abschnitten unten). `npm run build` laut allen Berichten weiterhin
 sauber.
+**documenter-Sweep 2026-07-19:** Reine Frontend-Session (`docs/frontend-status.md`
+v0.1.10 → v0.1.16 — Artwork-Einbindung, Tutorial-Neubau, Keyword-Glossar),
+keine Engine-/Model-Änderung, Engine-Testzahl weiterhin **130**. Zwei neue
+UI-Tests (`keyword-glossary.test.ts`) heben den Gesamtstand auf **163 Tests
+grün + 1 bewusst übersprungener Analyse-Test** — Details `docs/status.md`.
 
 Dieses Dokument richtet sich an frontend-engineer (worauf aufbauen?), card-designer
 (welche DSL-Primitive funktionieren zuverlässig?) und game-architect (offene

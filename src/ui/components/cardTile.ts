@@ -17,6 +17,7 @@ import {
 import { h, text } from "../h";
 import { cardFrameArt } from "./cardArt";
 import { manaCostBadge } from "./manaCost";
+import { ruleTextNodes } from "./keywordText";
 
 export interface CardTileOptions {
   /** true = Element bekommt eine "wählbar"-Optik + onClick. */
@@ -26,6 +27,14 @@ export interface CardTileOptions {
   selected?: boolean;
   /** true = zusätzlich hervorheben (z.B. laut getLegalActions aktuell legal). */
   hinted?: boolean;
+  /**
+   * v0.1.16: true = vom geführten Tutorial als "das hier als Nächstes"
+   * markiert (z.B. das eigene Terrain beim `tapForMana`-Schritt, oder die
+   * gerade per Verstärkungszauber verstärkte Kreatur während der
+   * Bestätigung) - eigene, auffälligere Optik (`.tutorial-glow`) als das
+   * bestehende `hinted` (das schon eine andere Bedeutung hat, s.o.).
+   */
+  tutorialHighlighted?: boolean;
 }
 
 export function cardTile(
@@ -44,6 +53,7 @@ export function cardTile(
   if (opts.targetable) classes.push("targetable");
   if (opts.selected) classes.push("selected");
   if (opts.hinted) classes.push("hinted");
+  if (opts.tutorialHighlighted) classes.push("tutorial-glow");
 
   const statusBadges: (Node | string | false | undefined)[] = [];
   if (ps) {
@@ -67,7 +77,7 @@ export function cardTile(
   if (def.rulesText || statusBadges.length > 0) {
     frameChildren.push(
       h("div", { class: "card-frame-text-box" }, [
-        def.rulesText ? h("div", { class: "card-frame-text" }, [text(def.rulesText)]) : undefined,
+        def.rulesText ? h("div", { class: "card-frame-text" }, ruleTextNodes(def.rulesText)) : undefined,
         statusBadges.length > 0 ? h("div", { class: "card-frame-status" }, statusBadges) : undefined,
       ]),
     );

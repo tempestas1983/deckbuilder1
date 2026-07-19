@@ -22,6 +22,15 @@ import { COLOR_LABEL, dominantColorClass, dominantColorKey, subtypeLine } from "
 import { h, text } from "../h";
 import { cardFrameArt } from "./cardArt";
 import { manaCostBadge } from "./manaCost";
+import { ruleTextNodes } from "./keywordText";
+import {
+  closeKeywordGlossary,
+  closeKeywordGlossaryPanel,
+  getOpenKeywordGlossary,
+  isKeywordGlossaryPanelOpen,
+  toggleKeywordGlossaryPanel,
+} from "../store";
+import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./keywordGlossaryPanel";
 import { validateDecklist } from "../deckValidation";
 
 const TYPE_OPTIONS: Array<{ value: CardType | "all"; label: string }> = [
@@ -240,8 +249,17 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
       ])
     : undefined;
 
+  // Keyword-Glossar (Auftrag Punkt 3): auch schon während des Deckbaus
+  // erreichbar, nicht erst in der laufenden Partie - der Kartenpool zeigt
+  // hier dieselben Schlüsselwörter im Regeltext (s. poolRow oben).
+  const openKeywordPopover = getOpenKeywordGlossary();
+
   return h("div", { class: "deckbuilder-screen" }, [
-    h("h2", { class: "deckbuilder-title" }, [text(`Deckbau: ${player}`)]),
+    openKeywordPopover ? keywordPopoverBubble(openKeywordPopover, () => closeKeywordGlossary()) : undefined,
+    h("div", { class: "deckbuilder-header-row" }, [
+      h("h2", { class: "deckbuilder-title" }, [text(`Deckbau: ${player}`)]),
+      keywordGlossaryButton(() => toggleKeywordGlossaryPanel()),
+    ]),
     tutorialBox,
     aiToggle,
     h("div", { class: "deckbuilder-controls" }, [
@@ -270,6 +288,7 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
         [text(confirmLabel)],
       ),
     ]),
+    isKeywordGlossaryPanelOpen() ? keywordGlossaryPanel(() => closeKeywordGlossaryPanel()) : undefined,
   ]);
 }
 
@@ -314,7 +333,7 @@ function poolRow(
     h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
   ];
   if (def.rulesText) {
-    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, [text(def.rulesText)])]));
+    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, ruleTextNodes(def.rulesText))]));
   }
   if (def.type === "unit") {
     frameChildren.push(h("div", { class: "card-frame-pt" }, [text(`${def.power}/${def.toughness}`)]));

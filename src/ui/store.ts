@@ -10,9 +10,14 @@
 import { createRulesEngine } from "../engine";
 import { starterSet } from "../cards/starter-set";
 import { chooseActionForDifficulty, DEFAULT_BOT_DIFFICULTY, type BotDifficulty } from "../ai";
-import type { CardPool, GameEvent, GameState, PlayerAction, PlayerId, RulesEngine } from "../model";
+import type { CardPool, GameEvent, GameState, InstanceId, Keyword, PlayerAction, PlayerId, RulesEngine } from "../model";
 import type { AppPhase, UiMode } from "./types";
-import { TUTORIAL_CORE_TIP_IDS, type TutorialTipId } from "./tutorialContent";
+import {
+  TUTORIAL_STEPS,
+  TUTORIAL_STEP_HAND_CARD_IDS,
+  tutorialStepIndexOf,
+  type TutorialStep,
+} from "./tutorialContent";
 import { TUTORIAL_DECK_PLAYER1, TUTORIAL_DECK_PLAYER2, TUTORIAL_SEED } from "./tutorialDeck";
 
 const pool: CardPool = starterSet;
@@ -105,6 +110,57 @@ function notify(): void {
 export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+// ---------------------------------------------------------------------------
+// Keyword-Glossar (Nutzer-Feedback: Karten zeigen Schlüsselwörter wie
+// "Todesberührung." im Regeltext, ohne dass irgendwo nachschlagbar war, was
+// das bedeutet - s. docs/frontend-status.md, neue Version). Bewusst
+// UNABHÄNGIG vom Tutorial-Zustand (anders als `tutorialHelpOpen` oben): das
+// Glossar muss laut Auftrag in JEDER Partie/im Deckbau verfügbar sein, nicht
+// nur im Tutorial-Modus. Zwei getrennte State-Teile:
+// - `openKeywordPopover`: welches EINZELNE Keyword aktuell als kleine
+//   Klick-Sprechblase angezeigt wird (ausgelöst durch Klick auf ein
+//   hervorgehobenes Keyword-Wort im Kartentext, s.
+//   components/keywordText.ts#ruleTextNodes).
+// - `keywordGlossaryPanelOpen`: das komplette, jederzeit erreichbare
+//   Nachschlagewerk ALLER 9 Keywords (eigener "Schlüsselwörter"-Button in
+//   der Status-Zeile UND im Deckbau-Screen, s. render.ts/deckBuilder.ts).
+// ---------------------------------------------------------------------------
+
+let openKeywordPopover: Keyword | undefined;
+let keywordGlossaryPanelOpen = false;
+
+/** Aktuell per Klick geöffnete Keyword-Kurz-Sprechblase, `undefined` = keine. */
+export function getOpenKeywordGlossary(): Keyword | undefined {
+  return openKeywordPopover;
+}
+
+/** Klick auf ein hervorgehobenes Keyword-Wort - öffnet/schließt dessen Sprechblase (Toggle). */
+export function toggleKeywordGlossary(keyword: Keyword): void {
+  openKeywordPopover = openKeywordPopover === keyword ? undefined : keyword;
+  notify();
+}
+
+export function closeKeywordGlossary(): void {
+  if (openKeywordPopover === undefined) return;
+  openKeywordPopover = undefined;
+  notify();
+}
+
+/** Vollständiges Keyword-Nachschlagewerk (alle 9 Einträge) - jederzeit, auch außerhalb des Tutorials. */
+export function isKeywordGlossaryPanelOpen(): boolean {
+  return keywordGlossaryPanelOpen;
+}
+
+export function toggleKeywordGlossaryPanel(): void {
+  keywordGlossaryPanelOpen = !keywordGlossaryPanelOpen;
+  notify();
+}
+
+export function closeKeywordGlossaryPanel(): void {
+  keywordGlossaryPanelOpen = false;
+  notify();
 }
 
 export function getPool(): CardPool {
@@ -203,7 +259,11 @@ export function backToDeckbuilder(): void {
   // dauerhaft auf bot-gesteuert/"medium" hängen zu lassen.
   if (tutorialActive) {
     tutorialActive = false;
-    tutorialPendingTip = undefined;
+    tutorialStepIndex = 0;
+    tutorialPhase = "instruction";
+    tutorialFactsSeen = new Set();
+    tutorialSequenceFinished = false;
+    tutorialLastBuffTarget = undefined;
     tutorialHelpOpen = false;
     if (preTutorialBotControlled !== undefined) setBotControlled("player2", preTutorialBotControlled);
     if (preTutorialBotDifficulty !== undefined) setBotDifficulty("player2", preTutorialBotDifficulty);
@@ -211,6 +271,11 @@ export function backToDeckbuilder(): void {
     preTutorialBotDifficulty = undefined;
   }
   appPhase = { kind: "deckbuild", player: "player1" };
+  // Keyword-Glossar-Popover/-Panel sind reine Anzeige-Overlays ohne
+  // Spielstand-Bezug - beim Verlassen der Partie sauber schließen, damit sie
+  // nicht unsichtbar "offen" in den nächsten Deckbau-Screen durchschlagen.
+  openKeywordPopover = undefined;
+  keywordGlossaryPanelOpen = false;
   stopBotLoop();
   notify();
 }
@@ -293,9 +358,34 @@ export function setBotDifficulty(player: PlayerId, difficulty: BotDifficulty): v
 const TUTORIAL_BOT_DIFFICULTY: BotDifficulty = "medium";
 
 let tutorialActive = false;
-let tutorialShownTips: Set<TutorialTipId> = new Set();
-let tutorialPendingTip: TutorialTipId | undefined;
 let tutorialHelpOpen = false;
+
+// ---------------------------------------------------------------------------
+// Geführte Schritt-Sequenz (v0.1.16, siehe tutorialContent.ts für die
+// ausführliche Erklärung des Gesamtkonzepts). Statt lose, einmalig
+// auftretender Info-Sprechblasen (v0.1.11-v0.1.15) läuft das Tutorial jetzt
+// eine feste Sequenz von `TUTORIAL_STEPS` durch: Instruktion (nicht-modales
+// Banner bei Aktions-Schritten, s. `isTutorialModalBubbleShowing` unten) ->
+// erwartete Aktion -> Bestätigung (modale Sprechblase) -> nächste Instruktion.
+//
+// `tutorialFactsSeen` ist bewusst NICHT auf den aktuell aktiven Schritt
+// beschränkt: `recomputeTutorialProgress` prüft nach JEDER Aktion `detect`
+// für ALLE Schritte (nicht nur den aktiven) und merkt Treffer dauerhaft. Holt
+// die Sequenz später einen Schritt ein, dessen Fakt schon vorliegt (z.B. weil
+// der Spieler ihn "zufällig früh" erfüllt hat, oder weil der Bot-Gegner
+// bereits vor dem eigenen ersten Angriff angegriffen hat und geblockt wurde),
+// wird sofort dessen Bestätigung gezeigt statt erneut zu warten - siehe
+// tutorialContent.ts-Dateikommentar für die ausführliche Begründung
+// (Mana-Kurve/Bot-Verhalten machen die reale Reihenfolge unvorhersehbar).
+// ---------------------------------------------------------------------------
+
+let tutorialStepIndex = 0;
+let tutorialPhase: "instruction" | "confirmation" = "instruction";
+let tutorialFactsSeen: Set<string> = new Set();
+/** true, sobald der letzte Schritt ("complete") bestätigt/übersprungen wurde - danach erscheint keine Bubble mehr. */
+let tutorialSequenceFinished = false;
+/** Zuletzt per Verstärkungszauber (`castBuffSpell`) bezogene eigene Kreatur - fürs Hervorheben während der Bestätigung. */
+let tutorialLastBuffTarget: InstanceId | undefined;
 
 // Vorherige Bot-Einstellungen von player2, um sie beim Verlassen des Tutorials
 // wiederherzustellen (s. backToDeckbuilder unten) - das Tutorial soll die
@@ -308,19 +398,82 @@ export function isTutorialActive(): boolean {
   return tutorialActive;
 }
 
-/** Aktuell anzuzeigender Tutorial-Tipp (einzelne Sprechblase) - `undefined`, solange keiner aussteht. */
-export function getTutorialPendingTip(): TutorialTipId | undefined {
-  return tutorialPendingTip;
+/** Der aktuell aktive Schritt der Sequenz - `undefined`, wenn das Tutorial inaktiv/durchgelaufen ist. */
+export function getTutorialActiveStep(): TutorialStep | undefined {
+  if (!tutorialActive || tutorialSequenceFinished) return undefined;
+  return TUTORIAL_STEPS[tutorialStepIndex];
 }
 
-/** Schließt die aktuell angezeigte Sprechblase und merkt sie als "gesehen" - erscheint für diese Tip-Art nicht erneut automatisch. */
-export function dismissTutorialTip(): void {
-  if (tutorialPendingTip === undefined) return;
-  tutorialShownTips = new Set(tutorialShownTips).add(tutorialPendingTip);
-  tutorialPendingTip = undefined;
+/** "instruction" (wartet auf die erwartete Aktion) oder "confirmation" (Aktion erkannt, wartet auf "Weiter"). */
+export function getTutorialPhase(): "instruction" | "confirmation" {
+  return tutorialPhase;
+}
+
+/**
+ * true, wenn GERADE eine modale Sprechblase gezeigt werden soll (Bestätigung
+ * eines Aktions-Schritts ODER die einzige Blase eines bereits erreichten
+ * Info-Schritts) - der automatische Bot-Zug-Loop pausiert NUR in diesem Fall
+ * (s. scheduleBotStepIfNeeded unten), NICHT während der nicht-modalen
+ * Instruktions-Phase eines Aktions-Schritts (die kann sich laut Auftrag über
+ * mehrere Züge des Gegners hinziehen, z.B. `declareBlock` - ein Pausieren des
+ * Bots wäre dort ein Deadlock, da der Bot ja gerade selbst an der Reihe sein
+ * müsste, damit der erwartete Moment überhaupt eintritt).
+ */
+function isTutorialModalBubbleShowing(): boolean {
+  const step = getTutorialActiveStep();
+  if (!step) return false;
+  if (step.infoOnly) return tutorialFactsSeen.has(step.id);
+  return tutorialPhase === "confirmation";
+}
+
+/** Für render.ts: siehe `isTutorialModalBubbleShowing` - gleiche Bedingung, öffentlich gemacht. */
+export function isTutorialBubbleVisible(): boolean {
+  return isTutorialModalBubbleShowing();
+}
+
+function resetTutorialStepEntry(): void {
+  tutorialPhase = "instruction";
+  const step = getTutorialActiveStep();
+  // Rückwirkende Erledigung (s. Dateikommentar tutorialContent.ts): der Fakt
+  // dieses Schritts liegt evtl. schon vor (z.B. weil der Bot-Gegner früher als
+  // erwartet angegriffen hat und geblockt wurde) - dann sofort die
+  // Bestätigung zeigen statt erneut zu warten.
+  if (step && !step.infoOnly && tutorialFactsSeen.has(step.id)) {
+    tutorialPhase = "confirmation";
+  }
+}
+
+/** Schließt die aktuell gezeigte Bubble (Bestätigung ODER Info-Schritt) und rückt die Sequenz einen Schritt weiter. */
+export function dismissTutorialBubble(): void {
+  if (!tutorialActive || tutorialSequenceFinished) return;
+  if (!isTutorialModalBubbleShowing()) return;
+  advanceTutorialStep();
+}
+
+/**
+ * Sicherheitsnetz (Auftrag: "ein Schritt-überspringen-Link sollte immer
+ * verfügbar bleiben") - rückt die Sequenz weiter, UNABHÄNGIG davon, ob die
+ * erwartete Aktion je erkannt wurde. Anders als `dismissTutorialBubble` auch
+ * nutzbar, während gerade nur die nicht-modale Instruktion (noch keine
+ * Bestätigung) angezeigt wird.
+ */
+export function skipTutorialStep(): void {
+  if (!tutorialActive || tutorialSequenceFinished) return;
+  advanceTutorialStep();
+}
+
+function advanceTutorialStep(): void {
+  if (tutorialStepIndex >= TUTORIAL_STEPS.length - 1) {
+    tutorialSequenceFinished = true;
+    notify();
+    triggerBotLoop();
+    return;
+  }
+  tutorialStepIndex += 1;
+  resetTutorialStepEntry();
   notify();
-  // Der Bot-Zug-Loop wird pausiert, solange eine Sprechblase aussteht (s.
-  // scheduleBotStepIfNeeded unten) - nach dem Wegklicken ggf. weiterspielen.
+  // Der Bot-Zug-Loop pausiert nur während einer modalen Bubble (s.o.) - nach
+  // dem Weiterrücken ggf. weiterspielen lassen.
   triggerBotLoop();
 }
 
@@ -338,69 +491,60 @@ export function closeTutorialHelp(): void {
   notify();
 }
 
-function queueTutorialTip(id: TutorialTipId): void {
-  if (!tutorialActive) return;
-  if (tutorialShownTips.has(id)) return;
-  if (tutorialPendingTip !== undefined) return; // eine Sprechblase nach der anderen
-  tutorialPendingTip = id;
+/** Beschreibt, WAS gerade visuell hervorgehoben werden soll (Karte in der Hand, eigene Terrains, eine konkrete Permanent-Instanz) - reine Anzeige-Ableitung für render.ts, siehe tutorialContent.ts. */
+export interface TutorialHighlight {
+  handCardDefinitionIds?: readonly string[];
+  ownUntappedTerrain?: boolean;
+  permanentInstanceId?: InstanceId;
+}
+
+export function getTutorialHighlight(): TutorialHighlight | undefined {
+  const step = getTutorialActiveStep();
+  if (!step) return undefined;
+  if (step.id === "castBuffSpell" && tutorialPhase === "confirmation" && tutorialLastBuffTarget) {
+    return { permanentInstanceId: tutorialLastBuffTarget };
+  }
+  if (step.infoOnly || tutorialPhase === "confirmation") return undefined;
+  if (step.id === "tapForMana") return { ownUntappedTerrain: true };
+  const handIds = TUTORIAL_STEP_HAND_CARD_IDS[step.id];
+  return handIds ? { handCardDefinitionIds: handIds } : undefined;
 }
 
 /**
  * Prüft nach JEDER Zustandsänderung während einer Tutorial-Partie (menschliche
- * Aktion, automatischer Bot-Zug, `initGame`), ob einer der in
- * tutorialContent.ts beschriebenen Schlüsselmomente gerade eingetreten ist,
- * und queued ggf. den passenden (noch nicht gezeigten) Tipp. Reine
- * UI-Ableitung aus dem bereits vorhandenen `GameState`/der ausgeführten
- * `PlayerAction` - keine eigene Regellogik, nur Wiedererkennung bereits von
- * der Engine getroffener Entscheidungen (exakt wie `actingPlayer` oben).
- *
- * Bewusst NICHT auf "nur wenn player1 handelt" beschränkt: Reihenfolge
- * Startspieler/Mulligan ist zufällig (seedabhängig), ein zuverlässiges
- * "beim ERSTEN X" muss also unabhängig davon greifen, ob Mensch oder Bot X
- * zuerst tut.
+ * Aktion, automatischer Bot-Zug, `initGame`), welche der in tutorialContent.ts
+ * beschriebenen Schritt-Fakten gerade eingetreten sind (ALLE Schritte, nicht
+ * nur der aktive - siehe dortiger Dateikommentar), merkt sie dauerhaft und
+ * schaltet den aktiven Schritt ggf. von "instruction" auf "confirmation".
+ * Reine UI-Ableitung aus dem bereits vorhandenen `GameState`/der ausgeführten
+ * `PlayerAction` (delegiert die eigentliche Erkennung an `step.detect`) -
+ * keine eigene Regellogik, exakt wie die frühere `maybeQueueTutorialTips`.
  */
-function maybeQueueTutorialTips(action: PlayerAction | undefined): void {
-  if (!tutorialActive) return;
+function maybeAdvanceTutorialProgress(action: PlayerAction | undefined): void {
+  if (!tutorialActive || tutorialSequenceFinished) return;
+  const ctx = { state, action, pool };
 
-  // "priority": generisch/zustandsbasiert (kein Aktionstyp) - der erste echte
-  // Priority-Moment der Partie (nach der Mulligan-Phase).
-  if (state.priorityPlayer !== undefined && !state.pendingDecision) {
-    queueTutorialTip("priority");
-  }
-
-  if (action) {
-    switch (action.kind) {
-      case "playTerrain":
-        queueTutorialTip("terrain");
-        break;
-      case "castSpell": {
-        const def = pool[state.cards[action.cardInstanceId]?.definitionId ?? ""];
-        if (def?.type === "unit") queueTutorialTip("creature");
-        else if (def?.type === "spell") queueTutorialTip("spell");
-        break;
-      }
-      case "declareAttackers":
-        if (action.attackers.length > 0) queueTutorialTip("attack");
-        break;
-      case "declareBlockers":
-        if (action.blocks.length > 0) queueTutorialTip("block");
-        break;
-      case "activateAbility": {
-        const def = pool[state.cards[action.sourceInstanceId]?.definitionId ?? ""];
-        const ability = def && "abilities" in def ? def.abilities?.[action.abilityIndex] : undefined;
-        if (ability?.kind === "activated" && !ability.isManaAbility) queueTutorialTip("ability");
-        break;
-      }
-      default:
-        break;
+  for (const step of TUTORIAL_STEPS) {
+    if (tutorialFactsSeen.has(step.id)) continue;
+    if (!step.detect(ctx)) continue;
+    tutorialFactsSeen.add(step.id);
+    if (step.id === "castBuffSpell" && action?.kind === "castSpell") {
+      const target = action.chosenTargets[0];
+      if (target?.kind === "permanent") tutorialLastBuffTarget = target.instanceId;
     }
   }
 
-  // Abschluss-Hinweis: entweder alle Kernkonzepte gesehen, oder das Spiel ist
-  // vorbei (je nachdem, was zuerst eintritt) - s. tutorialContent.ts.
-  const allCoreShown = TUTORIAL_CORE_TIP_IDS.every((id) => tutorialShownTips.has(id));
-  if ((allCoreShown || state.winner !== undefined) && !tutorialShownTips.has("complete")) {
-    queueTutorialTip("complete");
+  // Vorzeitiges Spielende: direkt zum Sieg-/Niederlage-Schritt springen, statt
+  // weiter auf einen inzwischen unerreichbaren Zwischenschritt zu warten.
+  if (state.winner !== undefined && tutorialStepIndex < tutorialStepIndexOf("winCondition")) {
+    tutorialStepIndex = tutorialStepIndexOf("winCondition");
+    resetTutorialStepEntry();
+    return;
+  }
+
+  const activeStep = TUTORIAL_STEPS[tutorialStepIndex];
+  if (activeStep && !activeStep.infoOnly && tutorialPhase === "instruction" && tutorialFactsSeen.has(activeStep.id)) {
+    tutorialPhase = "confirmation";
   }
 }
 
@@ -416,13 +560,21 @@ export function startTutorial(): void {
   preTutorialBotControlled = isBotControlled("player2");
   preTutorialBotDifficulty = getBotDifficulty("player2");
   tutorialActive = true;
-  tutorialShownTips = new Set();
-  tutorialPendingTip = undefined;
+  tutorialStepIndex = 0;
+  tutorialPhase = "instruction";
+  tutorialFactsSeen = new Set();
+  tutorialSequenceFinished = false;
+  tutorialLastBuffTarget = undefined;
   tutorialHelpOpen = false;
   setBotControlled("player2", true);
   setBotDifficulty("player2", TUTORIAL_BOT_DIFFICULTY);
   appPhase = { kind: "playing" };
-  initGame(TUTORIAL_DECK_PLAYER1, TUTORIAL_DECK_PLAYER2, TUTORIAL_SEED);
+  // Auftrag (Tutorial-Verwirrung): player1 (Mensch) beginnt IMMER, statt per
+  // Münzwurf ggf. player2 (Bot) den ersten kompletten Zug spielen zu lassen,
+  // während der Mensch nur "Priorität passen" klicken kann - genau NUR hier
+  // im Tutorial-Pfad; echte Partien (initGame ohne diesen Parameter, s.o.)
+  // bleiben zufällig.
+  initGame(TUTORIAL_DECK_PLAYER1, TUTORIAL_DECK_PLAYER2, TUTORIAL_SEED, "player1");
 }
 
 /**
@@ -498,11 +650,13 @@ function triggerBotLoop(): void {
 
 function scheduleBotStepIfNeeded(): void {
   if (botTimer !== undefined) return; // schon ein Schritt geplant
-  // v0.1.11: Solange eine Tutorial-Sprechblase aussteht, pausiert der
-  // automatische Bot-Zug-Loop (s. dismissTutorialTip oben, das ihn nach dem
-  // Wegklicken wieder anstößt) - sonst würde sich das Board unter der
-  // gerade gelesenen Erklärung weiterbewegen.
-  if (tutorialActive && tutorialPendingTip !== undefined) return;
+  // v0.1.16: Solange eine MODALE Tutorial-Sprechblase aussteht, pausiert der
+  // automatische Bot-Zug-Loop (s. dismissTutorialBubble/skipTutorialStep
+  // oben, die ihn nach dem Weiterrücken wieder anstoßen) - sonst würde sich
+  // das Board unter der gerade gelesenen Erklärung weiterbewegen. Die
+  // nicht-modale Instruktions-Phase eines Aktions-Schritts pausiert den Bot
+  // bewusst NICHT (s. isTutorialModalBubbleShowing-Kommentar).
+  if (isTutorialModalBubbleShowing()) return;
   const actor = actingPlayer(state);
   if (!actor || !isBotControlled(actor)) return;
   if (botCycleGuard >= MAX_BOT_ACTIONS_PER_CYCLE) {
@@ -552,7 +706,7 @@ function runBotStep(): void {
     if (t) log.push(t);
   }
   if (log.length > 300) log = log.slice(-300);
-  maybeQueueTutorialTips(action);
+  maybeAdvanceTutorialProgress(action);
   notify();
   scheduleBotStepIfNeeded();
 }
@@ -616,6 +770,7 @@ export function initGame(
   deckP1: Record<string, number>,
   deckP2: Record<string, number>,
   seed: number = Math.floor(Math.random() * 1_000_000),
+  startingPlayer?: PlayerId,
 ): void {
   // Eine evtl. noch geplante KI-Aktion der VORHERIGEN Partie darf nicht mehr
   // gegen den neuen State feuern (s. runBotStep, das direkt auf dem
@@ -625,6 +780,11 @@ export function initGame(
   const { state: s, events } = engine.createGame({
     decks: { player1: deckP1, player2: deckP2 },
     seed,
+    // v0.1.12: `startingPlayer` wird NUR vom Tutorial-Pfad gesetzt
+    // (startTutorial unten, Auftrag "player1 beginnt immer") - für normale
+    // Partien bleibt es `undefined`, sodass die Engine weiterhin per
+    // Münzwurf entscheidet (s. src/engine/create-game.ts).
+    startingPlayer,
     // v0.1.6: skipMulligans wird NICHT mehr gesetzt (Engine-Default `false`,
     // rules-engine.md 1b) - das UI hat jetzt einen echten Mulligan-Dialog
     // (render.ts#actionBanner, pendingDecision.kind === "mulligan"), die
@@ -639,7 +799,7 @@ export function initGame(
     const t = describeEvent(e);
     if (t) log.push(t);
   }
-  maybeQueueTutorialTips(undefined);
+  maybeAdvanceTutorialProgress(undefined);
   notify();
   // v0.1.7: Ist der (nach dem Münzwurf feststehende) erste Akteur bereits
   // bot-gesteuert - z.B. player2 ist KI und beginnt mit der ersten Mulligan-
@@ -676,7 +836,7 @@ export function dispatch(action: PlayerAction): void {
     if (t) log.push(t);
   }
   if (log.length > 300) log = log.slice(-300);
-  maybeQueueTutorialTips(action);
+  maybeAdvanceTutorialProgress(action);
   notify();
   // v0.1.7: Nach jeder menschlichen Aktion prüfen, ob jetzt ein bot-
   // gesteuerter Spieler handeln muss - falls ja, automatisch weiterspielen

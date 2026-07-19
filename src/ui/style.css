@@ -468,6 +468,23 @@ body {
   overflow: hidden;
 }
 
+/* Keyword-Hervorhebung im Regeltext (s. components/keywordText.ts) - der
+   Nutzer soll auf einen Blick sehen, welche Wörter ein Schlüsselwort sind,
+   und per Hover (title-Attribut) oder Klick (Popover/Panel, s.u.)
+   nachschlagen können, was sie bedeuten. */
+.keyword-highlight {
+  font-style: normal;
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+}
+
+.keyword-highlight-active {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
 .card-frame-status {
   display: flex;
   flex-wrap: wrap;
@@ -625,6 +642,13 @@ body {
 .deckbuilder-title {
   margin: 0;
   font-size: 18px;
+}
+
+.deckbuilder-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .deckbuilder-controls {
@@ -844,6 +868,66 @@ body {
   align-self: flex-start;
 }
 
+/* Nicht-modales Instruktions-Banner (v0.1.16) ------------------------------
+   Solange die von einem Aktions-Schritt erwartete Aktion noch aussteht -
+   bewusst optisch ruhiger/weniger dringlich als die modale
+   .tutorial-tip-bubble (Bestätigung), da es das Spielbrett NICHT blockiert
+   und sich über mehrere Züge hinziehen kann (s. store.ts). */
+.tutorial-instruction-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 2px dashed var(--accent);
+  background: transparent;
+}
+
+.tutorial-instruction-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.tutorial-instruction-body {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.tutorial-skip-btn {
+  align-self: flex-start;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* Auffällige Hervorhebung des vom Tutorial "als Nächstes gemeinten" Elements
+   (Handkarte, eigenes Terrain, gerade verstärkte Kreatur) - deutlich
+   auffälliger als das bestehende `.hinted` (das schon "laut getLegalActions
+   aktivierbar" bedeutet), per Puls-Animation statt nur statischem Rahmen. */
+.hand-card.tutorial-glow,
+.card-tile.tutorial-glow {
+  outline: 3px solid var(--accent);
+  animation: tutorial-glow-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tutorial-glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 4px 0 var(--accent);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px var(--accent);
+  }
+}
+
+.tutorial-help-entry-confirmation {
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+  padding-top: 4px;
+  font-style: italic;
+}
+
 .tutorial-help-btn {
   border-color: var(--accent);
   color: var(--accent);
@@ -905,4 +989,38 @@ body {
   font-size: 13px;
   color: var(--muted);
   line-height: 1.4;
+}
+
+/* Keyword-Klick-Popover (v0.1.14) ------------------------------------------
+   Kleine Erklär-Sprechblase für EIN einzelnes Keyword, ausgelöst durch Klick
+   auf ein hervorgehobenes Wort im Kartentext (s. components/keywordText.ts,
+   components/keywordGlossaryPanel.ts#keywordPopoverBubble). Bewusst als
+   fixiertes Backdrop-Overlay (wie tutorial-help-backdrop) statt direkt am
+   angeklickten Wort verankert - Kartenrahmen (`.card-frame-frame`) haben
+   `overflow: hidden`, ein dort verankertes Popover würde abgeschnitten. */
+.keyword-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 48px;
+  z-index: 25;
+}
+
+.keyword-popover-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, 90vw);
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 2px solid var(--accent);
+  background: #1f2d3a;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+
+.keyword-popover-close-btn {
+  align-self: flex-start;
 }

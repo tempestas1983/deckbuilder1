@@ -29,9 +29,17 @@
  *
  * `TUTORIAL_SEED` ist ein fester, beliebig gewählter Wert (kein
  * Balancing-Anspruch) — `createGame` verwendet ihn deterministisch für
- * Mischen/Ziehen/Münzwurf (s. `docs/rules-engine.md`/`src/model/game-state.ts`
+ * Mischen/Ziehen (s. `docs/rules-engine.md`/`src/model/game-state.ts`
  * `CreateGameConfig.seed`), macht die Tutorial-Partie also reproduzierbar
  * (Auftrag Punkt 1). Keine Engine-Änderung nötig.
+ *
+ * Der Startspieler-Münzwurf wird für das Tutorial zusätzlich explizit
+ * überschrieben (`store.ts#startTutorial` übergibt `startingPlayer:
+ * "player1"` an `createGame`, s. `CreateGameConfig.startingPlayer`) — player1
+ * (Mensch) soll IMMER als erstes handeln können, statt ggf. den gesamten
+ * ersten Zug tatenlos zusehen zu müssen, während player2 (Bot) spielt. Nur
+ * für diesen Tutorial-Pfad; normale Partien bleiben beim zufälligen
+ * Münzwurf.
  */
 
 export const TUTORIAL_SEED = 20260718;

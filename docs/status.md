@@ -1,11 +1,127 @@
 # Laufender Zwischenstand
 
-Datum: 2026-07-18
+Datum: 2026-07-19
 Zweck: Einziger Ort, an dem der Projektkontext ein `/clear` überlebt. Wird von
 `documenter` bei jedem finalen Sweep aktualisiert. Details/Begründungen stehen
 in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 `docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
 Dokument ist die Kurzfassung "wo stehen wir gerade".
+
+## Meilenstein: Artwork-Vorhaben abgeschlossen + Tutorial-Neubau + Keyword-Glossar (reines Frontend, keine Engine-/Model-/Kartenpool-Änderung)
+
+Deutlich kleinere Session als der vorige Sweep (2026-07-18) — ausschließlich
+Frontend-Arbeit (`docs/frontend-status.md` v0.1.10 → v0.1.16), Regelwerk/
+Engine/Kartenpool/KI unverändert. Drei voneinander unabhängige Stränge, alle
+gegen den Code verifiziert statt Agent-Berichte blind zu übernehmen:
+
+- **Artwork-Einbindung ins UI abgeschlossen** (v0.1.12/v0.1.13). Der Bildpfad
+  wird rein aus der Karten-`id` abgeleitet (`id.replace(/\./g, "-") + ".png"`,
+  kein neues Datenfeld im Kartenmodell) — ein selbst geschriebenes Vite-Plugin
+  (`vite.config.ts#cardArtworkPlugin`) liefert die Bilder im Dev-Server per
+  Middleware aus `docs/cards/artworks/` aus und kopiert sie beim
+  Produktions-Build (`closeBundle`, nur bei echtem `command === "build"`,
+  um Vitests interne Vite-Instanz nicht versehentlich mitschreiben zu
+  lassen) nach `<outDir>/cards/artworks/`. Schlägt das Laden fehl (Datei
+  fehlt), bleibt der bisherige Farbverlaufs-Platzhalter unverändert
+  sichtbar (`<img>` wird per `onerror` aus dem DOM entfernt). v0.1.13 hat den
+  `.card-frame-art`-Kunstbereich danach spürbar vergrößert (78/104/88px statt
+  30/42px), da die Artworks im vorherigen schmalen Streifen stark
+  beschnitten wirkten (Nutzer-Feedback zu v0.1.12). **Per Code/Dateisystem
+  verifiziert:** `src/ui/components/cardArt.ts`/`vite.config.ts` entsprechen
+  exakt der obigen Beschreibung; `docs/cards/artworks/` enthält per Glob
+  nachgezählt **exakt 300 `.png`-Dateien** — der Nutzer hat seit dem letzten
+  Sweep (damals 20 Dateien) alle 300 Artworks fertig generiert. Der Ordner
+  ist bewusst NICHT im Git-Repo (`.gitignore`: `docs/cards/artworks/`,
+  Kommentar dort nennt „~500 MB, lokal beim Nutzer vorhanden statt
+  versioniert"). **Die beim letzten Sweep gefundene Dateinamens-Inkonsistenz
+  ist aufgelöst:** `core.bastion-forgeworks` hieß damals fälschlich
+  `core-bastion-forgework.png` (fehlendes „s") — die Datei liegt jetzt
+  korrekt als `core-bastion-forgeworks.png` vor, deckungsgleich mit
+  `docs/cards/card-art-brief.md`.
+- **Tutorial-Modus, zwei weitere Iterationen** (v0.1.14, v0.1.16 — v0.1.11
+  bereits im letzten Sweep dokumentiert). **v0.1.14:** Nutzer-Feedback nach
+  dem ersten Durchlauf („ich kann irgendwie gar nichts machen") — mit dem
+  festen `TUTORIAL_SEED` entschied der normale Münzwurf, dass der Bot
+  (Spieler 2) den ersten kompletten Zug bekam, während der Mensch nur
+  „Priorität passen" klicken konnte. Fix: `store.ts#startTutorial` übergibt
+  jetzt explizit `startingPlayer: "player1"` an `initGame` (die Engine
+  unterstützt `CreateGameConfig.startingPlayer` bereits nativ, keine
+  Engine-Änderung nötig), gilt bewusst NUR für den Tutorial-Pfad. **v0.1.16:**
+  kompletter Umbau von acht losen, passiv-einmaligen Info-Sprechblasen zu
+  einer echten **13-Schritte-Sequenz** (`tutorialContent.ts#TUTORIAL_STEPS`):
+  Instruktion → nicht-modales Hinweis-Banner mit hervorgehobenem Ziel-Element
+  (`.tutorial-glow`) + „Schritt überspringen"-Sicherheitsnetz → erkannte
+  Aktion → modale Bestätigungs-Sprechblase → nächster Schritt. Deckt
+  Terrain/Mana/Kreatur-Beschwörung/Zielwahl/Schadenszauber/Buff-Zauber/
+  Angriff/Kampfschaden/Block/Sieg-Bedingung ab. Bemerkenswerte
+  Architektur-Entscheidung: `recomputeTutorialProgress` prüft nach JEDER
+  Aktion alle 13 Schritte (nicht nur den aktiven) und merkt Treffer
+  dauerhaft (`tutorialFactsSeen`) — macht die Sequenz robust gegenüber der
+  nicht vorhersagbaren realen Reihenfolge (abhängig von Mana-Kurve/
+  Bot-Verhalten), verifiziert über eine lokale Mehrzug-Simulation (13/13
+  Schritte, Sieg in Zug 11, kein Absturz).
+- **Neu: Keyword-Glossar** (v0.1.15, vorher nicht in `docs/README.md`/
+  `docs/status.md` erfasst). Nutzer-Feedback: Karten zeigen Schlüsselwörter
+  im Regeltext (z. B. „Todesberührung." bei `core.abyssal-lurker`), aber es
+  gab keine Möglichkeit im UI nachzuschlagen, was ein Schlüsselwort bedeutet.
+  Neues `src/ui/keywordGlossary.ts` mit spielerfreundlichen Erklärungen für
+  alle 9 `Keyword`-Werte (**per Code verifiziert:** `KEYWORD_GLOSSARY` listet
+  exakt `swift`/`airborne`/`reach`/`vigilant`/`lifelink`/`guardian`/
+  `trample`/`firstStrike`/`deathtouch`). Zwei Zugriffswege: (1) In-Context —
+  jedes erkannte Keyword-Wort in JEDER Regeltext-Box (Hand/Battlefield/
+  Graveyard/Stack/Deckbau-Pool) wird hervorgehoben, zeigt die Erklärung per
+  `title`-Hover UND öffnet per Klick eine kleine Sprechblase; (2) global —
+  ein immer sichtbarer „? Schlüsselwörter"-Button (Status-Zeile der Partie
+  UND Deckbau-Screen), bewusst UNABHÄNGIG vom Tutorial-Modus, öffnet ein
+  Panel mit allen 9 Keywords. Dabei ein Grep-Befund dokumentiert (nicht
+  behoben, außerhalb des Auftragsumfangs): die bestehende
+  `KEYWORD_LABEL`-Badge-Kurzform (`cardInfo.ts`, seit v0.1.3) nennt
+  `firstStrike`/`trample` als „Erstschlag"/„Trampeln", während sie im
+  tatsächlichen Kartentext NUR als „Erststurm"/„Trampelschaden" vorkommen —
+  zwei unabhängig entstandene deutsche Kurzformen für dasselbe Keyword an
+  zwei UI-Stellen, ein Vereinheitlichungskandidat für später.
+- **Testzahl 160+1 → 163+1**: Die drei Schritte oben brachten zusammen 3 neue
+  UI-Tests (v0.1.15 `keyword-glossary.test.ts` +2, v0.1.16
+  `tutorial.test.ts` komplett neu geschrieben für die Sequenz bei
+  gleichbleibender Testfallzahl) — **per Grep gegen `src/ui/__tests__/*` und
+  `src/engine/__tests__/*` nachgezählt:** Engine-Testzahl unverändert bei
+  **130** (kein Engine-Code angefasst), Gesamtzahl jetzt **163 Tests grün +
+  1 bewusst per `describe.skip` übersprungener Analyse-Test**, exakt
+  konsistent mit der in `docs/frontend-status.md` v0.1.15/v0.1.16
+  behaupteten Zahl. `npm run build`/`npm run build:ui` laut allen
+  Verifikationsabschnitten in `docs/frontend-status.md` durchgehend sauber.
+  **Hinweis:** `npm test`/`npm run build` konnten in dieser documenter-Session
+  mangels Ausführungswerkzeug nicht selbst nachvollzogen werden (wie schon
+  bei den Sweeps vom 2026-07-10/2026-07-18) — die Zahl stützt sich auf die
+  Grep-Kreuzverifikation der Testdateien sowie die in `docs/frontend-status.md`
+  je Versionsabschnitt dokumentierten Vitest-Läufe.
+- **Neuer Backlog-Punkt (Nutzer-Notiz, ausdrücklich nur zur Kenntnisnahme,
+  kein aktiver Auftrag):** Es fehlen Übergangsanimationen, besonders wenn die
+  KI spielt — das Spielbrett aktualisiert sich aktuell abrupt/„flackert" bei
+  jeder KI-Aktion statt eine nachvollziehbare Übergangsanimation zu zeigen
+  (Ursache: das bewusst diffing-freie Voll-Neuaufbau-Rendering, s.
+  `docs/frontend-status.md` „Tech-Stack-Entscheidung"). In
+  `docs/README.md` „Weitere offene Punkte" unter frontend-engineer als neuer
+  Punkt 8 aufgenommen.
+- **documenter (dieser Sweep, 2026-07-19):** `docs/frontend-status.md` gegen
+  den Code gelesen — v0.1.11 bis v0.1.16 waren bereits lückenlos und
+  konsistent dokumentiert (inkl. v0.1.15 Keyword-Glossar, das laut Auftrag
+  noch nicht in `docs/README.md`/`docs/status.md` stand), keine
+  Korrektur am Dokument selbst nötig. `docs/README.md` (Statustabelle +
+  „Nächste Schritte" + „Weitere offene Punkte") auf den neuen Gesamtstand
+  gehoben. Konsistenzprüfung über `docs/ai-status.md`, `docs/engine-status.md`,
+  `docs/rules-engine.md`, `docs/cards/starter-set.md`,
+  `docs/cards/card-art-brief.md`: Test-Gesamtzahl 163 und Kartenpool-Größe
+  300 tauchten vorher nur in `docs/frontend-status.md` in der neuen Höhe auf
+  — `docs/engine-status.md`s „Aktueller Gesamtstand"-Notiz (documenter-Sweep
+  2026-07-18) trug noch 160+1 statt 163+1, korrigiert (neue
+  documenter-Zeile ergänzt, alte Notiz bewusst unverändert als historischen
+  Stand belassen). `docs/ai-status.md`s eigene 160-Test-Referenz (Abschnitt
+  10.4) ist eine historische Verifikation zum v2.1-Zeitpunkt (2026-07-11,
+  vor allen hier beschriebenen Frontend-Schritten) und bleibt unverändert.
+  `docs/cards/card-art-brief.md` und `docs/frontend-status.md` beschreiben
+  Ablageort/Workflow der Artworks bereits konsistent (kein Anpassungsbedarf).
+  **Keine Code-Datei angefasst** — dieser Sweep war reine Dokumentationsarbeit.
 
 ## Meilenstein: KI-Schwierigkeitsstufen + drei Engine-Bugfixes + Kartenrahmen-UI + 300-Karten-Ausbau + Artwork-Vorhaben
 
@@ -591,11 +707,11 @@ weitgehend unabhängige Entwicklungsstränge, plus ein neues, nicht in die
 |---|---|---|
 | Regelwerk | v0.3.3 (9.14: einheitlicher stiller Nicht-Permanent-Fizzle für `eventSubject`; 9.15: zonenbasierte Todesdefinition, `onDeath{self}` typ-agnostisch) | — (Design-Dokument), inhaltlich bereits vollständig konsistent mit dem Code vorgefunden |
 | Datenmodell | v0.2.1 mit v0.3-Erweiterungen (unverändert seit v0.3.1 — 9.14/9.15 brauchten keinen Modell-Umbau, nur Kommentar-Präzisierungen) | unverändert an sich |
-| Engine | v0.3.5 (v0.3.3 firstStrike-Token-Crash-Fix, v0.3.4 Battlefield-Guard für `destroyPermanent`/`returnToHand`/`exilePermanent`, v0.3.5 zentraler Tod-Hook in `zones.ts#leaveBattlefield`) | **160 Tests grün + 1 bewusst übersprungen** (Analyse-Tool) laut allen drei Modul-Dokumenten übereinstimmend (130 Engine + Rest UI/KI, Engine-Zahl per Grep gegengezählt und arithmetisch gegen die Versions-Historie verifiziert — `npm test`/`npm run build` in dieser Sweep-Session mangels Ausführungswerkzeug nicht selbst ausgeführt) |
+| Engine | v0.3.5 (v0.3.3 firstStrike-Token-Crash-Fix, v0.3.4 Battlefield-Guard für `destroyPermanent`/`returnToHand`/`exilePermanent`, v0.3.5 zentraler Tod-Hook in `zones.ts#leaveBattlefield`) | **163 Tests grün + 1 bewusst übersprungen** (Analyse-Tool) — 130 Engine (unverändert seit v0.3.5) + 33 UI/KI, Engine-Zahl per Grep gegengezählt (`npm test`/`npm run build` in dieser Sweep-Session mangels Ausführungswerkzeug nicht selbst ausgeführt) |
 | Starter-Kartenset | v0.15 (300 Karten + 3 Token-Definitionen, 9 Batches + 3 Balance-Korrekturrunden) | per Grep gegen `src/cards/starter-set.ts` verifiziert (303 `id:"core.…"` − 3 echte Token = 300; ein 4. Grep-Treffer ist nur ein Kommentar) |
-| Frontend/UI | v0.1.10 (v0.1.9 Bot-Stufen-UI, v0.1.10 klassisches Kartenrahmen-Layout) | 151/151 zum v0.1.10-Stand laut Dokument (danach nur noch Engine-/KI-seitige Testzugänge ohne UI-Änderung) |
+| Frontend/UI | v0.1.16 (v0.1.11 Tutorial v1 + KI-Umschalter-Sichtbarkeit, v0.1.12/13 Artwork-Einbindung + Kunstbereich-Vergrößerung, v0.1.14 Tutorial-Startspieler fix player1, v0.1.15 Keyword-Glossar, v0.1.16 Tutorial-Neubau als 13-Schritte-Sequenz) | 163/163 laut `docs/frontend-status.md` v0.1.15/v0.1.16, per Grep gegen `src/ui/__tests__/*` plausibilisiert |
 | KI-Gegner | v2.1 (easy/medium/hard, `src/ai/difficulty.ts` + `easyBot.ts`/`hardBot.ts`/`boardEval.ts`; v2.1 = zwei Legalitätsfixes fürs 300-Karten-Set + Farb-Balance-Analyse-Tool) | deterministischer Stärkevergleich bestätigt strikte Stufenordnung (>= 60 % der entschiedenen Partien je Stufe höher); fand und meldete den in der Engine-Zeile gelisteten firstStrike-Crash |
-| Karten-Artwork (Nutzer-Vorhaben, außerhalb der Pipeline) | `docs/cards/card-art-brief.md`, `docs/cards/artworks/` | laufend, nicht abgeschlossen — aktuell 20 abgelegte Bilder von 300 benötigten; ein Dateinamens-Mismatch bei `core.bastion-forgeworks` gefunden (s. Meilenstein oben), nicht selbst behoben |
+| Karten-Artwork (Nutzer-Vorhaben, außerhalb der Pipeline) | `docs/cards/card-art-brief.md`, `docs/cards/artworks/` | **abgeschlossen** — alle 300 Artworks fertig, per Glob nachgezählt, vollständig ins UI integriert (s. Frontend-Zeile), bewusst nicht im Git-Repo (`.gitignore`); der zuvor gefundene Dateinamens-Mismatch bei `core.bastion-forgeworks` ist behoben |
 
 ## Offene Punkte (nicht blockierend), siehe `docs/README.md` "Nächste Schritte" für Details
 
@@ -618,11 +734,14 @@ Meilenstein oben). Verbleibend:
   Zielslot-UI (kein Pool-Bedarf bisher); `computeEffectiveStats`/
   `computeEffectiveKeywords` offiziell in den `RulesEngine`-Vertrag heben;
   Migration `chooseManaColor`/`chooseDiscard`/`orderScry` (s.o.); Bot-vs-Bot-
-  Zuschauermodus (Umschalter bisher nur für Spieler 2); **neu:**
-  Deckbau-Screen-Performance mit dem jetzt tatsächlich sehr großen
-  300-Karten-Pool ist ungeprüft (die frühere Sorge „bei weit über 109
-  Karten" ist eingetreten, aber nicht neu gemessen) — an frontend-engineer
-  zurückgemeldet, nicht selbst behoben.
+  Zuschauermodus (Umschalter bisher nur für Spieler 2); Deckbau-Screen-
+  Performance mit dem jetzt tatsächlich sehr großen 300-Karten-Pool ist
+  weiterhin ungeprüft (die frühere Sorge „bei weit über 109 Karten" ist
+  eingetreten, aber nicht neu gemessen); **neu (2026-07-19, Nutzer-Notiz,
+  kein aktiver Auftrag):** fehlende Übergangsanimationen, besonders wenn die
+  KI spielt — das Spielbrett aktualisiert sich abrupt/„flackert" bei jeder
+  KI-Aktion statt einer nachvollziehbaren Übergangsanimation (Ursache: das
+  bewusst diffing-freie Voll-Neuaufbau-Rendering).
 - **game-architect:** offene Rückfrage vom engine-engineer zu
   `StaticAbility.scope` bei `costChange`; die großen, bewusst vertagten
   Themen aus Abschnitt 10 (>2 Spieler, Kontrollwechsel/Kopier-Effekte/
@@ -641,6 +760,7 @@ Meilenstein oben). Verbleibend:
   Farb-Analyse liegen jetzt größtenteils beim card-designer erledigt (drei
   Runden, s. Meilenstein oben) — das Analyse-Tool kann bei Bedarf jederzeit
   erneut laufen.
-- **documenter:** Dateinamens-Mismatch im Artwork-Ordner
-  (`core-bastion-forgework.png` statt `core-bastion-forgeworks.png`) dem
-  Nutzer gemeldet, nicht selbst behoben (Bild-Datei, keine Doku-Textdatei).
+- **documenter:** Der beim Sweep vom 2026-07-18 gemeldete Dateinamens-Mismatch
+  im Artwork-Ordner (`core-bastion-forgework.png` statt
+  `core-bastion-forgeworks.png`) ist inzwischen vom Nutzer behoben (per Glob
+  verifiziert, s. Meilenstein oben) — kein offener Punkt mehr.

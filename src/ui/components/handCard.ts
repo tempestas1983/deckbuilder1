@@ -12,6 +12,7 @@ import { dominantColorClass, subtypeLine } from "../cardInfo";
 import { h, text } from "../h";
 import { cardFrameArt } from "./cardArt";
 import { manaCostBadge } from "./manaCost";
+import { ruleTextNodes } from "./keywordText";
 
 export interface HandCardOptions {
   castCandidates: PlayerAction[];
@@ -31,6 +32,8 @@ export interface HandCardOptions {
   onStartXFlow: (cardInstanceId: InstanceId) => void;
   onStartModeFlow: (cardInstanceId: InstanceId) => void;
   onPlayTerrain: (action: PlayerAction) => void;
+  /** v0.1.16: vom geführten Tutorial als "das hier als Nächstes spielen" markiert, s. cardTile.ts#tutorialHighlighted. */
+  tutorialHighlighted?: boolean;
 }
 
 /** Baut den gemeinsamen "Kartenrahmen" (Kopfzeile, Bildfläche, Typzeile, Regeltext, ggf. P/T-Kasten). */
@@ -40,7 +43,7 @@ function cardFrameBody(def: CardDefinition): HTMLElement {
     h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
   ];
   if (def.rulesText) {
-    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, [text(def.rulesText)])]));
+    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, ruleTextNodes(def.rulesText))]));
   }
   if (def.type === "unit") {
     frameChildren.push(h("div", { class: "card-frame-pt hand-card-pt" }, [text(`${def.power}/${def.toughness}`)]));
@@ -55,6 +58,7 @@ export function handCard(
 ): HTMLElement {
   const cost = "cost" in def ? def.cost : undefined;
   const classes = ["hand-card", dominantColorClass(cost ?? {})];
+  if (opts.tutorialHighlighted) classes.push("tutorial-glow");
 
   const children: (Node | string | false | undefined)[] = [
     h("div", { class: "card-frame-header" }, [

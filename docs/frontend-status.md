@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.13 (frontend-engineer) — 2026-07-18
+Status: v0.1.16 (frontend-engineer) — 2026-07-19
 Grundlage: `docs/rules-engine.md` (v0.3.1, Entscheidungen 9.10-9.13 + Nachtrag),
 `docs/engine-status.md` (v0.3.2 zum Zeitpunkt dieses v0.1.8-Stands, 135
 Engine-/UI-/KI-Tests zum Zeitpunkt der v0.3.2-Übernahme — der
@@ -16,6 +16,74 @@ belassene Stände früherer Abschnitte, s. dortige Hinweise), `docs/ai-status.md
 `chooseActionForDifficulty(engine, pool, state, player, difficulty)` mit drei
 Stufen `easy`/`medium`/`hard`; `chooseAction` (`src/ai/simpleBot.ts`, v1 =
 Stufe "medium") bleibt weiterhin exportiert).
+
+**v0.1.16 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Auftrag - das bisherige Tutorial (v0.1.11-v0.1.15) zeigte pro
+Aktionstyp nur EINE passive, einmalige Info-Sprechblase, FALLS der Spieler
+zufällig darüber stolperte. Neu: eine echte, 13-Schritte-Sequenz
+(`src/ui/tutorialContent.ts#TUTORIAL_STEPS`), die jeden Kernmechanismus
+konkret anweist UND das tatsächliche Ausführen abwartet, statt nur zu
+erklären - "Instruktion → erwartete Aktion → Bestätigung/Ergebnis-Erklärung →
+nächste Instruktion". Aktions-Schritte zeigen währenddessen ein
+nicht-modales, das Spiel NICHT blockierendes Hinweis-Banner mit hervorgehobenem
+Ziel-Element (Handkarte/eigenes Terrain/verstärkte Kreatur, `.tutorial-glow`)
+und einem jederzeit verfügbaren "Schritt überspringen"-Link; erst nach
+erkannter Aktion erscheint eine modale Bestätigungs-Sprechblase. Details,
+Architektur (insbesondere die rückwirkende Fakten-Erkennung, die die Sequenz
+robust gegenüber Mana-Kurve/Bot-Verhalten macht) und Verifikation im
+gleichnamigen Abschnitt unten.
+
+**v0.1.15 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Feedback - Karten zeigen Schlüsselwörter im Regeltext (z. B.
+"Todesberührung." bei `core.abyssal-lurker`), aber es gab keine Möglichkeit
+im UI, nachzuschlagen, was ein Schlüsselwort bedeutet. Neues Keyword-Glossar
+(`src/ui/keywordGlossary.ts`, kurze spielerfreundliche Erklärungen für alle 9
+`Keyword`-Werte aus `src/model/abilities.ts`, Regelgrundlage
+`docs/rules-engine.md` 6d) mit zwei Zugriffswegen: (1) In-Context - erkannte
+Keyword-Wörter in JEDER Regeltext-Box (`.card-frame-text` in Hand/
+Battlefield/Graveyard/Stack/Deckbau-Pool) werden hervorgehoben
+(gepunktete Unterstreichung), zeigen die Erklärung als natives
+`title`-Hover-Tooltip UND öffnen per Klick eine kleine Sprechblase
+(`components/keywordText.ts`, `components/keywordGlossaryPanel.ts#keyword
+PopoverBubble`). (2) Global - ein immer sichtbarer "? Schlüsselwörter"-Button
+(Status-Zeile der laufenden Partie UND Deckbau-Screen, bewusst UNABHÄNGIG
+vom Tutorial-Modus, anders als der bestehende Tutorial-Hilfe-Button) öffnet
+ein Panel mit allen 9 Keywords, jederzeit einsehbar. Neuer, bewusst
+dokumentierter Architektur-Kompromiss: `keywordText.ts`/`deckBuilder.ts`
+importieren die beiden Store-Funktionen für den Popover-Zustand direkt aus
+`store.ts` statt sie als Props durch alle ~12 Aufrufstellen von
+`cardTile`/`handCard`/`poolRow` durchzureichen (rein globaler, karten-
+unabhängiger Anzeige-Zustand ohne Spiellogik-Bezug). Neuer Test
+`src/ui/__tests__/keyword-glossary.test.ts` (2 Fälle, echte Klicks).
+`npm test`/`npm run build` weiterhin sauber, keine Engine-/Model-/
+Karten-Änderung.
+
+**v0.1.14 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Feedback nach dem ersten Tutorial-Durchlauf: "ich kann irgendwie gar
+nichts machen". Ursache (kein Bug im engeren Sinne): mit dem festen
+`TUTORIAL_SEED` (`src/ui/tutorialDeck.ts`) entschied der normale
+Münzwurf-Zufall, dass player2 (der Bot) den ersten kompletten Zug bekam,
+während player1 (der Mensch) fast nur "Priorität passen" klicken konnte —
+für jemanden, der zum ersten Mal überhaupt mit Prioritätsfenstern/
+Zugreihenfolge konfrontiert wird, sah das wie ein kaputtes UI aus. Fix:
+`store.ts#startTutorial` übergibt jetzt explizit `startingPlayer: "player1"`
+an `initGame`/`engine.createGame` (`initGame` hat dafür einen neuen,
+optionalen vierten Parameter bekommen) — die Engine unterstützt das bereits
+nativ über `CreateGameConfig.startingPlayer` (`src/model/game-state.ts`),
+keine Engine-Änderung nötig. Gilt bewusst NUR für den Tutorial-Pfad; normale
+Partien (`initGame` ohne diesen Parameter, s. `confirmDeck`) bleiben beim
+zufälligen Münzwurf. Zusätzlich als Sicherheitsnetz gegen genau dieses
+Missverständnis: die allererste Tutorial-Sprechblase ("Mana, Phasen &
+Priorität", `src/ui/tutorialContent.ts`) erklärt jetzt explizit, dass sich
+beide Spieler mit ganzen Zügen abwechseln und man in den eigenen
+Priority-Fenstern während des gegnerischen Zugs meist einfach passt, weil es
+nichts zu tun gibt. Verifiziert: `npm test` (161/161 grün) und
+`npm run build` sauber, sowie ein temporärer, danach wieder entfernter
+Vitest-Check, dass `getState().activePlayer === "player1"` direkt nach
+`startTutorial()` gilt (kein dauerhafter neuer Testfall nötig, da bereits
+`src/ui/__tests__/tutorial.test.ts` den gesamten Tutorial-Flow end-to-end
+abdeckt und dessen veraltete Kommentare zur Startspieler-Zufälligkeit
+mitkorrigiert wurden).
 
 **v0.1.13 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Feedback zu v0.1.12 — die frisch eingebundenen Artworks wirkten
@@ -2054,6 +2122,396 @@ Teil des Repos):
 für `.card-frame-art`-Selektoren). Keine Änderungen an
 `src/ui/components/cardArt.ts`, `handCard.ts`, `cardTile.ts`,
 `deckBuilder.ts`, `src/engine/*`, `src/model/*`, `src/cards/*`, `src/ai/*`.
+
+## Tutorial: player1 beginnt immer (v0.1.14, 2026-07-18)
+
+Nutzer-Feedback nach dem ersten Ausprobieren des geführten Tutorials: "ich
+kann irgendwie gar nichts machen".
+
+### Ursache
+
+Kein Bug im engeren Sinne. Mit dem festen `TUTORIAL_SEED`
+(`src/ui/tutorialDeck.ts`) entschied `engine.createGame`s normaler (aber
+deterministischer, s. Seed) Münzwurf, dass player2 (der bot-gesteuerte
+Gegner, s. `startTutorial`) den ersten kompletten Zug bekam — laut
+Ereignis-Log "Startspieler: player2". Player1 (der Mensch) hatte in diesem
+ersten Zug fast nichts zu tun außer wiederholt "Priorität passen" zu
+klicken, während der Bot Terrain spielt/Kreaturen ausspielt. Für jemanden,
+der zum allerersten Mal überhaupt mit Prioritätsfenstern/Zugstruktur
+konfrontiert wird, sieht ein Bildschirm, auf dem scheinbar nichts anklickbar
+ist außer einem "Passen"-Button, wie ein kaputtes UI aus — obwohl technisch
+alles korrekt lief (man ist einfach nicht am Zug).
+
+### Änderung
+
+Die Engine unterstützt genau diesen Fall bereits nativ:
+`CreateGameConfig.startingPlayer?: PlayerId` (`src/model/game-state.ts`)
+überschreibt den Münzwurf explizit (`config.startingPlayer ?? PLAYER_IDS[...]`,
+`src/engine/create-game.ts`). Keine Engine-Änderung nötig, nur zwei
+Frontend-Anpassungen:
+
+- `store.ts#initGame` bekam einen neuen, optionalen vierten Parameter
+  `startingPlayer?: PlayerId`, der 1:1 an `engine.createGame` durchgereicht
+  wird (`undefined` per Default → Engine entscheidet weiterhin per
+  Münzwurf, unverändertes Verhalten für normale Partien).
+- `store.ts#startTutorial` ruft `initGame(...)` jetzt mit dem festen
+  fünften/letzten Wert `"player1"` auf. Dieser Pfad ist strikt vom normalen
+  Spielstart (`confirmDeck`, ruft `initGame` weiterhin OHNE diesen
+  Parameter auf) getrennt — reguläre Partien bleiben bewusst beim
+  zufälligen Münzwurf, das ist ausdrücklich NUR eine Tutorial-Sondermaßnahme.
+
+Zusätzlich als Sicherheitsnetz gegen genau dieses Missverständnis (auch für
+später, falls ein Nutzer trotzdem mal in einer echten Partie zufällig nicht
+beginnt): die allererste Tutorial-Sprechblase ("Mana, Phasen & Priorität",
+`src/ui/tutorialContent.ts`, Tipp-ID `priority`) hat jetzt einen zusätzlichen
+Satz, der explizit macht, dass sich beide Spieler mit ganzen Zügen abwechseln
+und man in eigenen Priority-Fenstern während des gegnerischen Zugs meist
+einfach passt, weil es nichts zu tun gibt.
+
+`src/ui/__tests__/tutorial.test.ts` hatte keine Assertion, die von einem
+zufälligen Startspieler abhing (nur veraltete Kommentare) — diese wurden
+mitkorrigiert, kein Testverhalten geändert.
+
+### Verifikation
+
+1. **`npm test`**: weiterhin 161/161 grün (1 bewusst übersprungener
+   Analyse-Test unverändert), **`npm run build`** (`tsc --noEmit`) sauber.
+2. Kein Browser-/Computer-Use-Werkzeug in dieser Session verfügbar, daher
+   stattdessen ein temporärer (nach Verifikation wieder entfernter)
+   Vitest-Fall: `startTutorial()` aufgerufen, danach
+   `getState().activePlayer === "player1"` bestätigt — grün. Ein laufender
+   Dev-Server (`http://localhost:5173/`) wurde per `curl` als erreichbar
+   bestätigt (HTTP 200), ein echter Klick-Durchlauf im Browser („Tutorial
+   starten" → Ereignis-Log zeigt „Startspieler: player1" → direkt
+   Handlungsmöglichkeit in main1) steht noch aus und sollte bei Gelegenheit
+   mit Browser-Werkzeugen nachgeholt werden.
+
+**Ergebnis:** Geänderte Dateien `src/ui/store.ts` (`initGame`-Signatur +
+`startTutorial`), `src/ui/tutorialContent.ts` (Tipp-Text `priority`),
+`src/ui/tutorialDeck.ts` (Kommentar-Ergänzung), `src/ui/__tests__/tutorial.test.ts`
+(Kommentar-Korrektur). Keine Änderungen an `src/engine/*`, `src/model/*`,
+`src/cards/*`, `src/ai/*`.
+
+## Keyword-Glossar (v0.1.15, 2026-07-18)
+
+Nutzer-Feedback (echtes Verständnisproblem, nicht tutorial-spezifisch):
+Karten zeigen Schlüsselwörter im Regeltext (z. B. "Todesberührung." bei
+`core.abyssal-lurker`), aber es gab **keine** Möglichkeit im UI,
+herauszufinden, was ein Schlüsselwort bedeutet/bewirkt. Betrifft alle 9
+Keywords aus dem `Keyword`-Typ (`src/model/abilities.ts`): `swift`,
+`airborne`, `reach`, `vigilant`, `lifelink`, `guardian`, `trample`,
+`firstStrike`, `deathtouch`.
+
+### Datenquelle: `src/ui/keywordGlossary.ts` (neu)
+
+Pro Keyword: ein `title` (Anzeigename fürs globale Nachschlagewerk), eine
+Liste `displayTerms` (die deutschen Wortformen, wie sie TATSÄCHLICH in
+`CardDefinition.rulesText`-Strings vorkommen — per Grep in
+`src/cards/starter-set.ts` ermittelt, nicht geraten) sowie eine kurze,
+spielerfreundliche `explanation` (1-3 Sätze, keine Regeltext-Kopie).
+Verbindliche Regelsemantik: `docs/rules-engine.md` Abschnitt 6d
+(Kampf-Keyword-Paket) + die Keyword-Kommentare in `src/model/abilities.ts`.
+
+Wichtiger Grep-Befund, der die im Auftrag vorausgesagte Diskrepanz bestätigt:
+`airborne` erscheint als "Flieger" (auf Einheiten-Karten) UND als
+"Flugfähigkeit" (von Zaubersprüchen/Fähigkeiten verliehen, z. B.
+"...erhält bis zum Ende des Zuges Flugfähigkeit."). Zusätzlich (nicht im
+Auftrag erwähnt, aber beim Grep aufgefallen): `firstStrike`/`trample`
+erscheinen im Kartentext **ausschließlich** als "Erststurm"/
+"Trampelschaden" — NIE als "Erstschlag"/"Trampeln". Die bestehende
+`KEYWORD_LABEL`-Badge-Kurzform in `src/ui/cardInfo.ts` (verwendet für die
+`.card-tile-keywords`-Statuszeile auf dem Battlefield, seit v0.1.3) nennt sie
+aber genau so ("Erstschlag"/"Trampeln") — zwei unabhängig entstandene, leicht
+unterschiedliche deutsche Kurzformen für dasselbe Keyword an zwei
+verschiedenen UI-Stellen. Bewusst NICHT angeglichen in diesem Schritt (außerhalb
+des Auftragsumfangs, `KEYWORD_LABEL` unverändert gelassen) — Hinweis an
+card-designer/documenter, falls das künftig vereinheitlicht werden soll.
+
+`tokenizeRulesText(rulesText)` zerlegt einen Kartentext in Text-/
+Keyword-Segmente (reines String-Parsing über eine kombinierte Regex aus
+allen `displayTerms`, `\b`-Wortgrenzen, längste Begriffe zuerst) — kein
+Spielzustand, keine Regelentscheidung.
+
+### In-Context-Hervorhebung + Tooltip/Popover
+
+Neuer gemeinsamer Baustein `src/ui/components/keywordText.ts#ruleTextNodes`,
+der an der EINEN gemeinsamen Stelle verwendet wird, an der bisher immer
+`text(def.rulesText)` stand (`handCard.ts#cardFrameBody`,
+`cardTile.ts`, `deckBuilder.ts#poolRow` — exakt die drei vom Auftrag
+genannten Orte: Hand, Battlefield/Graveyard/Stack, Deckbau-Pool). Jedes
+erkannte Keyword-Wort wird als `<span class="keyword-highlight">` gerendert:
+
+- natives `title`-Attribut mit der Erklärung (Hover-Tooltip, "einfachste
+  robuste Lösung" laut Auftrag),
+- `onclick` (mit `stopPropagation`, damit ein Klick auf das Wort nicht
+  zusätzlich die umgebende Karten-Kachel als Ziel anklickt/Combat-Auswahl
+  auslöst) öffnet zusätzlich eine kleine Klick-Sprechblase
+  (`components/keywordGlossaryPanel.ts#keywordPopoverBubble`, visuell an
+  `tutorialTipBubble` angelehnt: gleicher Titel-/Body-Aufbau, eigener
+  "Schließen"-Button). Bewusst als FIXIERTES Backdrop-Overlay statt direkt
+  am angeklickten Wort verankert — `.card-frame-frame` hat `overflow:
+  hidden` (Artwork-Rahmen, seit v0.1.12/13), ein dort verankertes Popover
+  würde abgeschnitten; ein fixiertes Overlay funktioniert unabhängig davon,
+  wo im Board/Deckbau-Pool-Grid das Wort gerade sitzt, ohne
+  Positionsberechnung relativ zum angeklickten Element zu brauchen.
+
+CSS: `.keyword-highlight` (gepunktete Unterstreichung, `--accent`-Farbe,
+`cursor: help`), `.keyword-highlight-active` (dezente Hervorhebung, solange
+die Sprechblase für genau dieses Keyword offen ist), `.keyword-popover-
+backdrop`/`-bubble`/`-close-btn` (neue Regeln in `style.css`, am bestehenden
+`.tutorial-help-backdrop`/`.tutorial-tip-bubble`-Muster orientiert).
+
+### Globales Nachschlagewerk (Auftrag Punkt 3)
+
+Neuer, komplett eigenständiger Baustein `src/ui/components/
+keywordGlossaryPanel.ts` (`keywordGlossaryButton`, `keywordGlossaryPanel`) -
+strukturell an `tutorialOverlay.ts#tutorialHelpButton`/`tutorialHelpPanel`
+angelehnt, aber bewusst NICHT dasselbe Panel erweitert (kein zweiter Reiter):
+Das bestehende Tutorial-Hilfe-Panel ist an `isTutorialActive()` geknüpft und
+existiert für Nicht-Tutorial-Partien schlicht nicht — der Auftrag verlangt
+aber ausdrücklich Verfügbarkeit "auch außerhalb des Tutorial-Modus (...) nicht
+nur im Tutorial". Ein komplett separater Button/State war damit der klarere
+Weg als eine Bedingung mehr im bestehenden Tutorial-Code zu verschachteln.
+
+Neuer, vom Tutorial-Zustand unabhängiger Store-Zustand (`store.ts`, gleiches
+Muster wie `tutorialHelpOpen`, aber eigene Variablen):
+`getOpenKeywordGlossary`/`toggleKeywordGlossary`/`closeKeywordGlossary`
+(welche EINZELNE Klick-Sprechblase gerade offen ist) sowie
+`isKeywordGlossaryPanelOpen`/`toggleKeywordGlossaryPanel`/
+`closeKeywordGlossaryPanel` (das komplette Panel). Beide werden in
+`backToDeckbuilder()` zusätzlich sauber zurückgesetzt.
+
+Der "? Schlüsselwörter"-Button erscheint jetzt an ZWEI Stellen, beide OHNE
+`isTutorialActive()`-Bedingung:
+
+- `render.ts#statusBar` (Status-Zeile der laufenden Partie — Hotseat, gegen
+  die KI, UND im Tutorial gleichermaßen).
+- `components/deckBuilder.ts#deckBuilderScreen` (neue `.deckbuilder-
+  header-row` neben der Überschrift) — der Kartenpool im Deckbau zeigt
+  dieselben Schlüsselwörter im Regeltext wie später die Partie, die
+  Verwirrung ist also nicht auf die laufende Partie beschränkt.
+
+Das Panel (`keywordGlossaryPanel`) listet alle 9 `KEYWORD_GLOSSARY`-Einträge
+vollständig auf, unabhängig vom aktuellen Spielzustand — verwendet dieselben
+`.tutorial-help-*`-CSS-Klassen wie das bestehende Tutorial-Panel (rein
+optische Wiederverwendung, kein gemeinsamer Programmzustand).
+
+### Architektur-Kompromiss (bewusst dokumentiert)
+
+`components/keywordText.ts` sowie `components/deckBuilder.ts` importieren
+die Keyword-Popover-Funktionen direkt aus `store.ts`, statt sie — wie sonst
+in diesem Projekt üblich (`onConcede`, `onToggleBotControl`, ...) — als Props
+durch `render.ts` bis zu `cardTile`/`handCard`/`poolRow` durchzureichen. Das
+hätte ~12 bestehende Aufrufstellen von `cardTile()` in `render.ts` sowie die
+`CardTileOptions`/`HandCardOptions`-Signaturen anfassen müssen, nur um einen
+Zustand durchzuschleifen, der - anders als z. B. `onConcede` - für JEDE Karte
+an JEDER Stelle im UI identisch ist und keinerlei Spiellogik/Legalitätsbezug
+hat (reines Anzeige-Overlay, vergleichbar mit `cardInfo.ts`, das ebenfalls
+direkt Engine-Funktionen importiert statt sie durchzureichen). Falls
+engine-architect/documenter das anders sehen: Alternative wäre, diese beiden
+Store-Funktionen doch als Props durchzureichen — reine Fleißarbeit ohne
+Verhaltensänderung.
+
+### Verifikation
+
+1. **`npm run build`** (`tsc --noEmit`) sauber.
+2. **`npm test`**: alle bisherigen 161 Tests weiterhin grün, plus neuer
+   Testfall `src/ui/__tests__/keyword-glossary.test.ts` (2 Fälle, echte
+   `element.dispatchEvent(new Event("click"))`-Klicks auf das von `render()`
+   erzeugte DOM, kein direkter Store-Aufruf für das geprüfte Verhalten
+   selbst — exakt das Muster aus `golden-path.test.ts`):
+   - Deckbau-Pool: `core.abyssal-lurker` zeigt `.keyword-highlight` mit Text
+     "Todesberührung", `title`-Attribut enthält die Erklärung, der Rest des
+     Regeltexts bleibt unverändert ("Todesberührung."); Klick öffnet
+     `.keyword-popover-bubble` mit Titel+Erklärung, "Schließen" schließt sie
+     wieder.
+   - "? Schlüsselwörter"-Button ist bereits im Deckbau-Screen vorhanden und
+     öffnet ein Panel mit allen 9 Keyword-Titeln (`.tutorial-help-entry`-
+     Anzahl = 9); nach komplettem Deckbau+Spielstart (OHNE Tutorial zu
+     starten) ist derselbe Button in der Status-Zeile der laufenden Partie
+     weiterhin vorhanden und zeigt dasselbe Panel — bestätigt den
+     Kernpunkt des Auftrags ("auch außerhalb des Tutorial-Modus").
+   Gesamt: 163/163 Tests grün (1 weiterhin bewusst übersprungener
+   Analyse-Test unverändert).
+3. **Laufender Dev-Server** (`npm run dev`, `http://localhost:5173/`) wurde
+   per `curl` als erreichbar bestätigt (HTTP 200); alle neuen/geänderten
+   Module (`store.ts`, `render.ts`, `keywordText.ts`,
+   `keywordGlossaryPanel.ts`, `deckBuilder.ts`, `cardTile.ts`, `handCard.ts`)
+   wurden zusätzlich einzeln per `curl` gegen den Vite-Dev-Server abgefragt
+   (HTTP 200 statt eines Transform-Error-Overlays) - bestätigt syntaktisch
+   fehlerfreies Ausliefern. **Keine Browser-/Computer-Use-Werkzeuge in dieser
+   Session verfügbar** (wie bereits in mehreren früheren Abschnitten
+   dokumentiert, z. B. v0.1.3/v0.1.14) — ein tatsächlicher visueller
+   Screenshot-Vergleich (Hervorhebung sichtbar unterstrichen, Popover korrekt
+   positioniert/lesbar, Panel-Layout) steht noch aus und sollte bei
+   Gelegenheit mit Browser-Werkzeugen nachgeholt werden. Die jsdom-Klick-Tests
+   oben verifizieren aber bereits das tatsächliche Verhalten (DOM-Struktur,
+   Attribute, Klick-Ergebnis) end-to-end über echte Klicks auf das von
+   `render()` erzeugte DOM, nicht nur über Store-Aufrufe.
+
+**Ergebnis:** Neue Dateien `src/ui/keywordGlossary.ts`,
+`src/ui/components/keywordText.ts`, `src/ui/components/keywordGlossaryPanel.ts`,
+`src/ui/__tests__/keyword-glossary.test.ts`. Geänderte Dateien
+`src/ui/store.ts` (neuer Keyword-Glossar-Zustand), `src/ui/render.ts`
+(Popover-Bubble + globales Panel im Spielbrett, neuer Button in `statusBar`),
+`src/ui/components/handCard.ts`/`cardTile.ts`/`deckBuilder.ts`
+(rulesText-Rendering nutzt jetzt `ruleTextNodes` statt `text(...)`,
+`deckBuilder.ts` zusätzlich neue Kopfzeile + Panel/Popover-Rendering),
+`src/ui/style.css` (`.keyword-highlight*`, `.keyword-popover-*`,
+`.deckbuilder-header-row`). Keine Änderungen an `src/engine/*`,
+`src/model/*`, `src/cards/*`, `src/ai/*`.
+
+## Geführte Tutorial-Schritt-Sequenz (v0.1.16, 2026-07-19)
+
+### Auftrag
+
+Das bisherige Tutorial (v0.1.11-v0.1.15) zeigte pro Aktionstyp nur EINE
+passive, einmalige Info-Sprechblase, falls der Spieler zufällig darüber
+stolperte ("wenn du zufällig eine Kreatur castest, erklären wir dir
+Beschwörungskrankheit") — kein wirklich GEFÜHRTES Tutorial. Auftrag: eine
+echte Schritt-Sequenz, bei der jeder wichtige Aktionstyp einmal konkret
+angewiesen UND tatsächlich ausgeführt wird, nach dem Muster "Instruktion →
+konkrete erwartete Aktion → kurze Bestätigung/Ergebnis-Erklärung → nächste
+Instruktion".
+
+### Die 13 Schritte (`src/ui/tutorialContent.ts#TUTORIAL_STEPS`)
+
+1. `mulliganIntro` (Info) — Starthand/Mulligan kurz erklärt, erscheint sofort
+   bei Partiestart.
+2. `priorityIntro` (Info) — Mana/Phasen/Priorität (Inhalt wie zuvor „priority"),
+   erscheint beim ersten echten Priority-Fenster nach den Mulligans.
+3. `playTerrain` (Aktion) — Terrain aus der Hand spielen (hervorgehoben:
+   Flammenkuppe).
+4. `tapForMana` (Aktion) — das gespielte Terrain antippen, Mana im Pool
+   beobachten.
+5. `castCreature` (Aktion) — eine Kreatur beschwören (hervorgehoben: Glutpfote/
+   Glutwelpe/Wildfeuerkeiler), Beschwörungskrankheit erklärt.
+6. `chooseTriggerTarget` (Aktion) — Ziel für eine ausgelöste Fähigkeit wählen
+   (Glutwelpes ETB-Schaden).
+7. `castDamageSpell` (Aktion) — Schadenszauber wirken (hervorgehoben:
+   Feuerstoß).
+8. `castBuffSpell` (Aktion) — Verstärkungszauber auf eigene Kreatur
+   (hervorgehoben: Lodernder Rausch) — Bestätigung hebt die verstärkte Kreatur
+   hervor ("schaut auf die Zahlen unten rechts").
+9. `declareAttack` (Aktion) — Angreifer erklären.
+10. `combatDamage` (Info) — automatische Kampfschaden-Abrechnung beobachten.
+11. `declareBlock` (Aktion) — blocken, sobald der Gegner angreift.
+12. `winCondition` (Info) — 0 Leben = verloren.
+13. `complete` (Info) — Abschluss-Hinweis (erwähnt jetzt zusätzlich, dass der
+    volle Kartenpool weitere Mechaniken hat, die dieses bewusst einfache
+    Demo-Deck nicht abdeckt: X-Kosten, modale Sprüche, Mehrfachziele, ...).
+
+Reihenfolge ist die PÄDAGOGISCHE Präsentationsreihenfolge, nicht zwangsläufig
+die chronologische — mit dem festen `TUTORIAL_SEED` ist `core.fire-jolt`
+bereits Zug 1 bezahlbar, während `core.cinder-pup` (die einzige Vanilla-Kreatur
+des Decks) laut Simulation erst im 4. eigenen Zug gezogen wird; die erste
+tatsächlich beschworene Kreatur ist mit diesem Seed praktisch immer
+`core.ember-whelp` (2 Mana, ab Zug 2 bezahlbar) — `castCreature` ist deshalb
+bewusst GENERISCH auf "irgendeine Kreatur" formuliert, nicht auf Glutpfote
+festgenagelt (s.u., "Warum keine feste Zug-Zuordnung").
+
+### Architektur: Instruktion → Aktion → Bestätigung
+
+Jeder `TutorialStep` (`instruction`/`confirmation`: Titel+Text, `detect`:
+Erkennungsfunktion, `infoOnly?`: reiner Info-Schritt ohne eigene Aktion) läuft
+in `store.ts` durch einen kleinen Zustandsautomaten:
+
+- **Aktions-Schritt, Instruktion ausstehend**: nicht-modales
+  `.tutorial-instruction-banner` (`components/tutorialOverlay.ts`) — blockiert
+  NICHTS (Spielbrett bleibt normal bedienbar, automatischer Bot-Zug-Loop läuft
+  normal weiter), trägt aber immer einen "Schritt überspringen"-Link
+  (Sicherheitsnetz, Auftrag: kein kompletter Lockout). Das erwartete Element
+  (Handkarte per Definition-ID, `TUTORIAL_STEP_HAND_CARD_IDS`, oder das eigene
+  Terrain, `ownUntappedTerrain`) wird per `.tutorial-glow`-Klasse (Puls-Glow-
+  Animation, `style.css`) hervorgehoben — eigene, auffälligere Optik als das
+  bestehende `.hinted` (das schon "laut getLegalActions aktivierbar" bedeutet).
+- **Aktion erkannt → Bestätigung**: modale `.tutorial-tip-bubble` (wie zuvor,
+  jetzt mit "Weiter" statt "Verstanden") — pausiert den automatischen
+  Bot-Zug-Loop, bis der Nutzer sie schließt (`dismissTutorialBubble`), dann
+  rückt die Sequenz einen Schritt weiter.
+- **Info-Schritt**: dieselbe modale Bubble, sobald `detect(state)` erstmals
+  zutrifft (z.B. `combatDamage`: `state.step === "combatDamage"`) — kein
+  Aktions-/Instruktions-Zwischenschritt nötig.
+
+**Wichtige Entwurfsentscheidung — warum die nicht-modale Instruktions-Phase
+den Bot-Loop NICHT pausiert**: `declareBlock` kann laut Auftrag mehrere Züge
+dauern (abhängig vom Bot-Verhalten). Würde die Instruktions-Phase den
+Bot-Loop pausieren, könnte der Bot-Gegner nie angreifen (Deadlock: der Mensch
+wartet auf den Bot, der Bot ist aber pausiert). Also pausiert NUR die modale
+Bestätigungs-/Info-Bubble (`isTutorialModalBubbleShowing`) — kurz, vom Nutzer
+selbst weggeklickt.
+
+### Warum keine feste Zug-Zuordnung / rückwirkende Fakten-Erkennung
+
+Mit dem festen `TUTORIAL_SEED` + der Mana-Kurve dieses Decks lässt sich NICHT
+zuverlässig vorhersagen, in welcher REALEN Reihenfolge die pädagogischen
+Schritte eintreten (Beispiel: `core.fire-jolt`, ein Zauberspruch, ist bereits
+Zug 1 bezahlbar, bevor überhaupt eine Kreatur im Spiel ist; ob/wann der
+Bot-Gegner angreift und der Mensch dadurch VOR seinem eigenen ersten Angriff
+schon einmal blocken kann, hängt vom Bot-Verhalten ab). Lösung:
+`recomputeTutorialProgress` (store.ts) ruft `detect` nach JEDER Aktion für
+ALLE 13 Schritte auf (nicht nur den gerade aktiven) und merkt Treffer dauerhaft
+in `tutorialFactsSeen`. Erreicht die Sequenz später einen Schritt, dessen Fakt
+schon vorliegt (weil er "zufällig früh" eintrat), zeigt sie SOFORT dessen
+Bestätigung statt erneut zu warten. Verifiziert über eine ausführliche,
+lokale Mehrzug-Simulation (13/13 Schritte durchlaufen, Sieg in Zug 11, s.
+Verifikation unten) — kein Dauertestfall (zu lang/nicht deterministisch genug
+für CI), aber bestätigt das Entwurfsprinzip.
+
+### Verifikation
+
+1. **`npm run build`** (`tsc --noEmit`) und **`npm run build:ui`** (`vite
+   build`) sauber.
+2. **`npm test`**: 163/163 Tests grün (1 weiterhin bewusst übersprungener
+   Analyse-Test unverändert) — `src/ui/__tests__/tutorial.test.ts` komplett
+   neu geschrieben für die Schritt-Sequenz (echte Klicks, kein
+   Store-Bypass): Start → `mulliganIntro`-Bubble → Mulligan behalten →
+   `priorityIntro`-Bubble → `playTerrain`-Banner (Handkarte hervorgehoben) →
+   Terrain spielen → Bestätigung → `tapForMana`-Banner (Terrain-Kachel
+   hervorgehoben) → Terrain antippen → Bestätigung → `castCreature`-Banner
+   erscheint tatsächlich als NÄCHSTER Schritt → "Schritt überspringen" rückt
+   die Sequenz weiter (Sicherheitsnetz-Test) → Hilfe-Panel listet alle 13
+   Schritte → "Zurück zum Hauptmenü".
+3. **Manuelle Mehrzug-Verifikation** (temporäres, lokales Test-Skript, danach
+   wieder entfernt — kein Dauertestfall, s.o.): ein Skript hat über echte
+   `element.dispatchEvent`-Klicks eine komplette Partie exakt nach den
+   Tutorial-eigenen Instruktionen gespielt (Terrain spielen → antippen →
+   castbare Karte spielen → Ziel wählen → angreifen falls möglich → blocken
+   falls möglich, sonst passen). Ergebnis: alle 13 Schritte wurden in der
+   erwarteten Reihenfolge durchlaufen (`castCreature` traf auf
+   `core.ember-whelp` in Zug 3, NICHT auf `core.cinder-pup`, exakt wie oben
+   dokumentiert), `declareBlock` wurde beim Erreichen bereits rückwirkend als
+   erledigt erkannt (der Bot-Gegner hatte schon vorher angegriffen und wurde
+   geblockt), die Partie endete regulär mit Sieg für player1 in Zug 11 —
+   keine Abstürze, keine Endlosschleifen.
+4. **Keine Browser-/Computer-Use-Werkzeuge in dieser Session verfügbar** (wie
+   in mehreren früheren Abschnitten dokumentiert) — kein visueller
+   Screenshot-Vergleich der `.tutorial-glow`-Puls-Animation. Die jsdom-Klick-
+   Tests + das manuelle Mehrzug-Skript verifizieren aber bereits das
+   tatsächliche Verhalten (DOM-Struktur/Klassen, Klick-Ergebnisse,
+   Sequenz-Fortschritt) end-to-end über echte Klicks auf das von `render()`
+   erzeugte DOM.
+
+**Ergebnis:** `src/ui/tutorialContent.ts` komplett neu (13-Schritte-Sequenz
+mit `instruction`/`confirmation`/`detect` statt der alten 8 lose
+`TUTORIAL_TIPS`). `src/ui/store.ts`: neuer Sequenz-Zustand
+(`tutorialStepIndex`/`tutorialPhase`/`tutorialFactsSeen`/
+`tutorialSequenceFinished`/`tutorialLastBuffTarget`), neue Funktionen
+`getTutorialActiveStep`/`getTutorialPhase`/`isTutorialBubbleVisible`/
+`dismissTutorialBubble`/`skipTutorialStep`/`getTutorialHighlight`, ersetzt
+`getTutorialPendingTip`/`dismissTutorialTip`/`maybeQueueTutorialTips`.
+`src/ui/components/tutorialOverlay.ts`: neue `tutorialInstructionBanner`
+(nicht-modal) + `tutorialModalBubble` (ersetzt `tutorialTipBubble`),
+`tutorialHelpPanel` listet jetzt `TUTORIAL_STEPS`. `src/ui/components/
+cardTile.ts`/`handCard.ts`: neue `tutorialHighlighted`-Option
+(`.tutorial-glow`-Klasse). `src/ui/render.ts`: Verdrahtung + Highlight-
+Berechnung in `handZone`/`battlefieldZone`. `src/ui/style.css`: neue Klassen
+`.tutorial-instruction-banner*`, `.tutorial-skip-btn`, `.tutorial-glow` (Puls-
+Animation), `.tutorial-help-entry-confirmation`. `src/ui/__tests__/
+tutorial.test.ts` komplett neu geschrieben. Keine Änderungen an `src/engine/*`,
+`src/model/*`, `src/cards/*`, `src/ai/*`, `src/ui/tutorialDeck.ts` (Auftrag:
+"unverändert lassen außer bei echtem Bedarf" — kein Bedarf erkannt, das
+bestehende Deck deckt bereits alle sechs Kartentypen sinnvoll ab).
 
 ## Nächste Schritte (Vorschläge)
 

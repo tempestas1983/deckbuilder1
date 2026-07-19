@@ -1,21 +1,23 @@
 // @vitest-environment jsdom
 /**
- * Dauerhafter End-to-End-UI-Test für den geführten Tutorial-Modus (v0.1.11,
+ * Dauerhafter End-to-End-UI-Test für den geführten Tutorial-Modus (v0.1.16,
  * s. docs/frontend-status.md) - Vorbild: golden-path.test.ts/vs-bot.test.ts
  * (echter App-Start, ausschließlich echte
  * `element.dispatchEvent(new Event("click"))`-Aufrufe auf das von `render()`
  * erzeugte DOM, kein direkter store.dispatch()-Bypass für die geprüfte
  * Interaktion).
  *
- * Deckt den in docs/frontend-status.md (v0.1.11) beschriebenen Fluss ab:
+ * Deckt den in docs/frontend-status.md (v0.1.16) beschriebenen Fluss ab:
  * Startbildschirm (Deckbau-Screen Spieler 1) -> "Tutorial starten"
  * (überspringt den kompletten restlichen Deckbau, inkl. Spieler-2-Screen)
  * -> Partie läuft mit den festen Decks aus tutorialDeck.ts + festem Seed,
- * Spieler 2 automatisch bot-gesteuert ("medium") -> erste Tutorial-
- * Sprechblase erscheint (spätestens beim ersten Priority-Fenster) und lässt
- * sich wegklicken -> das "?"-Hilfe-Panel zeigt alle Tutorial-Texte an, auch
- * schon gesehene -> "Zurück zum Hauptmenü" führt zurück zum normalen
- * Deckbau-Screen.
+ * Spieler 2 automatisch bot-gesteuert ("medium") -> geführte Schritt-Sequenz
+ * läuft durch: Starthand/Mulligan-Hinweis -> Prioritäts-Konzept ->
+ * Terrain spielen (Instruktion -> Aktion -> Bestätigung) -> Terrain für Mana
+ * antippen (Instruktion -> Aktion -> Bestätigung) -> nächster Schritt
+ * (Kreatur beschwören) erscheint -> das "?"-Hilfe-Panel zeigt alle Schritte
+ * an, auch schon erledigte/noch ausstehende -> "Zurück zum Hauptmenü" führt
+ * zurück zum normalen Deckbau-Screen.
  *
  * Da `startTutorial()` `createGame` mit einem FESTEN Seed aufruft (kein
  * `Math.random()`-Aufruf in diesem Pfad, anders als beim normalen
@@ -24,9 +26,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonWithText, click, queryAll, queryOne } from "./testHelpers";
+import { buttonWithText, click, queryAll, queryOne, tapUntappedPermanent } from "./testHelpers";
 
-describe("Tutorial-Modus (v0.1.11)", () => {
+describe("Tutorial-Modus (v0.1.16)", () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -36,7 +38,7 @@ describe("Tutorial-Modus (v0.1.11)", () => {
   });
 
   it(
-    "Startbildschirm -> Tutorial starten -> erste Sprechblase erscheint und ist wegklickbar -> Hilfe-Panel zeigt alle Tipps -> zurück zum Hauptmenü",
+    "Startbildschirm -> Tutorial starten -> Schritt-Sequenz (Mulligan-Hinweis, Priorität, Terrain, Mana, nächster Schritt) -> Hilfe-Panel -> zurück zum Hauptmenü",
     async () => {
       const { render } = await import("../render");
       const {
@@ -49,7 +51,7 @@ describe("Tutorial-Modus (v0.1.11)", () => {
         setBotMoveDelayMs,
         subscribe,
       } = await import("../store");
-      const { tutorialTip, TUTORIAL_TIPS } = await import("../tutorialContent");
+      const { TUTORIAL_STEPS, tutorialStepIndexOf } = await import("../tutorialContent");
       setBotMoveDelayMs(0);
 
       const root = document.createElement("div");
@@ -88,11 +90,24 @@ describe("Tutorial-Modus (v0.1.11)", () => {
         );
       };
 
-      // Direkt nach dem Partiestart kann bereits eine automatische Bot-Kette
-      // laufen (z.B. wenn Spieler 2 zufällig Startspieler ist und zuerst über
-      // seine eigene Mulligan-Entscheidung entscheidet) - UND/ODER die erste
-      // Tutorial-Sprechblase ("priority") kann direkt danach anstehen (der
-      // Bot-Loop pausiert dafür automatisch, s. store.ts#scheduleBotStepIfNeeded).
+      const dismissModalBubble = (expectedTitle: string): void => {
+        const bubble = queryOne(root, ".tutorial-tip-bubble");
+        expect(bubble.querySelector(".tutorial-tip-title")?.textContent).toBe(expectedTitle);
+        const dismissBtn = queryOne<HTMLButtonElement>(bubble, ".tutorial-tip-dismiss-btn");
+        expect(dismissBtn.textContent).toBe("Weiter");
+        click(dismissBtn);
+      };
+
+      // Schritt 0 ("mulliganIntro"): reiner Info-Schritt, direkt nach
+      // Partiestart sichtbar - BEVOR überhaupt eine Mulligan-Entscheidung
+      // getroffen wurde (detect ist trivial `true`, s. tutorialContent.ts).
+      dismissModalBubble(TUTORIAL_STEPS[tutorialStepIndexOf("mulliganIntro")]!.instruction.title);
+
+      // Direkt danach kann bereits eine automatische Bot-Kette laufen
+      // (Spieler 1 beginnt im Tutorial zwar IMMER, s. store.ts#startTutorial,
+      // aber Spieler 2s eigene Mulligan-Entscheidung läuft trotzdem sofort
+      // automatisch über den Bot-Loop, sobald keine modale Bubble mehr
+      // aussteht).
       await waitForBot();
 
       // Spieler 1s eigene Mulligan-Entscheidung (falls nötig) über einen
@@ -111,28 +126,83 @@ describe("Tutorial-Modus (v0.1.11)", () => {
       }
       expect(mulliganGuard).toBeLessThan(10);
 
-      // Spätestens jetzt (erstes echtes Priority-Fenster der Partie) muss die
-      // erste Tutorial-Sprechblase ("Mana, Phasen & Priorität") sichtbar sein.
-      const tipBubble = queryOne(root, ".tutorial-tip-bubble");
-      expect(tipBubble.querySelector(".tutorial-tip-title")?.textContent).toBe(tutorialTip("priority").title);
-      expect(tipBubble.querySelector(".tutorial-tip-body")?.textContent).toBe(tutorialTip("priority").body);
+      // Schritt 1 ("priorityIntro"): spätestens jetzt (erstes echtes
+      // Priority-Fenster der Partie) muss die Bubble erscheinen.
+      dismissModalBubble(TUTORIAL_STEPS[tutorialStepIndexOf("priorityIntro")]!.instruction.title);
+      await waitForBot();
 
-      // Sie ist wegklickbar ("Verstanden") und verschwindet danach.
-      const dismissBtn = queryOne<HTMLButtonElement>(tipBubble, ".tutorial-tip-dismiss-btn");
-      expect(dismissBtn.textContent).toBe("Verstanden");
-      click(dismissBtn);
+      // Schritt 2 ("playTerrain"): nicht-modales Instruktions-Banner (KEINE
+      // Bubble, blockiert nichts) mit hervorgehobener Terrain-Handkarte.
+      const playTerrainStep = TUTORIAL_STEPS[tutorialStepIndexOf("playTerrain")]!;
+      let banner = queryOne(root, ".tutorial-instruction-banner");
+      expect(banner.querySelector(".tutorial-instruction-title")?.textContent).toBe(playTerrainStep.instruction.title);
       expect(root.querySelector(".tutorial-tip-bubble")).toBeFalsy();
-      await waitForBot(); // Bot-Loop läuft nach dem Wegklicken automatisch weiter.
+      const terrainHandCard = queryAll<HTMLElement>(root, ".hand-card").find(
+        (el) => el.querySelector(".hand-card-name")?.textContent === "Flammenkuppe",
+      );
+      expect(terrainHandCard?.classList.contains("tutorial-glow")).toBe(true);
+
+      // Terrain sind nur in der eigenen Hauptphase spielbar (Timing) - das
+      // erste Priority-Fenster der Partie ist Upkeep, nicht Main1: erst
+      // durch die vorangehenden Schritte (Upkeep/Draw) passen, bis der
+      // "Terrain legen"-Button tatsächlich erscheint.
+      let mainPhaseGuard = 0;
+      while (!buttonWithText(root, ".btn.btn-play", "Terrain legen") && mainPhaseGuard < 10) {
+        click(queryOne<HTMLButtonElement>(root, ".btn-pass"));
+        await waitForBot();
+        mainPhaseGuard++;
+      }
+      expect(mainPhaseGuard).toBeLessThan(10);
+
+      // Tatsächliche Aktion ausführen: Terrain spielen -> Bestätigung erscheint.
+      click(buttonWithText(root, ".btn.btn-play", "Terrain legen"));
+      dismissModalBubble(playTerrainStep.confirmation.title);
+      await waitForBot();
+
+      // Schritt 3 ("tapForMana"): Instruktions-Banner + hervorgehobenes
+      // eigenes (ungetapptes) Terrain auf dem Spielfeld.
+      const tapForManaStep = TUTORIAL_STEPS[tutorialStepIndexOf("tapForMana")]!;
+      banner = queryOne(root, ".tutorial-instruction-banner");
+      expect(banner.querySelector(".tutorial-instruction-title")?.textContent).toBe(tapForManaStep.instruction.title);
+      const terrainTile = queryAll<HTMLElement>(root, ".battlefield-zone .card-tile").find(
+        (el) => el.querySelector(".card-tile-name")?.textContent === "Flammenkuppe",
+      );
+      expect(terrainTile?.classList.contains("tutorial-glow")).toBe(true);
+
+      // Terrain antippen -> Mana im Pool -> Bestätigung erscheint.
+      tapUntappedPermanent(root, "Flammenkuppe");
+      dismissModalBubble(tapForManaStep.confirmation.title);
+      await waitForBot();
+
+      // Schritt 4 ("castCreature"): der NÄCHSTE Schritt erscheint tatsächlich
+      // (Kern-Nachweis der Sequenz-Steuerung) - mit diesem Seed ist mit 1
+      // verfügbarem Mana turn 1 noch keine Kreatur bezahlbar, das
+      // Instruktions-Banner bleibt also (bewusst nicht-blockierend) sichtbar,
+      // bis genug Mana/eine Kreatur verfügbar ist.
+      const castCreatureStep = TUTORIAL_STEPS[tutorialStepIndexOf("castCreature")]!;
+      banner = queryOne(root, ".tutorial-instruction-banner");
+      expect(banner.querySelector(".tutorial-instruction-title")?.textContent).toBe(castCreatureStep.instruction.title);
+
+      // Sicherheitsnetz "Schritt überspringen" ist jederzeit verfügbar (Auftrag:
+      // kein kompletter Lockout) - rückt die Sequenz weiter, ohne die Aktion
+      // tatsächlich ausgeführt zu haben.
+      const skipBtn = queryOne<HTMLButtonElement>(banner, ".tutorial-skip-btn");
+      expect(skipBtn.textContent).toBe("Schritt überspringen");
+      click(skipBtn);
+      const nextBanner = queryOne(root, ".tutorial-instruction-banner");
+      expect(nextBanner.querySelector(".tutorial-instruction-title")?.textContent).toBe(
+        TUTORIAL_STEPS[tutorialStepIndexOf("chooseTriggerTarget")]!.instruction.title,
+      );
 
       // Das "?"-Hilfe-Panel bleibt jederzeit abrufbar (Auftrag Punkt 4) - auch
-      // für schon gesehene UND noch nicht aufgetretene Tipps, unabhängig vom
-      // aktuellen Spielstand.
+      // für schon erledigte UND noch nicht erreichte Schritte, unabhängig vom
+      // aktuellen Spielstand/Sequenz-Fortschritt.
       const helpBtn = queryOne<HTMLButtonElement>(root, ".tutorial-help-btn");
       expect(root.querySelector(".tutorial-help-panel")).toBeFalsy();
       click(helpBtn);
       const helpPanel = queryOne(root, ".tutorial-help-panel");
       const entryTitles = queryAll(helpPanel, ".tutorial-help-entry-title").map((el) => el.textContent);
-      expect(entryTitles).toEqual(TUTORIAL_TIPS.map((t) => t.title));
+      expect(entryTitles).toEqual(TUTORIAL_STEPS.map((s) => s.instruction.title));
       click(queryOne(helpPanel, ".btn.btn-cancel"));
       expect(root.querySelector(".tutorial-help-panel")).toBeFalsy();
 
