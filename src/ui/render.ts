@@ -79,6 +79,7 @@ import { deckBuilderScreen } from "./components/deckBuilder";
 import { mainMenuScreen } from "./components/mainMenu";
 import { opponentSelectScreen } from "./components/opponentSelect";
 import { buildDemoDeck } from "./deck";
+import { pickRandomAiDeck } from "./aiDecks";
 import { handCard, handCardDiscardToggle, handCardHidden } from "./components/handCard";
 import { playerPanel } from "./components/playerPanel";
 import { botAvatarImg } from "./components/sceneArt";
@@ -443,13 +444,17 @@ function renderDeckBuilder(player: PlayerId, mode: "newGame" | "standalone"): HT
       // "echtes Hauptmenü"-Umbau: wurde der Gegner in der Gegner-Auswahl
       // bereits als KI festgelegt (s. store.ts#chooseOpponentBot), wird der
       // player2-Deckbau-Screen komplett übersprungen - exakt dasselbe
-      // "zufällig füllen + markieren + sofort bestätigen"-Vorgehen wie beim
-      // bisherigen "Zufälliges KI-Deck + weiter"-Kurzstart (s.
-      // onAiQuickstart unten), nur direkt im Anschluss an player1s eigene
+      // "kuratiertes Archetyp-Deck ziehen + markieren + sofort bestätigen"-
+      // Vorgehen wie beim bisherigen "Zufälliges KI-Deck + weiter"-Kurzstart
+      // (s. onAiQuickstart unten), nur direkt im Anschluss an player1s eigene
       // Bestätigung statt über einen eigenen Button auf dem player2-Screen.
+      // Seit dem Wechsel auf `pickRandomAiDeck` (s. aiDecks.ts) zieht die KI
+      // ein thematisch stimmiges, 1-3-farbiges Deck statt der alten
+      // 5-Farben-Zufallsmischung aus `buildDemoDeck` - welcher Archetyp es
+      // ist, wird dem menschlichen Spieler bewusst nirgends angezeigt.
       if (player === "player1" && isBotControlled("player2")) {
-        const randomDeck = buildDemoDeck(pool);
-        setDecklist("player2", randomDeck);
+        const aiDeck = pickRandomAiDeck();
+        setDecklist("player2", aiDeck);
         confirmDeck("player2");
       }
     },
@@ -470,10 +475,14 @@ function renderDeckBuilder(player: PlayerId, mode: "newGame" | "standalone"): HT
     botDifficulty: getBotDifficulty(player),
     onChangeBotDifficulty: (next) => setBotDifficulty(player, next),
     onAiQuickstart: () => {
-      const randomDeck = buildDemoDeck(pool);
+      // s. Kommentar bei onConfirm oben: zieht seit `pickRandomAiDeck` (statt
+      // `buildDemoDeck`) ein kuratiertes, thematisches Archetyp-Deck aus
+      // aiDecks.ts statt einer reinen 5-Farben-Zufallsmischung. Der
+      // Archetyp-Name bleibt bewusst verborgen.
+      const aiDeck = pickRandomAiDeck();
       setBotControlled(player, true);
-      setDecklist(player, randomDeck);
-      if (validateDecklist(pool, randomDeck).valid) {
+      setDecklist(player, aiDeck);
+      if (validateDecklist(pool, aiDeck).valid) {
         confirmDeck(player);
       }
     },
