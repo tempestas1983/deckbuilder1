@@ -7,6 +7,79 @@ in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 `docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
 Dokument ist die Kurzfassung "wo stehen wir gerade".
 
+## Meilenstein: Kuratierte KI-Archetyp-Decks statt Zufalls-Fill (reines Frontend, keine Engine-/Model-/Kartenpool-/KI-Änderung)
+
+Kleine, gezielte Session direkt im Anschluss an den vorigen Sweep — ein
+einzelnes, bereits gepushtes Feature (Commit `5654ec1 "Add curated AI
+archetype decks instead of random 5-color fills"`), gegen den tatsächlichen
+Code verifiziert statt den Auftragsbericht blind zu übernehmen.
+
+- **Neue Datei `src/ui/aiDecks.ts`**: 7 handkuratierte Archetyp-Decklisten
+  (`AI_DECK_FLAME_WILD_AGGRO`/`_TIDE_LIGHT_CONTROL`/`_FLAME_VOID_SACRIFICE`/
+  `_WILD_LIGHT_MIDRANGE`/`_VOID_WILD_ATTRITION`/`_TIDE_VOID_CONTROL`/
+  `_MONO_FLAME_AGGRO`), vom card-designer-Subagenten aus dem echten
+  300-Karten-„core"-Pool zusammengestellt — überwiegend Zweifarben-Paare
+  (sechs der zehn möglichen, nach mechanischer Synergie ausgewählt), plus
+  eine bewusste Mono-flame-Ausnahme. Jedes Deck: `Record<Karten-ID,
+  Kopienzahl>`, echte Schwerpunktkopien (bis 4× pro Nicht-Terrain-Karte)
+  statt „1× von allem" wie im minimalistischen Tutorial-Deck. `AI_DECKS`
+  bündelt alle sieben mit Name/Beschreibung; `pickRandomAiDeck()` gibt
+  bewusst **nur** die Decklist zurück (kein Name/keine Beschreibung), damit
+  der Archetyp strukturell nirgends im UI durchsickern kann — Entdecken ist
+  Teil des Spielerlebnisses.
+- **`render.ts`-Verdrahtung**: beide Stellen, an denen bisher automatisch ein
+  Deck für einen bot-gesteuerten Gegner gebaut wurde (`deckBuilderScreen`s
+  `onConfirm` im Hauptmenü-„Neues Spiel"-Flow UND `onAiQuickstart`, der
+  ältere „Zufälliges KI-Deck + weiter"-Kurzstart aus v0.1.7), rufen jetzt
+  `pickRandomAiDeck()` statt `buildDemoDeck(pool)` auf. `buildDemoDeck`
+  selbst bleibt **unverändert** — bedient weiterhin ausschließlich den
+  „Zufällig füllen"-Button des MENSCHLICHEN Deckbaus (anderer
+  Anwendungsfall/Zielgruppe). Keine Änderung an `store.ts`/`types.ts` nötig.
+- **Verifikation (documenter, gegen den Code, nicht nur den Bericht):**
+  alle sieben Decklisten vollständig gelesen und die Kopienzahlen von Hand
+  aufsummiert — **alle sieben landen exakt bei 60 Karten**, keine
+  Abweichung. Höchste Nicht-Terrain-Kopienzahl über alle Decks ist 4,
+  konsistent mit `deckValidation.ts#MAX_COPIES_NON_TERRAIN`. Per `Grep`
+  gegen `src/cards/starter-set.ts` stichprobenartig 17 der selteneren
+  Karten-IDs aus allen sieben Decks geprüft (u. a. `core.hollowmaw-devourer`,
+  `core.void-marshal`, `core.gravebound-warden`, `core.tideshard-rogue`,
+  `core.silence-ban`) — alle vorhanden. `render.ts`-Import/Aufrufstellen von
+  `pickRandomAiDeck` per Grep bestätigt. **Nicht selbst nachvollzogen:** ein
+  echter `npm test`/`npm run build`-Lauf sowie das im Auftrag erwähnte
+  14-Züge-Browser-Testspiel (kein Shell-/Computer-Use-Werkzeug in dieser
+  Session) — die Verifikation stützt sich ausschließlich auf Code-Lektüre
+  plus manuelles Nachrechnen, keine Abweichung zur Auftragsbeschreibung
+  gefunden. Kein neuer Karteninhalt (reine Zusammenstellung bereits
+  existierender, in `docs/cards/starter-set.md` dokumentierter Karten) —
+  dieses Dokument brauchte daher keine Änderung.
+- **Nebenbei entdeckte und korrigierte Inkonsistenz:** `docs/frontend-status.md`
+  und `docs/README.md` beschrieben den v0.1.20-Schritt (Deck speichern/laden,
+  Deck-Analyse, „Deck leeren") noch durchgehend als „uncommitted" — laut
+  `git log`/`git status` (Arbeitsverzeichnis clean) ist dieser Schritt
+  inzwischen als Commit `9b81338 "Add main menu, guide screen, deck
+  save/analysis, and clear-deck button"` versioniert. Alle „uncommitted"-
+  Stellen in beiden Dokumenten auf den bestätigten Commit-Stand korrigiert.
+- **documenter (dieser Sweep, 2026-07-20):** `docs/frontend-status.md` von
+  v0.1.20 auf **v0.1.21** gehoben — neue „auf einen Blick"-Kurzfassung, ein
+  vollständiger neuer Detail-Abschnitt, Struktur-Tabelle (neue Zeile
+  `aiDecks.ts`, Annotationen an `deck.ts`/`store.ts`/`render.ts`),
+  „Bewusste Vereinfachungen" (KI-Gegner-Bullet ergänzt) sowie „Nächste
+  Schritte" (zwei neue Punkte: fehlender automatisierter Test für
+  `aiDecks.ts`, ausstehende eigene Browser-Verifikation) aktualisiert, plus
+  die oben genannte „uncommitted"-Korrektur für v0.1.20. `docs/README.md`:
+  Kopfzeile/Statustabelle auf v0.1.21 gehoben, „Weitere offene Punkte" für
+  frontend-engineer aktualisiert (Punkt 9 „v0.1.20 uncommitted" als erledigt
+  markiert, neuer Punkt 11 für den fehlenden `aiDecks.ts`-Test). **Keine
+  Code-Datei angefasst** — dieser Sweep war reine Dokumentationsarbeit.
+  `docs/rules-engine.md`, `docs/engine-status.md`, `docs/ai-status.md`,
+  `docs/cards/starter-set.md` waren nicht Gegenstand dieses Sweeps (keine
+  Engine-/Model-/Kartenpool-/KI-Änderung in dieser Session) — `docs/cards/
+  starter-set.md` wurde gezielt geprüft, ob es eine Liste „abgeleiteter
+  Materialien" führt, in die die neuen KI-Decks gehören würden: Fund —
+  keine solche Liste vorhanden, daher bewusst NICHT künstlich ergänzt (die
+  Decks selbst enthalten keinen neuen Karteninhalt, nur eine Zusammenstellung
+  bereits dokumentierter Karten).
+
 ## Meilenstein: Echtes Hauptmenü, Taverne-Atmosphäre/Sound/Musik-Playlist, Auto-Pass/Spotlight, Deck speichern/analysieren (reines Frontend, keine Engine-/Model-/Kartenpool-/KI-Änderung)
 
 Die mit Abstand umfangreichste Frontend-Session bisher

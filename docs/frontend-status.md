@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.20 (frontend-engineer) — 2026-07-20
+Status: v0.1.21 (frontend-engineer) — 2026-07-20
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -19,6 +19,23 @@ Stufe "medium") bleibt weiterhin exportiert; **seit v0.1.17** liefert
 `src/ai/difficulty.ts` zusätzlich `BOT_DISPLAY_NAMES` — erfundene
 Tavernen-Namen der drei Bot-Stufen fürs UI, s. dortiger Abschnitt).
 
+**v0.1.21 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Auftrag „KI zieht aus kuratierten Archetyp-Decks statt aus einer reinen
+5-Farben-Zufallsmischung". Neue reine Datenquelle `src/ui/aiDecks.ts`: **7
+handkuratierte Archetyp-Decklisten** (überwiegend Zwei-Farben-Kombinationen,
+plus eine bewusste Mono-flame-Ausnahme), vom card-designer-Subagent aus dem
+tatsächlichen 300-Karten-„core"-Pool zusammengestellt, je exakt 60 Karten mit
+echten Schwerpunktkopien (bis zu 4 pro Nicht-Terrain-Karte) und einer echten
+Mana-Kurve statt „1× von allem". `pickRandomAiDeck()` ersetzt an den beiden
+Stellen, an denen `render.ts` bisher automatisch ein Deck für einen
+bot-gesteuerten Gegner baute (Hauptmenü-„Neues Spiel"-Flow UND der ältere
+„Zufälliges KI-Deck + weiter"-Kurzstart im Deckbau-Screen), den bisherigen
+`buildDemoDeck`-Aufruf; `buildDemoDeck` selbst bleibt unverändert bestehen und
+bedient weiterhin ausschließlich den „Zufällig füllen"-Button des
+MENSCHLICHEN Deckbaus. Bewusste Design-Entscheidung: welcher Archetyp gerade
+gespielt wird, wird dem menschlichen Spieler nirgends angezeigt (kein
+Log-Eintrag, kein Banner) — Entdecken ist Teil des Spielerlebnisses.
+
 **v0.1.20 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Auftrag „Deckbau soll sich mehr wie ein echtes Deckbau-Tool anfühlen":
 drei Ergänzungen im Deckbau-Screen, alle rein additiv, keine Engine-/Model-
@@ -30,10 +47,10 @@ Beschreibung in `localStorage` sichern und später wieder laden — ergänzt
 v0.1.8. (2) **Deck-Analyse-Panel** (`components/deckAnalysis.ts`): Mana-Kurve,
 Farb- und Typverteilung der aktuell zusammengestellten Deckliste, reine
 CSS-Balken ohne Chart-Bibliothek, live bei jedem +/--Klick neu berechnet. (3)
-**„Deck leeren"-Button** im Deckbau-Screen. **Zum Zeitpunkt dieses Sweeps noch
-nicht committet** (s. „Verifikation" unten) — `git status` zeigte
-`deckAnalysis.ts`/`savedDecksPanel.ts` als neu, `deckBuilder.ts`/`store.ts`/
-`style.css` als geändert.
+**„Deck leeren"-Button** im Deckbau-Screen. **Seit v0.1.21 bestätigt
+committet** (Commit `9b81338`, s. Verifikation im v0.1.21-Abschnitt unten) —
+beim v0.1.20-Sweep selbst stand dieser Schritt noch als uncommitted im
+Arbeitsverzeichnis.
 
 **v0.1.19 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Bugfix am in v0.1.18 eingeführten Auto-Pass/Spotlight: `hasRealPriorityChoice`
@@ -419,20 +436,21 @@ passierbar bleibt).
 | `sfxPlayer.ts` | **Neu in v0.1.17**: kurze, überlappende Soundeffekte (`cloneNode()`-Duplizierung pro Abspielvorgang statt eines einzigen wiederverwendeten Elements), globaler UI-Klick-Listener für `.btn-play`/`.btn-pass` |
 | `components/musicPanel.ts` | **Neu in v0.1.18** (löst einen einfacheren Mute-Button aus v0.1.17 ab): Titelauswahl + Wiederholungsmodus (Einzeltitel/Playlist), strukturell an `keywordGlossaryPanel.ts` angelehnt |
 | `components/sfxToggle.ts` | **Neu in v0.1.17**: reiner Mute/Play-Umschalter für Soundeffekte, eigenständiger Zustand unabhängig vom Musik-Mute |
-| `components/savedDecksPanel.ts` | **Neu in v0.1.20 (uncommitted, s. eigener Abschnitt unten)**: `saveDeckForm`/`loadDeckPanel` — benannte Deck-Speicherfunktion (Name + optionale Beschreibung, beliebig viele Slots) |
-| `components/deckAnalysis.ts` | **Neu in v0.1.20 (uncommitted, s. eigener Abschnitt unten)**: `deckAnalysisPanel` — Mana-Kurve/Farb-/Typverteilung der aktuellen Deckliste, reine CSS-Balken |
-| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten); **seit v0.1.9** zusätzlich `botDifficulty: Record<PlayerId, BotDifficulty>` + `getBotDifficulty`/`setBotDifficulty` (Persistenz analog zu `isBotControlled`), `runBotStep` ruft jetzt `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])` (aus `../ai`) statt des bisherigen `chooseAction`; **seit v0.1.11** zusätzlich der komplette Tutorial-Zustand (s. eigener Abschnitt unten): `startTutorial()` (fixe Decks aus `tutorialDeck.ts` + fixer Seed, markiert Spieler 2 bot-gesteuert auf "medium", merkt sich dessen vorherige Bot-Einstellung), `isTutorialActive`/`getTutorialPendingTip`/`dismissTutorialTip`/`isTutorialHelpOpen`/`toggleTutorialHelp`/`closeTutorialHelp`, `maybeQueueTutorialTips` (nach jeder Zustandsänderung während einer Tutorial-Partie: erkennt Schlüsselmomente rein aus der bereits ausgeführten `PlayerAction`/dem Folge-`GameState`, keine neue Regellogik), `scheduleBotStepIfNeeded` pausiert zusätzlich, solange eine Tutorial-Sprechblase aussteht; `backToDeckbuilder()` beendet den Tutorial-Modus sauber (stellt Spieler 2s vorherige Bot-Einstellung wieder her); **seit v0.1.17** komplett umbenannt/erweitert zu `backToMainMenu()` (führt IMMER zum Hauptmenü, s. eigener Abschnitt unten) + neue Hauptmenü-Navigation `startNewGameFlow`/`openDeckBuilderStandalone`/`chooseOpponentBot`/`chooseOpponentHotseat`, zusätzlich `isMusicEnabled`/`toggleMusicEnabled`/`isSfxEnabled`/`toggleSfxEnabled` (Persistenz analog zu den Decklisten); **seit v0.1.18** zusätzlich `setMusicTracks`/`getMusicCurrentTrack`/`getMusicRepeatMode`/`selectMusicTrack`/`advanceToNextMusicTrack` (Playlist-Zustand, s. `musicPlayer.ts`) sowie der komplette Auto-Pass-Mechanismus (`advanceAutomation`/`autoResolvableActionFor`/`applyAutomaticAction`/`hasRealPriorityChoice`/`isRealPriorityCandidate`, s. eigener Abschnitt unten); **seit v0.1.19** `isRealPriorityCandidate` schließt reine Mana-Fähigkeiten aus (Bugfix, s. eigener Abschnitt unten); **seit v0.1.20 (uncommitted)** zusätzlich die benannte Deck-Persistenz (`SavedDeck`/`saveDeckAs`/`loadSavedDeck`/`deleteSavedDeck`/`listSavedDecks`) und der Deck-Analyse-Panel-Zustand (`isDeckAnalysisPanelOpen`/`toggleDeckAnalysisPanel`) |
+| `components/savedDecksPanel.ts` | **Neu in v0.1.20** (Commit `9b81338`, s. eigener Abschnitt unten): `saveDeckForm`/`loadDeckPanel` — benannte Deck-Speicherfunktion (Name + optionale Beschreibung, beliebig viele Slots) |
+| `components/deckAnalysis.ts` | **Neu in v0.1.20** (Commit `9b81338`, s. eigener Abschnitt unten): `deckAnalysisPanel` — Mana-Kurve/Farb-/Typverteilung der aktuellen Deckliste, reine CSS-Balken |
+| `aiDecks.ts` | **Neu in v0.1.21** (Commit `5654ec1`, s. eigener Abschnitt unten): `AI_DECKS` — 7 vom card-designer kuratierte Archetyp-Decklisten (je 60 Karten, echte Kopienzahlen/Kurve statt Zufall) + `pickRandomAiDeck()`, reine Daten/Auswahlfunktion ohne Engine-Bezug |
+| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten); **seit v0.1.9** zusätzlich `botDifficulty: Record<PlayerId, BotDifficulty>` + `getBotDifficulty`/`setBotDifficulty` (Persistenz analog zu `isBotControlled`), `runBotStep` ruft jetzt `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])` (aus `../ai`) statt des bisherigen `chooseAction`; **seit v0.1.11** zusätzlich der komplette Tutorial-Zustand (s. eigener Abschnitt unten): `startTutorial()` (fixe Decks aus `tutorialDeck.ts` + fixer Seed, markiert Spieler 2 bot-gesteuert auf "medium", merkt sich dessen vorherige Bot-Einstellung), `isTutorialActive`/`getTutorialPendingTip`/`dismissTutorialTip`/`isTutorialHelpOpen`/`toggleTutorialHelp`/`closeTutorialHelp`, `maybeQueueTutorialTips` (nach jeder Zustandsänderung während einer Tutorial-Partie: erkennt Schlüsselmomente rein aus der bereits ausgeführten `PlayerAction`/dem Folge-`GameState`, keine neue Regellogik), `scheduleBotStepIfNeeded` pausiert zusätzlich, solange eine Tutorial-Sprechblase aussteht; `backToDeckbuilder()` beendet den Tutorial-Modus sauber (stellt Spieler 2s vorherige Bot-Einstellung wieder her); **seit v0.1.17** komplett umbenannt/erweitert zu `backToMainMenu()` (führt IMMER zum Hauptmenü, s. eigener Abschnitt unten) + neue Hauptmenü-Navigation `startNewGameFlow`/`openDeckBuilderStandalone`/`chooseOpponentBot`/`chooseOpponentHotseat`, zusätzlich `isMusicEnabled`/`toggleMusicEnabled`/`isSfxEnabled`/`toggleSfxEnabled` (Persistenz analog zu den Decklisten); **seit v0.1.18** zusätzlich `setMusicTracks`/`getMusicCurrentTrack`/`getMusicRepeatMode`/`selectMusicTrack`/`advanceToNextMusicTrack` (Playlist-Zustand, s. `musicPlayer.ts`) sowie der komplette Auto-Pass-Mechanismus (`advanceAutomation`/`autoResolvableActionFor`/`applyAutomaticAction`/`hasRealPriorityChoice`/`isRealPriorityCandidate`, s. eigener Abschnitt unten); **seit v0.1.19** `isRealPriorityCandidate` schließt reine Mana-Fähigkeiten aus (Bugfix, s. eigener Abschnitt unten); **seit v0.1.20** zusätzlich die benannte Deck-Persistenz (`SavedDeck`/`saveDeckAs`/`loadSavedDeck`/`deleteSavedDeck`/`listSavedDecks`) und der Deck-Analyse-Panel-Zustand (`isDeckAnalysisPanelOpen`/`toggleDeckAnalysisPanel`); **seit v0.1.21 unverändert** — `pickRandomAiDeck()` (`aiDecks.ts`) wird direkt von `render.ts` aufgerufen, kein eigener Store-Zustand nötig (s. eigener Abschnitt unten) |
 | `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine); **seit v0.1.6** neuer `CastSource`-Typ (spell/ability) + `UiMode`-Zweige `modeSelect`/verallgemeinerte `xInput`/`xTarget` (s. eigener Abschnitt unten); **seit v0.1.7 unverändert** — die KI-Zuordnung lebt bewusst nur in `store.ts` (s. dortige Begründung im Code-Kommentar, analog zur v0.1.5-`AppPhase`-Entscheidung); **seit v0.1.17** `AppPhase` komplett umgebaut auf vier Werte `mainMenu`/`opponentSelect`/`deckbuild`/`playing` (statt bisher nur Deckbau/Spiel), `deckbuild` trägt zusätzlich `mode: "newGame" | "standalone"` (s. eigener Abschnitt unten für den vollständigen Ablauf) |
-| `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen; **seit v0.1.7** zusätzlich Basis für „Zufälliges KI-Deck + weiter" im Deckbau-Screen von Spieler 2 |
+| `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen; **seit v0.1.7 bis v0.1.20** zusätzlich Basis für „Zufälliges KI-Deck + weiter" im Deckbau-Screen von Spieler 2; **seit v0.1.21 überholt**: für BEIDE bot-gesteuerten Anwendungsfälle (Hauptmenü-Schnellstart UND „Zufälliges KI-Deck + weiter") liefert jetzt `aiDecks.ts#pickRandomAiDeck()` die Decklist, `buildDemoDeck` bedient nur noch den „Zufällig füllen"-Button des menschlichen Deckbaus |
 | `deckValidation.ts` | **Neu in v0.1.5**: reine UI-Validierung einer Deckliste (min. 40 Karten, max. 4 Kopien pro Nicht-Terrain-id, s. `src/model/cards.ts#Decklist`-Kommentar) — die Engine validiert das selbst nicht |
 | `tutorialDeck.ts` | **Neu in v0.1.11**: zwei fest kuratierte 40-Karten-Decklisten (`TUTORIAL_DECK_PLAYER1`/`TUTORIAL_DECK_PLAYER2`, je 6 verschiedene Karten aus `starterSet`) + `TUTORIAL_SEED` (fester `createGame`-Seed) für den Tutorial-Modus — reine Daten, keine Deckbau-Logik |
 | `tutorialContent.ts` | **Neu in v0.1.11**: reine Textdaten für den Tutorial-Modus — `TutorialTipId`-Union, `TUTORIAL_TIPS` (geordnete Liste aus Titel+Text je Kernkonzept + Abschluss-Hinweis), `TUTORIAL_CORE_TIP_IDS` (die sechs Kernkonzepte, deren vollständiges Erscheinen den Abschluss-Hinweis auslöst) |
 | `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten); **seit v0.1.5** zusätzlich `dominantColorKey` (Manafarbe als Schlüssel statt CSS-Klasse, für den Deckbau-Farbfilter) |
 | `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI; **seit v0.1.6** zusätzlich die `CastSource`-Helfer (`sourceName`/`sourceModes`/`sourceHasXCost`/`sourceTargets`/`buildCastAction`/`activateAbilityCandidatesFor`), die castSpell und activateAbility für den gemeinsamen Modus-/X-/Ziel-Flow vereinheitlichen |
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
-| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })`; **seit v0.1.9** reicht `renderDeckBuilder` zusätzlich `getBotDifficulty`/`setBotDifficulty` an `deckBuilderScreen` durch und `playerArea` reicht `botDifficultyLabel` (nur gesetzt, wenn `isBotControlled(playerId)`) an `playerPanel` durch; **seit v0.1.11** reicht `renderDeckBuilder` zusätzlich `onStartTutorial` (nur für player1 gesetzt) an `deckBuilderScreen` durch, `renderGameBoard` rendert bei aktivem Tutorial-Modus zusätzlich die aktuell anstehende Tutorial-Sprechblase (`tutorialTipBubble`, ganz oben) sowie bei Bedarf das Hilfe-Panel (`tutorialHelpPanel`), `statusBar` zeigt im Tutorial-Modus zusätzlich einen "?"-Hilfe-Button und beschriftet den bisherigen "Neues Spiel"-Button dort als "Zurück zum Hauptmenü"; **seit v0.1.17** `render()` verzweigt zusätzlich nach `mainMenu`/`opponentSelect`, `playerDisplayName()` liefert den erfundenen Bot-Namen statt der rohen `PlayerId`, `handZone` stellt jede Nicht-„player1"-Hand nur noch verdeckt dar (`hiddenHandZone`), `boardSection` rendert bei aktivem Bot-Gegner zusätzlich `opponentAvatarColumn`, `render()` selbst verpackt Rebuilds innerhalb einer laufenden Partie optional in `document.startViewTransition()` (`supportsViewTransitions`/`prefersReducedMotion`-Fallback), `computeLifePulse` trackt Lebenspunkt-Änderungen für den Puls-Effekt, neue Rollen-Erkennung `decidingPlayer`/`decisionSpotlightPlayer` (Auto-Pass-bewusst, s. eigener Abschnitt unten); **seit v0.1.18** `actionBanner` zeigt bei `decisionSpotlightPlayer(state, mode) !== undefined` das neue `decisionSpotlightBanner` statt/zusätzlich zum bisherigen kleinen „Priorität passen"-Button |
-| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests); **seit v0.1.9** `deckBuilder.ts` mit Schwierigkeits-Dropdown (`.deckbuilder-ai-difficulty-select`, nur bei aktiver KI-Steuerung), `playerPanel.ts` mit optionalem zweiten Bot-Badge (`botDifficultyLabel`-Option, `.badge-bot-difficulty`); **seit v0.1.10** neuer gemeinsamer Baustein `manaCost.ts` (`manaCostBadge`, baut die Mana-Pip-Kopfzeile aus `cardInfo.ts#manaCostPips`), `handCard.ts`/`cardTile.ts`/`deckBuilder.ts` (`poolRow`) komplett auf das neue `card-frame-*`-Kartenrahmen-Layout umgebaut (s. eigener Abschnitt unten); **seit v0.1.11** `deckBuilder.ts` mit auffälligerer KI-Umschalter-Box (Überschrift + Hinweistext) und neuer "Tutorial starten"-Box (nur player1-Screen), neuer Baustein `tutorialOverlay.ts` (`tutorialTipBubble`, `tutorialHelpButton`, `tutorialHelpPanel`) für den Tutorial-Modus (s. eigener Abschnitt unten); **seit v0.1.17** neue Bausteine `mainMenu.ts`/`opponentSelect.ts`/`rulesGuidePanel.ts`/`sceneArt.ts`/`sfxToggle.ts` (s. eigene Tabellenzeilen oben), `deckBuilder.ts` bietet im `mode: "standalone"` statt „Weiter"/„Spiel starten" einen „Zurück zum Hauptmenü"-Button; **seit v0.1.18** neuer Baustein `decisionSpotlight.ts`, `musicPanel.ts` löst den bisherigen einfachen Mute-Button ab; **seit v0.1.20 (uncommitted)** `deckBuilder.ts` zusätzlich mit „Deck leeren"-Button sowie den neu eingebundenen Bausteinen `savedDecksPanel.ts`/`deckAnalysis.ts` (s. eigene Tabellenzeilen oben) |
-| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten); **seit v0.1.11** `.deckbuilder-footer` jetzt `position: sticky` (bleibt beim Pool-Scrollen sichtbar), größere/auffälligere `.deckbuilder-ai-toggle*`-Regeln (+ neue `-heading`/`-hint`-Klassen), neue `.deckbuilder-tutorial-box*` sowie `.tutorial-tip-bubble*`/`.tutorial-help-btn`/`.tutorial-help-backdrop`/`.tutorial-help-panel*` (s. eigener Abschnitt unten); **seit v0.1.17** großer Zuwachs: `.main-menu-*`/`.opponent-select-*`/`.rules-guide-*` (neue Screens), `.board-backdrop-img*` (viewport-breiter Taverne-Hintergrund), `.board-opponent-avatar*` (220px-Avatar-Spalte), `.board` selbst mit neuer Holzmaserungs-/Kerzenschein-Glow-Atmosphäre, `.hand-zone-hidden*` (verdeckte Gegner-Hand), `.player-area-deciding` (Rahmen-Hervorhebung), `player-panel`-Lebenspunkt-Puls-Keyframes, `.tutorial-glow` (Puls-Highlight); **seit v0.1.18** `.decision-spotlight-*`, `.music-panel-*` (löst `.music-toggle-btn`-Popover-losen Vorgänger ab); **seit v0.1.20 (uncommitted)** neue `.deckbuilder-save-deck-btn`/`.deckbuilder-load-deck-btn`/`.save-deck-*`/`.load-deck-*`/`.deckbuilder-analysis*`/`.deck-analysis-*`/`.deckbuilder-clear-btn` |
+| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })`; **seit v0.1.9** reicht `renderDeckBuilder` zusätzlich `getBotDifficulty`/`setBotDifficulty` an `deckBuilderScreen` durch und `playerArea` reicht `botDifficultyLabel` (nur gesetzt, wenn `isBotControlled(playerId)`) an `playerPanel` durch; **seit v0.1.11** reicht `renderDeckBuilder` zusätzlich `onStartTutorial` (nur für player1 gesetzt) an `deckBuilderScreen` durch, `renderGameBoard` rendert bei aktivem Tutorial-Modus zusätzlich die aktuell anstehende Tutorial-Sprechblase (`tutorialTipBubble`, ganz oben) sowie bei Bedarf das Hilfe-Panel (`tutorialHelpPanel`), `statusBar` zeigt im Tutorial-Modus zusätzlich einen "?"-Hilfe-Button und beschriftet den bisherigen "Neues Spiel"-Button dort als "Zurück zum Hauptmenü"; **seit v0.1.17** `render()` verzweigt zusätzlich nach `mainMenu`/`opponentSelect`, `playerDisplayName()` liefert den erfundenen Bot-Namen statt der rohen `PlayerId`, `handZone` stellt jede Nicht-„player1"-Hand nur noch verdeckt dar (`hiddenHandZone`), `boardSection` rendert bei aktivem Bot-Gegner zusätzlich `opponentAvatarColumn`, `render()` selbst verpackt Rebuilds innerhalb einer laufenden Partie optional in `document.startViewTransition()` (`supportsViewTransitions`/`prefersReducedMotion`-Fallback), `computeLifePulse` trackt Lebenspunkt-Änderungen für den Puls-Effekt, neue Rollen-Erkennung `decidingPlayer`/`decisionSpotlightPlayer` (Auto-Pass-bewusst, s. eigener Abschnitt unten); **seit v0.1.18** `actionBanner` zeigt bei `decisionSpotlightPlayer(state, mode) !== undefined` das neue `decisionSpotlightBanner` statt/zusätzlich zum bisherigen kleinen „Priorität passen"-Button; **seit v0.1.21** beide Stellen, an denen automatisch ein Deck für einen bot-gesteuerten Spieler gebaut wird (`deckBuilderScreen`-`onConfirm`/`onAiQuickstart`), rufen `pickRandomAiDeck()` (`aiDecks.ts`) statt `buildDemoDeck` auf (s. eigener Abschnitt unten) |
+| `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests); **seit v0.1.9** `deckBuilder.ts` mit Schwierigkeits-Dropdown (`.deckbuilder-ai-difficulty-select`, nur bei aktiver KI-Steuerung), `playerPanel.ts` mit optionalem zweiten Bot-Badge (`botDifficultyLabel`-Option, `.badge-bot-difficulty`); **seit v0.1.10** neuer gemeinsamer Baustein `manaCost.ts` (`manaCostBadge`, baut die Mana-Pip-Kopfzeile aus `cardInfo.ts#manaCostPips`), `handCard.ts`/`cardTile.ts`/`deckBuilder.ts` (`poolRow`) komplett auf das neue `card-frame-*`-Kartenrahmen-Layout umgebaut (s. eigener Abschnitt unten); **seit v0.1.11** `deckBuilder.ts` mit auffälligerer KI-Umschalter-Box (Überschrift + Hinweistext) und neuer "Tutorial starten"-Box (nur player1-Screen), neuer Baustein `tutorialOverlay.ts` (`tutorialTipBubble`, `tutorialHelpButton`, `tutorialHelpPanel`) für den Tutorial-Modus (s. eigener Abschnitt unten); **seit v0.1.17** neue Bausteine `mainMenu.ts`/`opponentSelect.ts`/`rulesGuidePanel.ts`/`sceneArt.ts`/`sfxToggle.ts` (s. eigene Tabellenzeilen oben), `deckBuilder.ts` bietet im `mode: "standalone"` statt „Weiter"/„Spiel starten" einen „Zurück zum Hauptmenü"-Button; **seit v0.1.18** neuer Baustein `decisionSpotlight.ts`, `musicPanel.ts` löst den bisherigen einfachen Mute-Button ab; **seit v0.1.20** `deckBuilder.ts` zusätzlich mit „Deck leeren"-Button sowie den neu eingebundenen Bausteinen `savedDecksPanel.ts`/`deckAnalysis.ts` (s. eigene Tabellenzeilen oben) |
+| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten); **seit v0.1.11** `.deckbuilder-footer` jetzt `position: sticky` (bleibt beim Pool-Scrollen sichtbar), größere/auffälligere `.deckbuilder-ai-toggle*`-Regeln (+ neue `-heading`/`-hint`-Klassen), neue `.deckbuilder-tutorial-box*` sowie `.tutorial-tip-bubble*`/`.tutorial-help-btn`/`.tutorial-help-backdrop`/`.tutorial-help-panel*` (s. eigener Abschnitt unten); **seit v0.1.17** großer Zuwachs: `.main-menu-*`/`.opponent-select-*`/`.rules-guide-*` (neue Screens), `.board-backdrop-img*` (viewport-breiter Taverne-Hintergrund), `.board-opponent-avatar*` (220px-Avatar-Spalte), `.board` selbst mit neuer Holzmaserungs-/Kerzenschein-Glow-Atmosphäre, `.hand-zone-hidden*` (verdeckte Gegner-Hand), `.player-area-deciding` (Rahmen-Hervorhebung), `player-panel`-Lebenspunkt-Puls-Keyframes, `.tutorial-glow` (Puls-Highlight); **seit v0.1.18** `.decision-spotlight-*`, `.music-panel-*` (löst `.music-toggle-btn`-Popover-losen Vorgänger ab); **seit v0.1.20** neue `.deckbuilder-save-deck-btn`/`.deckbuilder-load-deck-btn`/`.save-deck-*`/`.load-deck-*`/`.deckbuilder-analysis*`/`.deck-analysis-*`/`.deckbuilder-clear-btn` |
 | `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten); **seit v0.1.9** zusätzlich `vs-bot-difficulty.test.ts` (Schwierigkeitsstufen-Dropdown + komplette Partie mit Stufe „hard", s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `selectValue` (`<select>`-Interaktion); **seit v0.1.11** zusätzlich `tutorial.test.ts` (Tutorial-Start bis zur ersten wegklickbaren Sprechblase + Hilfe-Panel + Rückkehr zum Hauptmenü, s. eigener Abschnitt unten); **seit v0.1.17** die bisherige Golden-Path-Verifikation wurde als dauerhafte Datei `golden-path.test.ts` benannt und geht jetzt über das neue Hauptmenü statt direkt im Deckbau zu starten (`.main-menu-new-game-btn` → `.opponent-select-hotseat-btn`, s. eigener Abschnitt unten), neuer `main-menu.test.ts` (die drei neu hinzugekommenen Hauptmenü-Klickpfade: KI-Schnellstart über `opponentSelect`, eigenständiger „Deck Builder"-Modus, „Zurück zum Hauptmenü" aus einer laufenden Partie), neuer `rules-guide.test.ts`; `vs-bot.test.ts`/`vs-bot-difficulty.test.ts`/`tutorial.test.ts` decken weiterhin den bisherigen Ablauf NACH dem Hauptmenü ab, jetzt jeweils über „Neues Spiel" → „2 Spieler"/KI-Wahl erreicht |
 
 ## Was funktioniert
@@ -540,18 +558,20 @@ passierbar bleibt).
   fest codierten Demo-Decks; der Deckbau selbst bleibt aber bewusst simpel
   (kein Sideboard — **seit v0.1.8 kein Datenverlust bei Reload mehr**, s.
   dortiger Abschnitt: die zuletzt bestätigte Deckliste pro Spieler übersteht
-  jetzt auch einen echten Seiten-Reload; **seit v0.1.20 (uncommitted, s.
-  eigener Abschnitt unten) zusätzlich eine echte benannte Mehrfach-Deck-
-  Verwaltung** (`SavedDeck`, beliebig viele Slots mit Name + Beschreibung) —
-  der bisherige Klammerzusatz „keine Deck-Namen/-Verwaltung mehrerer Decks"
-  ist damit überholt).
+  jetzt auch einen echten Seiten-Reload; **seit v0.1.20 zusätzlich eine echte
+  benannte Mehrfach-Deck-Verwaltung** (`SavedDeck`, beliebig viele Slots mit
+  Name + Beschreibung) — der bisherige Klammerzusatz „keine Deck-Namen/-
+  Verwaltung mehrerer Decks" ist damit überholt).
   **Seit v0.1.7 gibt es einen AI-Gegner-Anschluss** (s. eigener Abschnitt
   unten) — der bisherige Satz „kein AI-Gegner" ist damit überholt; weiterhin
   **kein Netzwerk-Multiplayer**. **Seit v0.1.17 gibt es zusätzlich eine echte
   Gegner-Auswahl VOR dem Deckbau** (Hauptmenü → „Neues Spiel" →
   KI-Schwierigkeit/„2 Spieler", s. eigener Abschnitt unten) — der weiter oben
   im Dokument noch vorhandene Satz „keine Spielerauswahl über Deckbau hinaus"
-  ist damit überholt (s. Korrektur in „Setup/Start" oben).
+  ist damit überholt (s. Korrektur in „Setup/Start" oben). **Seit v0.1.21**
+  zieht die KI außerdem eines von 7 kuratierten Archetyp-Decks (`aiDecks.ts`)
+  statt einer reinen 5-Farben-Zufallsmischung (s. eigener Abschnitt unten) —
+  bewusst nicht in der UI offengelegt, welcher Archetyp gerade gespielt wird.
 - **Hotseat-Zweitspieler kann seine eigene Hand seit v0.1.17 nicht mehr aktiv
   anklicken** (bewusst hingenommene Einschränkung): die verdeckte
   Gegner-Hand-Darstellung (`hiddenHandZone`, s. eigener Abschnitt unten)
@@ -2933,14 +2953,14 @@ Terrain), zählt das weiterhin ganz normal als echte Wahl. **Ergebnis:**
 Ein-Funktions-Bugfix in `store.ts`, keine neuen Dateien, keine
 Engine-/Model-Änderung.
 
-## Deck speichern/laden (benannte Slots) + Deck-Analyse-Panel + „Deck leeren" (v0.1.20, 2026-07-20, uncommitted)
+## Deck speichern/laden (benannte Slots) + Deck-Analyse-Panel + „Deck leeren" (v0.1.20, 2026-07-20, Commit `9b81338`)
 
 Drei additive Ergänzungen im Deckbau-Screen, Auftrag sinngemäß „Deckbau soll
-sich mehr wie ein echtes Deckbau-Tool anfühlen". **Zum Zeitpunkt dieses
-Sweeps noch NICHT committet** — `git status` zeigt `components/deckAnalysis.ts`/
-`components/savedDecksPanel.ts` als neue, unversionierte Dateien und
-`components/deckBuilder.ts`/`store.ts`/`style.css` als geändert gegenüber
-`HEAD` (`c44f033`).
+sich mehr wie ein echtes Deckbau-Tool anfühlen". **Zum Zeitpunkt des
+ursprünglichen v0.1.20-Sweeps noch nicht committet** — beim darauffolgenden
+v0.1.21-Sweep bestätigt: `git log`/`git status` zeigen den Schritt jetzt als
+Commit `9b81338 "Add main menu, guide screen, deck save/analysis, and
+clear-deck button"` (Arbeitsverzeichnis clean).
 
 ### Teil 1: Benannte Deck-Speicherfunktion
 
@@ -2998,7 +3018,7 @@ Ein zusätzlicher Button im Deckbau-Screen (`.deckbuilder-clear-btn`, neben
 UI-Bequemlichkeit ohne eigene Store-Funktion (nutzt vermutlich das bestehende
 `setDecklist(player, {})`, s. `deckBuilder.ts`).
 
-**Ergebnis (Stand dieses Sweeps, uncommitted):** Neue Dateien:
+**Ergebnis (seit dem v0.1.21-Sweep bestätigt als Commit `9b81338`):** Neue Dateien:
 `components/savedDecksPanel.ts`, `components/deckAnalysis.ts`. Geänderte
 Dateien: `components/deckBuilder.ts` (Einbindung aller drei Bausteine),
 `store.ts` (`SavedDeck`-Persistenz, Panel-Zustände), `style.css`
@@ -3031,6 +3051,98 @@ liefern **19** einzeln benannte Fälle über 12 Dateien (`golden-path.test.ts` 2
 Browser-/Screenshot-Verifikation der visuellen Änderungen (Taverne-
 Hintergrund, Avatar-Spalte, View-Transitions-Animationen, Spotlight-Banner) —
 in dieser Session waren keine Browser-/Computer-Use-Werkzeuge verfügbar.
+
+## Kuratierte KI-Archetyp-Decks statt Zufalls-Fill (v0.1.21, 2026-07-20, Commit `5654ec1`)
+
+Auftrag: der Bot-Gegner sollte kein reines 5-Farben-Zufallsdeck mehr spielen,
+sondern eines von mehreren thematisch konsistenten, per Hand kuratierten
+Archetyp-Decks — überwiegend Zweifarben-Kombinationen, eine bewusste
+Einfarb-Ausnahme.
+
+### Neue Datei: `src/ui/aiDecks.ts`
+
+Reine Datendatei, keine Engine-/Store-Logik. Sieben Konstanten
+(`AI_DECK_FLAME_WILD_AGGRO`, `AI_DECK_TIDE_LIGHT_CONTROL`,
+`AI_DECK_FLAME_VOID_SACRIFICE`, `AI_DECK_WILD_LIGHT_MIDRANGE`,
+`AI_DECK_VOID_WILD_ATTRITION`, `AI_DECK_TIDE_VOID_CONTROL`,
+`AI_DECK_MONO_FLAME_AGGRO`), jeweils `Record<Karten-ID, Kopienzahl>` im
+gleichen Format wie das bestehende `tutorialDeck.ts` (Kartenpool-IDs, keine
+Engine-Objekte). Sechs der zehn möglichen Zweifarben-Paare wurden bewusst
+ausgewählt (die mit der klarsten mechanischen Synergie im tatsächlichen
+Pool: flame-wild, tide-light, flame-void, wild-light, void-wild, tide-void
+— flame-tide/flame-light/wild-tide/light-void wurden geprüft, aber
+ausgelassen), dazu eine Mono-flame-Ausnahme („Reiner Zorn"). Alle Decks
+folgen dem Kurvenprinzip echter Deckbau-Praxis (3-4 Kopien der
+Schlüsselkarten statt „1× von allem" wie im minimalistischen Tutorial-Deck),
+Terrainanteil pro Deck 18-22 Karten (kein 4×-Copy-Limit, da
+`deckValidation.ts#MAX_COPIES_NON_TERRAIN` für Terrains ohnehin nicht gilt).
+`AI_DECKS` bündelt alle sieben Einträge mit Anzeigename + Kurzbeschreibung;
+`pickRandomAiDeck()` gibt **bewusst nur die reine Decklist zurück, nicht den
+Namen/die Beschreibung** — die Auswahl-Funktion macht es damit für Aufrufer
+strukturell unmöglich, den Archetyp-Namen versehentlich irgendwo anzuzeigen
+(bewusste Design-Entscheidung: der Bot-Archetyp soll ausschließlich durchs
+tatsächliche Spielen entdeckt werden, kein Log-Eintrag/Banner dazu).
+
+### Verdrahtung in `render.ts`
+
+Beide Stellen, an denen bisher automatisch ein Deck für einen
+bot-gesteuerten Gegner gebaut wurde, rufen jetzt `pickRandomAiDeck()` statt
+`buildDemoDeck(pool)` auf:
+- `deckBuilderScreen`-`onConfirm` (Hauptmenü-„Neues Spiel"-Flow: sobald
+  Spieler 1 bestätigt und Spieler 2 bot-gesteuert ist, wird dessen
+  Deckbau-Screen komplett übersprungen).
+- `deckBuilderScreen`-`onAiQuickstart` (der ältere „Zufälliges KI-Deck +
+  weiter"-Kurzstart aus v0.1.7, weiterhin im normalen Deckbau-Screen von
+  Spieler 2 erreichbar).
+
+`buildDemoDeck` (`deck.ts`) selbst ist **unverändert** und bedient weiterhin
+ausschließlich den „Zufällig füllen"-Button des MENSCHLICHEN Deckbaus (anderer
+Anwendungsfall, andere Zielgruppe: der Mensch profitiert von echtem Zufall
+über den ganzen Pool, der Bot von einem thematisch stimmigen, spielbaren
+Deck). Keine Änderung an `types.ts`/`store.ts` nötig — `pickRandomAiDeck()`
+wird direkt und zustandslos aus `render.ts` aufgerufen.
+
+### Verifikation dieses Sweeps (gegen den tatsächlichen Code, nicht nur die
+Fertigstellungs-Nachricht übernommen)
+
+- **Kartenzahl je Deck:** alle sieben `Record`-Objekte in `aiDecks.ts`
+  vollständig gelesen und die Kopienzahlen von Hand aufsummiert — alle
+  sieben Decks landen exakt bei **60 Karten** (z. B. Flame-Wild-Aggro:
+  20 Flame-Einheiten + 11 Wild-Einheiten + 9 Zauber + 20 Terrains = 60;
+  Mono-Flame: 29 Einheiten + 12 Zauber + 19 Terrains = 60; alle anderen
+  fünf Decks ebenso nachgerechnet, keine Abweichung gefunden).
+- **Max-Kopien-Regel:** höchste Nicht-Terrain-Kopienzahl über alle sieben
+  Decks ist 4 (`core.cinderborn-raider`/`core.wildfire-boar`/`core.fire-jolt`/
+  `core.tidal-rebuke`/mehrere Mono-Flame-Karten) — konsistent mit
+  `deckValidation.ts#MAX_COPIES_NON_TERRAIN`, keine Karte überschreitet das
+  Limit.
+- **Karten-IDs real:** per `Grep` gegen `src/cards/starter-set.ts`
+  stichprobenartig 17 der selteneren/ungewöhnlicheren IDs aus allen sieben
+  Decks geprüft (u. a. `core.hollowmaw-devourer`, `core.void-marshal`,
+  `core.gravebound-warden`, `core.grimspawn-channeler`,
+  `core.tideshard-rogue`, `core.silence-ban`, `core.rootbane-wither`,
+  `core.tidal-insight`) — alle vorhanden, keine Tippfehler/erfundenen IDs
+  gefunden.
+- **`render.ts`-Verdrahtung:** per `Grep` bestätigt, dass `pickRandomAiDeck`
+  importiert und an exakt den beiden oben genannten Stellen anstelle von
+  `buildDemoDeck` aufgerufen wird, inklusive der dortigen Code-Kommentare,
+  die die Design-Entscheidung „Archetyp-Name bleibt verborgen" korrekt
+  wiedergeben.
+- **Nicht selbst nachvollzogen:** ein echter `npm test`/`npm run
+  build`-Lauf sowie das im Auftrag erwähnte 14-Züge-Browser-Testspiel
+  standen dieser documenter-Session nicht zur Verfügung (kein Shell-/
+  Computer-Use-Werkzeug) — die Verifikation oben stützt sich ausschließlich
+  auf direkte Code-Lektüre (`Read`/`Grep`) plus manuelles Nachrechnen der
+  Kartenzahlen, nicht auf einen ausgeführten Test oder Screenshot. Keine
+  Abweichung zur Auftragsbeschreibung gefunden.
+
+**Ergebnis:** Neue Datei `src/ui/aiDecks.ts` (reine Daten, 7 Decklisten +
+`pickRandomAiDeck()`). Geänderte Datei: `src/ui/render.ts` (zwei Aufrufstellen
+umgestellt). Keine Änderung an `src/engine/*`/`src/model/*`/`src/cards/*`/
+`src/ai/*`/`store.ts`/`types.ts`. Kein neuer Karteninhalt — die Decks sind
+reine Zusammenstellungen aus bereits existierenden, in
+`docs/cards/starter-set.md` dokumentierten Karten, daher keine Änderung an
+diesem Dokument nötig.
 
 ## Nächste Schritte (Vorschläge)
 
@@ -3114,12 +3226,11 @@ in dieser Session waren keine Browser-/Computer-Use-Werkzeuge verfügbar.
 13. ~~**Echtes Hauptmenü statt Direkteinstieg**~~ **erledigt in v0.1.17** (s.
     eigener Abschnitt oben) — der ehemalige Punkt „keine Spielerauswahl über
     Deckbau hinaus" (Bewusste Vereinfachungen) ist damit überholt.
-14. **v0.1.20 (Deck speichern/laden + Deck-Analyse + „Deck leeren") ist zum
-    Zeitpunkt dieses Sweeps noch NICHT committet** — bitte vor dem nächsten
-    `/clear` committen, sonst geht der Kontext (welche Dateien geändert
-    wurden) verloren. Ein gezielter Test für Laden/Löschen/Überschreiben
-    eines gespeicherten Decks sowie für die Deck-Analyse-Anzeige selbst fehlt
-    noch (nur indirekt über `main-menu.test.ts` mitverifiziert, s. eigener
+14. ~~**v0.1.20 committen**~~ **erledigt** — beim v0.1.21-Sweep per `git
+    log`/`git status` bestätigt: Commit `9b81338`, Arbeitsverzeichnis clean.
+    Weiterhin offen: ein gezielter Test für Laden/Löschen/Überschreiben eines
+    gespeicherten Decks sowie für die Deck-Analyse-Anzeige selbst fehlt noch
+    (nur indirekt über `main-menu.test.ts` mitverifiziert, s. eigener
     Abschnitt oben).
 15. **Echte Browser-/Screenshot-Verifikation der v0.1.17-Optik steht aus**:
     Taverne-Hintergrund/Avatar-Spalte (sobald der Nutzer `docs/scene-art/`
@@ -3136,3 +3247,16 @@ in dieser Session waren keine Browser-/Computer-Use-Werkzeuge verfügbar.
 17. **Bot-vs-Bot-Zuschauermodus weiterhin offen** (s. Punkt 11) — mit dem
     neuen `opponentSelect`-Screen (v0.1.17) wäre ein dritter Menüpunkt
     „Zuschauen" naheliegend, aber nicht beauftragt.
+18. **Kein dauerhafter Test für die neuen kuratierten KI-Decks** (v0.1.21,
+    `aiDecks.ts`): `pickRandomAiDeck()` wird von keinem Test direkt
+    verifiziert (weder Kartenzahl noch Deckvalidität noch die tatsächliche
+    Zufallsauswahl über alle sieben Einträge) — bisher nur per manueller
+    Code-Lektüre/Nachrechnen durch den documenter geprüft (s. eigener
+    Abschnitt oben), kein automatisierter Regressionsschutz. Ein kleiner
+    Vitest-Fall (`AI_DECKS.every(d => validateDecklist(pool, d.decklist).valid)`)
+    wäre eine naheliegende, günstige Ergänzung.
+19. **Echtes Browser-Testspiel gegen die neuen KI-Decks steht für den
+    documenter noch aus** — der Auftrag erwähnt ein bereits durchgeführtes
+    14-Züge-Testspiel (Gegner spielte konsequent nur einen Terrain-Typ, kein
+    Archetyp-Name sichtbar); diese Session hatte kein Browser-/
+    Computer-Use-Werkzeug zur Verfügung, um das selbst nachzuvollziehen.
