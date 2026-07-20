@@ -8,7 +8,7 @@
  */
 
 import type { CardDefinition, InstanceId, PlayerAction } from "../../model";
-import { dominantColorClass, subtypeLine } from "../cardInfo";
+import { dominantColorClass, effectiveRulesText, subtypeLine } from "../cardInfo";
 import { h, text } from "../h";
 import { cardFrameArt } from "./cardArt";
 import { manaCostBadge } from "./manaCost";
@@ -42,8 +42,9 @@ function cardFrameBody(def: CardDefinition): HTMLElement {
     cardFrameArt(def),
     h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
   ];
-  if (def.rulesText) {
-    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, ruleTextNodes(def.rulesText))]));
+  const rulesText = effectiveRulesText(def);
+  if (rulesText) {
+    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, ruleTextNodes(rulesText))]));
   }
   if (def.type === "unit") {
     frameChildren.push(h("div", { class: "card-frame-pt hand-card-pt" }, [text(`${def.power}/${def.toughness}`)]));

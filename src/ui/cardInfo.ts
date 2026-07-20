@@ -137,6 +137,30 @@ export function subtypeLine(def: CardDefinition): string {
   return `${typeLabel(def)}${st}`;
 }
 
+/**
+ * Anzeige-Regeltext einer Karte, mit Fallback: `rulesText` ist auf
+ * CardDefinitionBase ein rein redundantes Anzeigefeld (s. cards.ts) und wird
+ * vom Card-Designer nicht bei jeder Karte gepflegt - fehlt es, leiten wir es
+ * stattdessen aus den `text`-Feldern der einzelnen `abilities` her (triggered/
+ * activated/static), damit auch Karten ohne gepflegtes `rulesText` ihre echte
+ * Fähigkeit anzeigen (Nutzer-Feedback: z.B. "core.ashclaim-shrine" hatte gar
+ * keinen sichtbaren Regeltext, obwohl die Fähigkeit einen `text` trägt).
+ * `kind: "keyword"`-Einträge werden bewusst übersprungen - die erscheinen
+ * bereits separat als Keyword-Badge (s. `effectiveKeywords`), ein Duplikat
+ * hier wäre redundant. Spells ohne eigenes `abilities`-Array (nur `effects`/
+ * `modes`) haben ohne gepflegtes `rulesText` weiterhin keinen Fallback - das
+ * ist ein Karteninhalts-Lücke, kein Anzeigeproblem.
+ */
+export function effectiveRulesText(def: CardDefinition): string | undefined {
+  if (def.rulesText) return def.rulesText;
+  if (!("abilities" in def) || !def.abilities) return undefined;
+  const texts = def.abilities
+    .filter((a) => a.kind !== "keyword")
+    .map((a) => a.text)
+    .filter((t): t is string => !!t);
+  return texts.length > 0 ? texts.join(" ") : undefined;
+}
+
 export function effectivePT(state: GameState, pool: CardPool, instanceId: InstanceId): { power: number; toughness: number } {
   return computeEffectiveStats(state, pool, instanceId);
 }

@@ -431,7 +431,8 @@ passierbar bleibt).
 | `components/opponentSelect.ts` | **Neu in v0.1.17**: Gegner-Auswahl (`opponentSelectScreen`) zwischen „Neues Spiel" und dem eigentlichen Deckbau — eine der drei KI-Schwierigkeitsstufen (`BOT_DIFFICULTIES`) oder „2 Spieler" (Hotseat) |
 | `components/rulesGuidePanel.ts` | **Neu in v0.1.17**: „Anleitung"-Panel (Kartentypen, eingebettetes Keyword-Glossar via `keywordGlossaryPanel.ts#keywordGlossaryList`, Spiel-/Deckbau-Tipps) — reines Popover-Overlay über dem Hauptmenü, kein eigener `AppPhase`-Screen |
 | `components/decisionSpotlight.ts` | **Neu in v0.1.18**: `decisionSpotlightBanner` — auffälliges, nicht-blockierendes Banner für echte Priority-Entscheidungen (s. eigener Abschnitt unten) |
-| `components/sceneArt.ts` | **Neu in v0.1.17**: `initBoardBackdrop()` (viewport-breites, body-eigenes `<img>` für den Taverne-Hintergrund), `botAvatarImg(difficulty)` (großformatiges Gegner-Porträt) — gleiches Lade-/Fallback-Muster wie `cardArt.ts`, s. `docs/scene-art-brief.md` |
+| `components/sceneArt.ts` | **Neu in v0.1.17**: `initBoardBackdrop()` (viewport-breites, body-eigenes `<img>` für den Taverne-Hintergrund), `botAvatarImg(difficulty)` (großformatiges Porträt) — gleiches Lade-/Fallback-Muster wie `cardArt.ts`, s. `docs/scene-art-brief.md`; **seit v0.1.22** zusätzlich `humanAvatarPlaceholder(displayName)` (CSS-only-Platzhalter für einen menschlich gesteuerten aktiven Spieler, kein Bild-Asset, s. eigener Abschnitt unten) — `botAvatarImg` wird jetzt für JEDEN bot-gesteuerten aktiven Spieler aufgerufen, nicht mehr nur für player2 |
+| `components/turnFlowPanel.ts` | **Neu in v0.1.22** (s. eigener Abschnitt unten): `turnFlowPanel(props)` — vertikale 6-Phasen-Schritt-Kette (gruppiert aus den 12 rohen `TurnStep`-Werten) + Zugnummer/aktiver Spieler/Priority, ersetzt die bisherigen reinen Info-Texte der `.status-bar` |
 | `musicPlayer.ts` | **Neu in v0.1.17** (fest verdrahtete Einzeldatei), **umgebaut in v0.1.18** (Auto-Discovery-Playlist über `/music/index.json`): eigenes Singleton-`<audio>`-Element auf Body-Ebene (überlebt jeden `render()`-Rebuild), abonniert sich per `store.ts#subscribe`, startet auf die erste Nutzerinteraktion (Browser-Autoplay-Policy) |
 | `sfxPlayer.ts` | **Neu in v0.1.17**: kurze, überlappende Soundeffekte (`cloneNode()`-Duplizierung pro Abspielvorgang statt eines einzigen wiederverwendeten Elements), globaler UI-Klick-Listener für `.btn-play`/`.btn-pass` |
 | `components/musicPanel.ts` | **Neu in v0.1.18** (löst einen einfacheren Mute-Button aus v0.1.17 ab): Titelauswahl + Wiederholungsmodus (Einzeltitel/Playlist), strukturell an `keywordGlossaryPanel.ts` angelehnt |
@@ -448,9 +449,9 @@ passierbar bleibt).
 | `cardInfo.ts` | Anzeige-Hilfsfunktionen (Kosten-Formatierung, Farb-Klassen, Keyword-Labels); nutzt `computeEffectiveStats`/`computeEffectiveKeywords` aus der Engine für P/T-Anzeige (siehe Abschnitt „Grenzfall" unten); **seit v0.1.5** zusätzlich `dominantColorKey` (Manafarbe als Schlüssel statt CSS-Klasse, für den Deckbau-Farbfilter) |
 | `actionUtil.ts` | Kandidaten↔Ziel-Zuordnung (`targetKeyOf`) + „Form"-Prüfung für die X-Kosten-Eingabe-UI; **seit v0.1.6** zusätzlich die `CastSource`-Helfer (`sourceName`/`sourceModes`/`sourceHasXCost`/`sourceTargets`/`buildCastAction`/`activateAbilityCandidatesFor`), die castSpell und activateAbility für den gemeinsamen Modus-/X-/Ziel-Flow vereinheitlichen |
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
-| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })`; **seit v0.1.9** reicht `renderDeckBuilder` zusätzlich `getBotDifficulty`/`setBotDifficulty` an `deckBuilderScreen` durch und `playerArea` reicht `botDifficultyLabel` (nur gesetzt, wenn `isBotControlled(playerId)`) an `playerPanel` durch; **seit v0.1.11** reicht `renderDeckBuilder` zusätzlich `onStartTutorial` (nur für player1 gesetzt) an `deckBuilderScreen` durch, `renderGameBoard` rendert bei aktivem Tutorial-Modus zusätzlich die aktuell anstehende Tutorial-Sprechblase (`tutorialTipBubble`, ganz oben) sowie bei Bedarf das Hilfe-Panel (`tutorialHelpPanel`), `statusBar` zeigt im Tutorial-Modus zusätzlich einen "?"-Hilfe-Button und beschriftet den bisherigen "Neues Spiel"-Button dort als "Zurück zum Hauptmenü"; **seit v0.1.17** `render()` verzweigt zusätzlich nach `mainMenu`/`opponentSelect`, `playerDisplayName()` liefert den erfundenen Bot-Namen statt der rohen `PlayerId`, `handZone` stellt jede Nicht-„player1"-Hand nur noch verdeckt dar (`hiddenHandZone`), `boardSection` rendert bei aktivem Bot-Gegner zusätzlich `opponentAvatarColumn`, `render()` selbst verpackt Rebuilds innerhalb einer laufenden Partie optional in `document.startViewTransition()` (`supportsViewTransitions`/`prefersReducedMotion`-Fallback), `computeLifePulse` trackt Lebenspunkt-Änderungen für den Puls-Effekt, neue Rollen-Erkennung `decidingPlayer`/`decisionSpotlightPlayer` (Auto-Pass-bewusst, s. eigener Abschnitt unten); **seit v0.1.18** `actionBanner` zeigt bei `decisionSpotlightPlayer(state, mode) !== undefined` das neue `decisionSpotlightBanner` statt/zusätzlich zum bisherigen kleinen „Priorität passen"-Button; **seit v0.1.21** beide Stellen, an denen automatisch ein Deck für einen bot-gesteuerten Spieler gebaut wird (`deckBuilderScreen`-`onConfirm`/`onAiQuickstart`), rufen `pickRandomAiDeck()` (`aiDecks.ts`) statt `buildDemoDeck` auf (s. eigener Abschnitt unten) |
+| `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })`; **seit v0.1.9** reicht `renderDeckBuilder` zusätzlich `getBotDifficulty`/`setBotDifficulty` an `deckBuilderScreen` durch und `playerArea` reicht `botDifficultyLabel` (nur gesetzt, wenn `isBotControlled(playerId)`) an `playerPanel` durch; **seit v0.1.11** reicht `renderDeckBuilder` zusätzlich `onStartTutorial` (nur für player1 gesetzt) an `deckBuilderScreen` durch, `renderGameBoard` rendert bei aktivem Tutorial-Modus zusätzlich die aktuell anstehende Tutorial-Sprechblase (`tutorialTipBubble`, ganz oben) sowie bei Bedarf das Hilfe-Panel (`tutorialHelpPanel`), `statusBar` zeigt im Tutorial-Modus zusätzlich einen "?"-Hilfe-Button und beschriftet den bisherigen "Neues Spiel"-Button dort als "Zurück zum Hauptmenü"; **seit v0.1.17** `render()` verzweigt zusätzlich nach `mainMenu`/`opponentSelect`, `playerDisplayName()` liefert den erfundenen Bot-Namen statt der rohen `PlayerId`, `handZone` stellt jede Nicht-„player1"-Hand nur noch verdeckt dar (`hiddenHandZone`), `boardSection` rendert bei aktivem Bot-Gegner zusätzlich `opponentAvatarColumn`, `render()` selbst verpackt Rebuilds innerhalb einer laufenden Partie optional in `document.startViewTransition()` (`supportsViewTransitions`/`prefersReducedMotion`-Fallback), `computeLifePulse` trackt Lebenspunkt-Änderungen für den Puls-Effekt, neue Rollen-Erkennung `decidingPlayer`/`decisionSpotlightPlayer` (Auto-Pass-bewusst, s. eigener Abschnitt unten); **seit v0.1.18** `actionBanner` zeigt bei `decisionSpotlightPlayer(state, mode) !== undefined` das neue `decisionSpotlightBanner` statt/zusätzlich zum bisherigen kleinen „Priorität passen"-Button; **seit v0.1.21** beide Stellen, an denen automatisch ein Deck für einen bot-gesteuerten Spieler gebaut wird (`deckBuilderScreen`-`onConfirm`/`onAiQuickstart`), rufen `pickRandomAiDeck()` (`aiDecks.ts`) statt `buildDemoDeck` auf (s. eigener Abschnitt unten); **seit v0.1.22** `statusBar` zeigt die drei reinen Info-Texte ("Zug X · Step: Y"/"Aktiver Spieler: ..."/"Priority: ...") NICHT mehr, `boardSection` rendert die rechte Spalte jetzt IMMER (umbenannt von `opponentAvatarColumn` zu `turnFlowColumn`, s. eigener Abschnitt unten) mit dem Porträt/Platzhalter des `state.activePlayer` (statt fest player2) über dem neuen `turnFlowPanel` |
 | `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests); **seit v0.1.9** `deckBuilder.ts` mit Schwierigkeits-Dropdown (`.deckbuilder-ai-difficulty-select`, nur bei aktiver KI-Steuerung), `playerPanel.ts` mit optionalem zweiten Bot-Badge (`botDifficultyLabel`-Option, `.badge-bot-difficulty`); **seit v0.1.10** neuer gemeinsamer Baustein `manaCost.ts` (`manaCostBadge`, baut die Mana-Pip-Kopfzeile aus `cardInfo.ts#manaCostPips`), `handCard.ts`/`cardTile.ts`/`deckBuilder.ts` (`poolRow`) komplett auf das neue `card-frame-*`-Kartenrahmen-Layout umgebaut (s. eigener Abschnitt unten); **seit v0.1.11** `deckBuilder.ts` mit auffälligerer KI-Umschalter-Box (Überschrift + Hinweistext) und neuer "Tutorial starten"-Box (nur player1-Screen), neuer Baustein `tutorialOverlay.ts` (`tutorialTipBubble`, `tutorialHelpButton`, `tutorialHelpPanel`) für den Tutorial-Modus (s. eigener Abschnitt unten); **seit v0.1.17** neue Bausteine `mainMenu.ts`/`opponentSelect.ts`/`rulesGuidePanel.ts`/`sceneArt.ts`/`sfxToggle.ts` (s. eigene Tabellenzeilen oben), `deckBuilder.ts` bietet im `mode: "standalone"` statt „Weiter"/„Spiel starten" einen „Zurück zum Hauptmenü"-Button; **seit v0.1.18** neuer Baustein `decisionSpotlight.ts`, `musicPanel.ts` löst den bisherigen einfachen Mute-Button ab; **seit v0.1.20** `deckBuilder.ts` zusätzlich mit „Deck leeren"-Button sowie den neu eingebundenen Bausteinen `savedDecksPanel.ts`/`deckAnalysis.ts` (s. eigene Tabellenzeilen oben) |
-| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten); **seit v0.1.11** `.deckbuilder-footer` jetzt `position: sticky` (bleibt beim Pool-Scrollen sichtbar), größere/auffälligere `.deckbuilder-ai-toggle*`-Regeln (+ neue `-heading`/`-hint`-Klassen), neue `.deckbuilder-tutorial-box*` sowie `.tutorial-tip-bubble*`/`.tutorial-help-btn`/`.tutorial-help-backdrop`/`.tutorial-help-panel*` (s. eigener Abschnitt unten); **seit v0.1.17** großer Zuwachs: `.main-menu-*`/`.opponent-select-*`/`.rules-guide-*` (neue Screens), `.board-backdrop-img*` (viewport-breiter Taverne-Hintergrund), `.board-opponent-avatar*` (220px-Avatar-Spalte), `.board` selbst mit neuer Holzmaserungs-/Kerzenschein-Glow-Atmosphäre, `.hand-zone-hidden*` (verdeckte Gegner-Hand), `.player-area-deciding` (Rahmen-Hervorhebung), `player-panel`-Lebenspunkt-Puls-Keyframes, `.tutorial-glow` (Puls-Highlight); **seit v0.1.18** `.decision-spotlight-*`, `.music-panel-*` (löst `.music-toggle-btn`-Popover-losen Vorgänger ab); **seit v0.1.20** neue `.deckbuilder-save-deck-btn`/`.deckbuilder-load-deck-btn`/`.save-deck-*`/`.load-deck-*`/`.deckbuilder-analysis*`/`.deck-analysis-*`/`.deckbuilder-clear-btn` |
+| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten); **seit v0.1.11** `.deckbuilder-footer` jetzt `position: sticky` (bleibt beim Pool-Scrollen sichtbar), größere/auffälligere `.deckbuilder-ai-toggle*`-Regeln (+ neue `-heading`/`-hint`-Klassen), neue `.deckbuilder-tutorial-box*` sowie `.tutorial-tip-bubble*`/`.tutorial-help-btn`/`.tutorial-help-backdrop`/`.tutorial-help-panel*` (s. eigener Abschnitt unten); **seit v0.1.17** großer Zuwachs: `.main-menu-*`/`.opponent-select-*`/`.rules-guide-*` (neue Screens), `.board-backdrop-img*` (viewport-breiter Taverne-Hintergrund), `.board-opponent-avatar*` (220px-Avatar-Spalte), `.board` selbst mit neuer Holzmaserungs-/Kerzenschein-Glow-Atmosphäre, `.hand-zone-hidden*` (verdeckte Gegner-Hand), `.player-area-deciding` (Rahmen-Hervorhebung), `player-panel`-Lebenspunkt-Puls-Keyframes, `.tutorial-glow` (Puls-Highlight); **seit v0.1.18** `.decision-spotlight-*`, `.music-panel-*` (löst `.music-toggle-btn`-Popover-losen Vorgänger ab); **seit v0.1.20** neue `.deckbuilder-save-deck-btn`/`.deckbuilder-load-deck-btn`/`.save-deck-*`/`.load-deck-*`/`.deckbuilder-analysis*`/`.deck-analysis-*`/`.deckbuilder-clear-btn`; **seit v0.1.22** `.board-opponent-avatar` aufgeteilt in `.board-turn-flow-column` (äußerer Wrapper, immer gerendert) + `.board-active-avatar` (Avatar-Box darin, umbenannt), neue `.board-active-avatar-human*` (Menschen-Platzhalter) und `.turn-flow-*` (Schritt-Kette/-Knoten/-Meta, s. eigener Abschnitt unten); die `max-width: 900px`-Media-Query blendet die rechte Spalte nicht mehr komplett aus, sondern stapelt sie unter `.board` |
 | `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten); **seit v0.1.9** zusätzlich `vs-bot-difficulty.test.ts` (Schwierigkeitsstufen-Dropdown + komplette Partie mit Stufe „hard", s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `selectValue` (`<select>`-Interaktion); **seit v0.1.11** zusätzlich `tutorial.test.ts` (Tutorial-Start bis zur ersten wegklickbaren Sprechblase + Hilfe-Panel + Rückkehr zum Hauptmenü, s. eigener Abschnitt unten); **seit v0.1.17** die bisherige Golden-Path-Verifikation wurde als dauerhafte Datei `golden-path.test.ts` benannt und geht jetzt über das neue Hauptmenü statt direkt im Deckbau zu starten (`.main-menu-new-game-btn` → `.opponent-select-hotseat-btn`, s. eigener Abschnitt unten), neuer `main-menu.test.ts` (die drei neu hinzugekommenen Hauptmenü-Klickpfade: KI-Schnellstart über `opponentSelect`, eigenständiger „Deck Builder"-Modus, „Zurück zum Hauptmenü" aus einer laufenden Partie), neuer `rules-guide.test.ts`; `vs-bot.test.ts`/`vs-bot-difficulty.test.ts`/`tutorial.test.ts` decken weiterhin den bisherigen Ablauf NACH dem Hauptmenü ab, jetzt jeweils über „Neues Spiel" → „2 Spieler"/KI-Wahl erreicht |
 
 ## Was funktioniert
@@ -458,9 +459,12 @@ passierbar bleibt).
 1. **Grundlayout** (Pflichtanzeigen laut rules-engine.md Abschnitt 3 /
    docs/README.md): Zwei Spielerbereiche (Hand/Battlefield/Graveyard je
    Spieler), gemeinsamer Stack-Bereich (unten→oben, oberstes Element optisch
-   hervorgehoben), Status-Zeile (Zugnummer, Step, aktiver Spieler,
-   Priority-Inhaber oder „Engine verarbeitet Turn-Based Action"),
-   Ereignis-Log (menschenlesbare `GameEvent`-Zusammenfassung).
+   hervorgehoben), Zug-Flow in der rechten Board-Spalte (Zugnummer, die 12
+   `TurnStep`-Werte gruppiert zu 6 Phasen-Knoten mit aktuellem/erledigtem/
+   kommendem Zustand, aktiver Spieler, Priority-Inhaber oder „Engine
+   verarbeitet Turn-Based Action" — **seit v0.1.22** hier statt als reiner
+   Text in der `.status-bar`, s. eigener Abschnitt unten), Ereignis-Log
+   (menschenlesbare `GameEvent`-Zusammenfassung).
 2. **Kartendarstellung**: Kompaktkacheln (`cardTile`) für
    Battlefield/Graveyard/Stack mit Name, Kosten, effektiver P/T (inkl. Marken
    und statischer Effekte über die Engine-Funktion), Tapped-/Sick-/
@@ -3143,6 +3147,94 @@ umgestellt). Keine Änderung an `src/engine/*`/`src/model/*`/`src/cards/*`/
 reine Zusammenstellungen aus bereits existierenden, in
 `docs/cards/starter-set.md` dokumentierten Karten, daher keine Änderung an
 diesem Dokument nötig.
+
+## Zug-Flow-Spalte statt Status-Text + Aktiver-Spieler-Avatar (v0.1.22, 2026-07-20)
+
+Auftrag: die Zug-/Step-Info aus der `.status-bar` sollte stattdessen rechts
+neben dem Spielfeld erscheinen — unter dem Avatar — als klar lesbarer Flow
+(welche Phasen gibt es, wo stehen wir, was kommt als nächstes), statt als
+reiner Fließtext. Zusätzlich sollte der Avatar in dieser Spalte, wenn der
+jeweilige Spieler dran ist, den handelnden Spieler zeigen (Mensch vs. KI)
+statt immer nur das statische KI-Porträt.
+
+### Neue Datei: `components/turnFlowPanel.ts`
+
+Reine Präsentationskomponente (`turnFlowPanel(props)`), bekommt bereits
+fertig formatierte Strings statt selbst `PlayerId`s aufzulösen — kein
+Import-Zyklus mit `render.ts` nötig. Fasst die 12 rohen `TurnStep`-Werte
+(game-state.ts) zu 6 Phasen zusammen (Vorbereitung, Ziehen, Hauptphase 1,
+Kampf, Hauptphase 2, Ende) und rendert sie als vertikale Schritt-Kette
+(`<ol class="turn-flow-track">`, CSS-Stepper-Muster mit Punkt + Verbindungs-
+linie je Knoten): abgeschlossene Phasen gedimmt/grünlich, die aktuelle
+hervorgehoben (inkl. Detail-Tag mit dem exakten Rohschritt, z.B. "main1"
+innerhalb der "Hauptphase 1"-Phase, bzw. "Angreifer erklären" innerhalb von
+"Kampf"), kommende neutral/blass. Darunter eine "Als nächstes: ..."-Zeile
+sowie Zugnummer/aktiver Spieler/Priority (identischer Text wie zuvor in
+`statusBar`, nur hierher verschoben).
+
+### Test-Haken statt Layout-Kopplung
+
+Fünf `data-testid`s (`turn-flow-panel`, `turn-flow-turn-number`,
+`turn-flow-current-step`, `turn-flow-next-step`, `turn-flow-active-player`,
+`turn-flow-priority`) — Tests pollen darüber, nicht über die CSS-Klassen der
+Flow-Knoten. `golden-path.test.ts` wurde entsprechend umgestellt (vorher
+`queryOne(root, ".status-bar").textContent.includes("Step: main1")`, jetzt
+`queryOne(root, '[data-testid="turn-flow-current-step"]').textContent.includes("main1")`).
+`tutorial.test.ts`/`vs-bot.test.ts`/`keyword-glossary.test.ts` prüfen nur
+noch, dass `.status-bar` weiterhin existiert (sie enthält weiterhin die
+Aktions-/Utility-Buttons) — kein weiterer Anpassungsbedarf, da sie nie den
+Step-Text daraus gelesen haben. `mulligan.test.ts`/`x-cost-ability.test.ts`/
+`modal-effects.test.ts`/`deck-persistence.test.ts` geprüft: keine Abhängigkeit
+von `.status-bar`-Textinhalt oder der rechten Avatar-Spalte gefunden, keine
+Änderung nötig.
+
+### Aktiver-Spieler-Avatar (`render.ts#turnFlowColumn`, vormals `opponentAvatarColumn`)
+
+Die rechte Board-Spalte wird jetzt IMMER gerendert (vorher nur, wenn player2
+bot-gesteuert war) — sie trägt seit diesem Auftrag funktionale Info, nicht
+mehr nur Deko. Das Porträt darin folgt `state.activePlayer` ("wer ist dran"),
+bewusst NICHT `state.priorityPlayer`: ist der aktive Spieler bot-gesteuert,
+unverändert `sceneArt.ts#botAvatarImg(difficulty)`; ist er menschlich, der
+neue `sceneArt.ts#humanAvatarPlaceholder(displayName)` — ein reiner
+CSS-Platzhalter (Initiale + Anzeigename im Taverne-Look), da es aktuell
+**kein generiertes Bild-Asset für menschliche Spieler gibt** (bewusst als
+Platzhalter markiert, s. Dateikommentar in `sceneArt.ts`, für ein künftiges
+Bild-Asset vorgesehen). Im reinen Hotseat wechselt der Platzhalter
+entsprechend zwischen "player1"/"player2".
+
+### CSS-Umbau (`style.css`)
+
+`.board-opponent-avatar` (bisher zugleich äußerer Flex-Item UND Avatar-Box)
+aufgeteilt in `.board-turn-flow-column` (äußerer 220px-Wrapper, `display:
+flex; flex-direction: column`, enthält Avatar-Box + `.turn-flow-panel`
+übereinander) und `.board-active-avatar` (nur noch die quadratische
+Avatar-Box selbst). Die `max-width: 900px`-Media-Query blendet die Spalte
+NICHT mehr komplett aus (das war vertretbar, solange sie rein dekorativ war
+— jetzt würde das die Zug-Info verstecken), sondern stapelt `.board-row` auf
+Spalten-Layout und ordnet Avatar (klein, 96px) + Flow-Panel innerhalb der
+Spalte nebeneinander an, statt übereinander.
+
+### Verifikation
+
+`npm test`: 167/167 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test, s. bestehender `color-balance.analysis.test.ts`-Skip). `npm run
+build` (`tsc --noEmit`) sowie zusätzlich `npm run build:ui` (`vite build`,
+nicht im `build`-Skript enthalten, aber zur Sicherheit separat ausgeführt)
+beide fehlerfrei. Echte Browser-/Screenshot-Verifikation der neuen Flow-Kette
+und des Menschen-Platzhalters steht aus — in dieser Session stand kein
+Browser-/Computer-Use-Werkzeug zur Verfügung (nur Code-Lektüre + jsdom-Tests,
+gleiche Einschränkung wie in mehreren vorherigen Sessions, s. Punkt 15/16
+unten).
+
+**Ergebnis:** Neue Datei `src/ui/components/turnFlowPanel.ts`. Geänderte
+Dateien: `src/ui/render.ts` (Buttons/Info-Trennung in `statusBar`,
+`opponentAvatarColumn` → `turnFlowColumn`, immer gerendert),
+`src/ui/components/sceneArt.ts` (neu: `humanAvatarPlaceholder`),
+`src/ui/style.css` (Avatar-Spalte aufgeteilt, neue `.turn-flow-*`-Regeln,
+Media-Query stapelt statt auszublenden), `src/ui/__tests__/golden-path.test.ts`
+(Step-Polling auf neuen `data-testid` umgestellt). Keine Änderung an
+`src/engine/*`/`src/model/*`/`src/ai/*` — reines Frontend, keine neue
+Spiellogik.
 
 ## Nächste Schritte (Vorschläge)
 

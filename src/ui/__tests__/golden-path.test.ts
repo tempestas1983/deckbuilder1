@@ -161,19 +161,25 @@ describe("Frontend Golden Path (End-to-End ab App-Start, v0.1.5)", () => {
 
     expect(queryOne(root, ".status-bar")).toBeTruthy();
 
-    const statusText = () => queryOne(root, ".status-bar").textContent ?? "";
+    // Seit dem "Zug-/Step-Info als Flow"-Umbau (turnFlowPanel.ts) steckt der
+    // aktuelle Rohschritt NICHT mehr in `.status-bar` (die trägt nur noch
+    // Aktions-/Utility-Buttons), sondern in der neuen rechten Board-Spalte -
+    // stabiler Test-Haken ist `data-testid="turn-flow-current-step"` (s.
+    // dortiger Kommentar), bewusst entkoppelt von den CSS-Klassen der
+    // Flow-Knoten selbst.
+    const currentStepText = () => queryOne(root, '[data-testid="turn-flow-current-step"]').textContent ?? "";
 
     // Golden Path (v0.1.1): Upkeep -> Draw -> Main1, ausschließlich über
     // echte Klicks auf den "Priorität passen"-Button (nie direkter
     // store.dispatch()-Aufruf für diesen Teil des Tests).
     let guard = 0;
-    while (!statusText().includes("Step: main1") && guard < 20) {
+    while (!currentStepText().includes("main1") && guard < 20) {
       const passBtn = root.querySelector<HTMLButtonElement>(".btn-pass");
       expect(passBtn).toBeTruthy();
       click(passBtn);
       guard++;
     }
-    expect(statusText()).toContain("Step: main1");
+    expect(currentStepText()).toContain("main1");
 
     // Terrain aus der Hand spielen: Battlefield des Spielers mit der aktuellen
     // Priorität wächst um genau 1. Der Button existiert nur, wenn

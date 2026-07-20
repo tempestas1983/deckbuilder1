@@ -66,7 +66,7 @@ import {
   toggleSfxEnabled,
   toggleTutorialHelp,
 } from "./store";
-import { BOT_DIFFICULTY_LABELS, BOT_DISPLAY_NAMES, type BotDifficulty } from "../ai";
+import { BOT_DIFFICULTY_LABELS, BOT_DISPLAY_NAMES } from "../ai";
 import { cardDef } from "./cardInfo";
 import { tutorialHelpButton, tutorialHelpPanel, tutorialInstructionBanner, tutorialModalBubble } from "./components/tutorialOverlay";
 import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./components/keywordGlossaryPanel";
@@ -82,7 +82,8 @@ import { buildDemoDeck } from "./deck";
 import { pickRandomAiDeck } from "./aiDecks";
 import { handCard, handCardDiscardToggle, handCardHidden } from "./components/handCard";
 import { playerPanel } from "./components/playerPanel";
-import { botAvatarImg } from "./components/sceneArt";
+import { botAvatarImg, humanAvatarPlaceholder } from "./components/sceneArt";
+import { turnFlowPanel } from "./components/turnFlowPanel";
 import { stackPanel } from "./components/stackPanel";
 import { logPanel } from "./components/logPanel";
 import {
@@ -596,20 +597,15 @@ function statusBar(state: GameState, mode: UiMode): HTMLElement {
   // hat, wird der Button gesperrt statt die Hauptphase unbemerkt zu verlassen.
   const passBlockReason = priorityPlayer ? getTutorialPassPriorityBlockReason(priorityPlayer) : undefined;
 
+  // Die früheren reinen Info-Texte ("Zug X · Step: Y", "Aktiver Spieler:
+  // ...", "Priority: ...") sind NICHT mehr Teil dieser Leiste (Auftrag "Zug-/
+  // Step-Info soll rechts neben dem Spielfeld als klar lesbarer Flow
+  // erscheinen") - sie stecken jetzt in `turnFlowColumn()`/`turnFlowPanel.ts`,
+  // gerendert unter dem Avatar in der rechten Board-Spalte (s.
+  // boardSection unten). `.status-bar` bleibt als reine Aktions-/
+  // Utility-Leiste bestehen (Priorität passen, Tutorial-Hilfe,
+  // Keyword-Glossar, Musik, SFX, Zurück zum Hauptmenü).
   return h("div", { class: "status-bar" }, [
-    h("span", {}, [text(`Zug ${state.turnNumber} · Step: ${state.step}`)]),
-    h("span", {}, [text(`Aktiver Spieler: ${playerDisplayName(state.activePlayer)}`)]),
-    h(
-      "span",
-      {},
-      [
-        text(
-          priorityPlayer
-            ? `Priority: ${playerDisplayName(priorityPlayer)}`
-            : "Priority: (Engine verarbeitet Turn-Based Action)",
-        ),
-      ],
-    ),
     canPass && priorityPlayer && !spotlightAlreadyShown
       ? h(
           "button",
@@ -869,30 +865,60 @@ function boardSection(state: GameState, pool: ReturnType<typeof getPool>, mode: 
     PLAYER_IDS.map((playerId) => playerArea(state, pool, playerId, mode, targetMap)),
   );
 
-  // Großer Gegner-Avatar rechts neben dem Spielfeld (statt des früheren
-  // kleinen Inline-Porträts im Panel-Header, s. sceneArt.ts#botAvatarImg):
-  // "der Gegner" ist UI-seitig immer player2 - nur dessen Deckbau-Screen
-  // bietet den KI-Umschalter überhaupt an (components/deckBuilder.ts,
-  // "aiToggle nur für player2"), player1 ist nie bot-gesteuert. Ohne
-  // aktiven Bot (Hotseat-Mensch als player2) bleibt die Spalte einfach weg -
-  // .board-row degradiert dann per CSS (flex) zu einer einspaltigen
-  // Vollbreiten-Ansicht, keine Lücke.
-  const opponentAvatar = isBotControlled("player2") ? opponentAvatarColumn(getBotDifficulty("player2")) : undefined;
+  // Rechte Board-Spalte: TRÄGT jetzt den Zug-Flow (Auftrag "Zug-/Step-Info
+  // rechts neben dem Spielfeld, unter dem Avatar") - anders als die frühere
+  // rein dekorative `opponentAvatarColumn` (nur sichtbar, wenn player2
+  // bot-gesteuert war) wird sie darum jetzt IMMER gerendert, auch im reinen
+  // Hotseat (beide Spieler Mensch). `.board-row` degradiert entsprechend nie
+  // mehr zu einer einspaltigen Ansicht (s. auch die angepasste Media Query
+  // in style.css für schmale Fenster - die Spalte wird dort nicht mehr
+  // komplett ausgeblendet, weil sie jetzt funktional statt rein kosmetisch
+  // ist, sondern unter das Spielfeld gestapelt).
+  const turnFlow = turnFlowColumn(state);
 
-  return h("div", { class: "board-row" }, [board, opponentAvatar]);
+  return h("div", { class: "board-row" }, [board, turnFlow]);
 }
 
 /**
- * Rechte Board-Spalte mit dem großformatigen Charakterporträt des
- * bot-gesteuerten Gegners (Auftrag "Avatar größer + an den rechten Rand
- * des Spielfelds"). Bild-Lade-/Fallback-Verhalten kommt unverändert aus
- * sceneArt.ts#botAvatarImg (nur Größe/Position per CSS geändert, s.
- * `.board-opponent-avatar-img` in style.css) - fehlt die Bilddatei, entfernt
- * sich nur das <img>, die Spalte selbst bleibt (mit CSS-Fallback-Rahmen)
- * stehen, kein Layoutbruch.
+ * Rechte Board-Spalte: großformatiges Charakterporträt des GERADE AKTIVEN
+ * Spielers (Auftrag "Avatar soll den handelnden Spieler zeigen, Mensch vs.
+ * KI, statt immer nur das statische KI-Porträt") direkt über dem Zug-Flow
+ * (s. turnFlowPanel.ts). `state.activePlayer` ("wer ist dran") entscheidet
+ * das Bild, bewusst NICHT `state.priorityPlayer` ("wer muss gerade
+ * reagieren") - beide können während eines Zuges auseinanderfallen (z.B.
+ * Instant-Antworten des nicht-aktiven Spielers), aber "wer handelt gerade"
+ * im Sinne dieses Auftrags ist der aktive Spieler des laufenden Zuges.
+ *
+ * - aktiver Spieler bot-gesteuert -> bestehendes großformatiges Porträt
+ *   (sceneArt.ts#botAvatarImg), Bild-Lade-/Fallback-Verhalten unverändert
+ *   (fehlt die Datei, entfernt sich nur das <img>, die Box bleibt mit
+ *   CSS-Fallback-Rahmen stehen, kein Layoutbruch, s. `.board-active-avatar`
+ *   in style.css).
+ * - aktiver Spieler menschlich -> CSS-only-Platzhalter (s.
+ *   sceneArt.ts#humanAvatarPlaceholder-Dateikommentar: es gibt aktuell kein
+ *   Bild-Asset für menschliche Spieler, bewusst nur ein Platzhalter für
+ *   später). Im reinen Hotseat wechselt dieser Platzhalter entsprechend
+ *   zwischen "player1"/"player2" (bzw. deren Anzeigename).
  */
-function opponentAvatarColumn(difficulty: BotDifficulty): HTMLElement {
-  return h("div", { class: "board-opponent-avatar" }, [botAvatarImg(difficulty)]);
+function turnFlowColumn(state: GameState): HTMLElement {
+  const activePlayer = state.activePlayer;
+  const avatarNode = isBotControlled(activePlayer)
+    ? botAvatarImg(getBotDifficulty(activePlayer))
+    : humanAvatarPlaceholder(playerDisplayName(activePlayer));
+  const priorityPlayer = state.priorityPlayer;
+  return h("div", { class: "board-turn-flow-column" }, [
+    h("div", { class: "board-active-avatar" }, [avatarNode]),
+    turnFlowPanel({
+      turnNumber: state.turnNumber,
+      step: state.step,
+      activePlayerLabel: playerDisplayName(activePlayer),
+      // Identische Formatierung/Logik wie zuvor in statusBar() (nur
+      // dorthin verschoben, s. dortiger Kommentar).
+      priorityLabel: priorityPlayer
+        ? `Priority: ${playerDisplayName(priorityPlayer)}`
+        : "Priority: (Engine verarbeitet Turn-Based Action)",
+    }),
+  ]);
 }
 
 function playerArea(
@@ -937,7 +963,7 @@ function playerArea(
       // Erfundener Tavernen-Name statt der rohen PlayerId, nur bei
       // bot-gesteuerten Spielern (s. playerDisplayName oben). Das
       // großformatige Porträt selbst hängt nicht mehr am Panel-Header,
-      // s. boardSection#opponentAvatarColumn.
+      // s. boardSection#turnFlowColumn.
       displayName: playerDisplayName(playerId),
       targetable: !!playerCandidate || xTargetsPlayer,
       onClick: playerCandidate

@@ -219,14 +219,15 @@ body {
   font-size: 13px;
 }
 
-/* Wrapper um `.board` + die optionale rechte Gegner-Avatar-Spalte (Auftrag
-   "Avatar größer + an den rechten Rand des Spielfelds", s.
-   render.ts#boardSection/opponentAvatarColumn). Ohne aktiven Bot (Hotseat-
-   Mensch als player2) rendert render.ts die Spalte gar nicht erst - `.board`
-   bleibt dann als einziges Flex-Kind einfach vollbreit, keine Lücke. Bei
-   schmaleren Fenstern (Auftrag: "auch in einem normalen Browserfenster, nicht
-   nur Vollbild") blendet die Media Query weiter unten die Spalte aus, statt
-   das Spielfeld zu quetschen. */
+/* Wrapper um `.board` + die rechte Spalte aus Avatar + Zug-Flow (Auftrag
+   "Avatar größer + an den rechten Rand des Spielfelds", inzwischen erweitert
+   um den Zug-Flow, s. render.ts#boardSection/turnFlowColumn). Anders als
+   zuvor rendert render.ts diese Spalte JETZT IMMER (auch im reinen Hotseat -
+   sie trägt seit dem "Zug-/Step-Info als Flow"-Auftrag funktionale Info,
+   nicht mehr nur Deko). Bei schmaleren Fenstern (Auftrag: "auch in einem
+   normalen Browserfenster, nicht nur Vollbild") stapelt die Media Query
+   weiter unten die Spalte UNTER das Spielfeld, statt sie (wie vor diesem
+   Auftrag) komplett auszublenden - die Info darin darf nicht verschwinden. */
 .board-row {
   display: flex;
   flex-direction: row;
@@ -538,29 +539,40 @@ body {
   font-weight: 700;
 }
 
-/* Großer Gegner-Avatar rechts neben dem Spielfeld (Szenen-Artwork, s.
-   docs/scene-art-brief.md / components/sceneArt.ts#botAvatarImg) - ersetzt
-   das frühere kleine 22px-Porträt im Panel-Header (s. render.ts#boardSection
-   für die Sichtbarkeits-Logik: nur gerendert, wenn player2 bot-gesteuert
-   ist). Eigener "Rahmen" im Taverne-Look, damit selbst OHNE Bilddatei (CSS-
-   Fallback, `error`-Event entfernt nur das <img>, s. sceneArt.ts) eine
-   plausible leere Bildnische statt eines kaputten Layouts steht. flex-shrink:
-   0 hält die Spalte auf fester Breite, während `.board` daneben schrumpft/
-   wächst (s. `.board` min-width: 0 oben). */
-.board-opponent-avatar {
+/* Rechte Board-Spalte: Avatar-Box + darunter der Zug-Flow (render.ts#
+   turnFlowColumn/turnFlowPanel.ts), fest 220px breit, `.board` daneben
+   schrumpft/wächst (s. `.board` min-width: 0 oben). `align-items: stretch`
+   (Default) lässt beide Kinder (Avatar-Box, `.turn-flow-panel`) die volle
+   Spaltenbreite einnehmen. `align-self: flex-start` verhindert, dass
+   `.board-row`s `align-items: stretch` die ganze Spalte auf die volle (viel
+   größere) Board-Höhe zieht. */
+.board-turn-flow-column {
   flex: 0 0 220px;
   width: 220px;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Großformatiges Porträt des GERADE AKTIVEN Spielers (Szenen-Artwork, s.
+   docs/scene-art-brief.md / components/sceneArt.ts#botAvatarImg +
+   #humanAvatarPlaceholder) - ersetzt das frühere kleine 22px-Porträt im
+   Panel-Header. Eigener "Rahmen" im Taverne-Look, damit selbst OHNE
+   Bilddatei (CSS-Fallback, `error`-Event entfernt nur das <img>, s.
+   sceneArt.ts) eine plausible leere Bildnische statt eines kaputten Layouts
+   steht. */
+.board-active-avatar {
+  width: 100%;
   /* Quadratisch, wie die generierten Brustporträts selbst (s.
      docs/scene-art-brief.md, "quadratisch, 1:1") - gesetzt auf den Rahmen
      statt nur auf das <img>, damit die Nische ihre Größe/Form auch OHNE
-     geladenes Bild (CSS-Fallback) behält, statt auf 0 Höhe zu kollabieren.
-     `align-self: flex-start` verhindert, dass `.board-row`s
-     `align-items: stretch` die Spalte auf die volle (viel größere)
-     Board-Höhe zieht. */
+     geladenes Bild (CSS-Fallback) behält, statt auf 0 Höhe zu kollabieren. */
   aspect-ratio: 1 / 1;
-  align-self: flex-start;
+  flex: 0 0 auto;
   position: relative;
-  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -573,6 +585,10 @@ body {
   overflow: hidden;
 }
 
+/* Klassenname bewusst unverändert `board-opponent-avatar-img` (s.
+   sceneArt.ts#botAvatarImg-Dateikommentar) - historisch aus der Zeit, in
+   der nur der Gegner (player2) einen Avatar hatte, jetzt aber für JEDEN
+   bot-gesteuerten aktiven Spieler verwendet. */
 .board-opponent-avatar-img {
   width: 100%;
   height: 100%;
@@ -586,15 +602,212 @@ body {
   opacity: 1;
 }
 
+/* CSS-only-Platzhalter für einen menschlich gesteuerten aktiven Spieler
+   (sceneArt.ts#humanAvatarPlaceholder) - kein Bild-Asset, nur Initiale +
+   Anzeigename im selben Taverne-Look wie die Bot-Porträt-Box. */
+.board-active-avatar-human {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px;
+  text-align: center;
+}
+
+.board-active-avatar-human-initial {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--parchment-muted);
+  background: radial-gradient(circle at 35% 30%, var(--candle-glow), transparent 70%), var(--tavern-panel-b);
+  border: 1px solid var(--tavern-border);
+}
+
+.board-active-avatar-human-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--parchment-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Zug-Flow (components/turnFlowPanel.ts, Auftrag "Zug-/Step-Info als klar
+   lesbarer Flow statt Fließtext"): eigene "Karte" im selben Taverne-Look wie
+   `.player-panel`/`.board-active-avatar` direkt darunter, s.
+   render.ts#turnFlowColumn. */
+.turn-flow-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--tavern-panel-a) 0%, var(--tavern-panel-b) 100%);
+  border: 1px solid var(--tavern-border);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 210, 160, 0.06);
+}
+
+.turn-flow-turn-badge {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--tavern-border);
+  color: var(--parchment-muted);
+}
+
+/* Vertikale Schritt-Kette: jeder Knoten trägt einen "Punkt" (::before) +
+   eine Verbindungslinie zum nächsten Knoten (::after), klassisches
+   Stepper-Muster - abgeschlossene Phasen (`-done`) gedimmt/grün, die
+   aktuelle (`-current`) hervorgehoben, kommende (`-upcoming`) neutral/blass
+   (s. Auftrag "abgeschlossene Phasen sichtbar aber gedimmt, aktuelle klar
+   hervorgehoben, kommende neutral"). */
+.turn-flow-track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.turn-flow-node {
+  position: relative;
+  padding: 0 0 14px 22px;
+  min-height: 18px;
+}
+
+.turn-flow-node:last-child {
+  padding-bottom: 0;
+}
+
+.turn-flow-node::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+.turn-flow-node::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 12px;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+
+.turn-flow-node:last-child::after {
+  display: none;
+}
+
+.turn-flow-node-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.turn-flow-node-done::before,
+.turn-flow-node-done::after {
+  background: var(--good);
+  opacity: 0.55;
+}
+
+.turn-flow-node-done .turn-flow-node-label {
+  color: var(--text);
+  opacity: 0.55;
+}
+
+.turn-flow-node-current::before {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.35);
+}
+
+.turn-flow-node-current .turn-flow-node-label {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.turn-flow-node-upcoming .turn-flow-node-label {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+/* Detail-Tag mit dem exakten technischen Rohschritt (z.B. "main1") unter dem
+   aktuellen Phasennamen - zugleich stabiler Test-Haken
+   (`data-testid="turn-flow-current-step"`), s. turnFlowPanel.ts. */
+.turn-flow-node-step {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  color: var(--parchment-muted);
+  opacity: 0.85;
+}
+
+.turn-flow-next {
+  font-size: 12px;
+  color: var(--parchment-muted);
+  opacity: 0.85;
+}
+
+.turn-flow-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tavern-border);
+  font-size: 12px;
+}
+
+.turn-flow-meta-row {
+  color: var(--text);
+  opacity: 0.9;
+}
+
 /* Auftrag "auch in einem normalen Browserfenster, nicht nur Vollbild
-   nutzbar": unter dieser Breite verdrängt die feste 220px-Avatar-Spalte zu
-   viel Platz vom eigentlichen Spielfeld (Hand-/Battlefield-Kacheln) - die
-   Spalte blendet sich hier komplett aus, `.board` nimmt wieder die volle
-   Breite ein (s. `.board-row`). Rein kosmetisches Element, kein
-   Funktionsverlust. */
+   nutzbar": unter dieser Breite verdrängt die feste 220px-Spalte zu viel
+   Platz vom eigentlichen Spielfeld (Hand-/Battlefield-Kacheln). Seit dem
+   "Zug-/Step-Info als Flow"-Auftrag trägt die Spalte funktionale Info
+   (Zug-Flow), darum wird sie hier NICHT mehr komplett ausgeblendet (wie vor
+   diesem Auftrag), sondern unter das Spielfeld gestapelt (`.board-row`
+   wechselt auf Spalten-Layout) und intern kompakter angeordnet (Avatar
+   klein, neben statt über dem Flow). */
 @media (max-width: 900px) {
-  .board-opponent-avatar {
-    display: none;
+  .board-row {
+    flex-direction: column;
+  }
+
+  .board-turn-flow-column {
+    width: 100%;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .board-active-avatar {
+    width: 96px;
+    flex: 0 0 96px;
+  }
+
+  .turn-flow-panel {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 }
 
@@ -1761,7 +1974,7 @@ body {
    Titel-Schriftzug + große, klar abgesetzte Buttons statt der normalen
    kleinen `.btn`-Standardgröße) - Stilvorbild sind die bereits im Projekt
    etablierten "auffälligen" Bausteine (`.decision-spotlight-banner` oben,
-   `.board-opponent-avatar` weiter oben): Taverne-Farbverlauf/-Rahmen +
+   `.board-active-avatar` weiter oben): Taverne-Farbverlauf/-Rahmen +
    weicher Glow statt der neutralen `.panel`/`.panel-2`-Flächen, die sonst für
    funktionale UI (Deckbau, Log, ...) verwendet werden. Die vorhandene
    Taverne-Hintergrundatmosphäre (`.board-backdrop-img`, s. sceneArt.ts) läuft

@@ -16,7 +16,7 @@
  */
 
 import type { BotDifficulty } from "../../ai";
-import { h } from "../h";
+import { h, text } from "../h";
 
 const SCENE_ART_URL_PREFIX = "/scene-art/";
 
@@ -89,17 +89,23 @@ export function initBoardBackdrop(): void {
 }
 
 /**
- * Großformatiges Charakterporträt des bot-gesteuerten Gegners, passend zur
- * aktiven Schwierigkeitsstufe - gerendert in einer eigenen Spalte rechts
- * neben dem eigentlichen Spielfeld (s. render.ts#boardSection/
- * opponentAvatarColumn), NICHT mehr klein inline im Spieler-Panel-Header
- * (das war der Stand vor diesem Wunsch). Nur aufrufen, wenn der jeweilige
- * Spieler tatsächlich bot-gesteuert ist - fehlt die Bilddatei (Normalfall,
- * solange der Nutzer sie noch nicht abgelegt hat), wird das <img> beim
- * "error"-Event ersatzlos entfernt (kein Platzhalter, keine Layout-Lücke;
- * render.ts blendet in diesem Fall die ganze Spalte NICHT extra aus - der
- * CSS-Fallback der Spalte selbst reicht, s. style.css
- * `.board-opponent-avatar`).
+ * Großformatiges Charakterporträt des GERADE AKTIVEN Spielers, wenn dieser
+ * bot-gesteuert ist, passend zur aktiven Schwierigkeitsstufe - gerendert in
+ * der rechten Board-Spalte über dem Zug-Flow (s. render.ts#boardSection/
+ * turnFlowColumn), NICHT mehr klein inline im Spieler-Panel-Header (das war
+ * der Stand vor diesem Wunsch). Vor dem "Avatar folgt dem aktiven Spieler
+ * statt fest den Gegner zu zeigen"-Auftrag wurde diese Funktion nur für den
+ * bot-gesteuerten player2 aufgerufen (daher der historische Klassenname
+ * `board-opponent-avatar-img` unten, bewusst NICHT umbenannt, um die
+ * style.css-Selektoren-Kette nicht unnötig aufzublähen) - inzwischen wird
+ * sie für JEDEN bot-gesteuerten Spieler aufgerufen, der gerade aktiver
+ * Spieler ist (auch player1 in einem künftigen "player1 = KI"-Szenario, s.
+ * docs/frontend-status.md Punkt 11 "Bot-vs-Bot-Zuschauermodus"). Fehlt die
+ * Bilddatei (Normalfall, solange der Nutzer sie noch nicht abgelegt hat),
+ * wird das <img> beim "error"-Event ersatzlos entfernt (kein Platzhalter,
+ * keine Layout-Lücke; render.ts blendet in diesem Fall die Avatar-Box NICHT
+ * extra aus - der CSS-Fallback der Box selbst reicht, s. style.css
+ * `.board-active-avatar`).
  */
 export function botAvatarImg(difficulty: BotDifficulty): HTMLElement {
   return h("img", {
@@ -115,4 +121,25 @@ export function botAvatarImg(difficulty: BotDifficulty): HTMLElement {
       (ev.currentTarget as HTMLElement).remove();
     },
   });
+}
+
+/**
+ * CSS-only-Platzhalter für den GERADE AKTIVEN Spieler, wenn dieser
+ * menschlich gesteuert ist (Gegenstück zu `botAvatarImg` oben) - Auftrag
+ * "Avatar soll auch für den Menschen etwas zeigen, statt immer nur das
+ * statische KI-Porträt". Es gibt aktuell KEIN generiertes Bild-Asset für
+ * menschliche Spieler (anders als die Bot-Porträts unter
+ * `docs/scene-art/avatar-<difficulty>.png`) - dies ist bewusst nur ein
+ * Platzhalter im gleichen Tavernen-Look (Initiale + Anzeigename), bis
+ * irgendwann ein echtes Bild-Asset nachgereicht wird. Funktioniert
+ * unverändert im reinen Hotseat (beide Spieler Mensch): der Platzhalter
+ * wechselt einfach zwischen "Spieler 1"/"Spieler 2" (bzw. deren Anzeigename),
+ * je nachdem wer laut `state.activePlayer` gerade dran ist.
+ */
+export function humanAvatarPlaceholder(displayName: string): HTMLElement {
+  const initial = displayName.trim().charAt(0).toUpperCase() || "?";
+  return h("div", { class: "board-active-avatar-human" }, [
+    h("span", { class: "board-active-avatar-human-initial" }, [text(initial)]),
+    h("span", { class: "board-active-avatar-human-name" }, [text(displayName)]),
+  ]);
 }

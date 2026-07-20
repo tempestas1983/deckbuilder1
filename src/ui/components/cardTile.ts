@@ -12,6 +12,7 @@ import {
   dominantColorClass,
   effectiveKeywords,
   effectivePT,
+  effectiveRulesText,
   subtypeLine,
 } from "../cardInfo";
 import { h, text } from "../h";
@@ -74,10 +75,11 @@ export function cardTile(
     cardFrameArt(def),
     h("div", { class: "card-frame-type" }, [text(subtypeLine(def))]),
   ];
-  if (def.rulesText || statusBadges.length > 0) {
+  const rulesText = effectiveRulesText(def);
+  if (rulesText || statusBadges.length > 0) {
     frameChildren.push(
       h("div", { class: "card-frame-text-box" }, [
-        def.rulesText ? h("div", { class: "card-frame-text" }, ruleTextNodes(def.rulesText)) : undefined,
+        rulesText ? h("div", { class: "card-frame-text" }, ruleTextNodes(rulesText)) : undefined,
         statusBadges.length > 0 ? h("div", { class: "card-frame-status" }, statusBadges) : undefined,
       ]),
     );
@@ -94,7 +96,7 @@ export function cardTile(
     "div",
     {
       class: classes.join(" "),
-      title: def.rulesText ?? def.name,
+      title: rulesText ?? def.name,
       // Sichtbare Übergänge (s. render.ts-Kommentarblock zu View
       // Transitions): eindeutiger Name je Karten-Instanz - dieselbe Karte
       // "morpht" dadurch automatisch zwischen Zonen (z.B. Battlefield ->
