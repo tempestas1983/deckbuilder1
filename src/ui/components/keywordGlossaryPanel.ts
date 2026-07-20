@@ -15,11 +15,33 @@
  * ohne eine Positionsberechnung relativ zum angeklickten Wort zu brauchen -
  * die Kartenrahmen haben `overflow: hidden`, ein direkt am Wort verankertes
  * Popover würde dort abgeschnitten).
+ *
+ * `keywordGlossaryList` ist die reine Listen-Darstellung OHNE eigenes
+ * Backdrop/Panel/Header - extrahiert für components/rulesGuidePanel.ts, das
+ * denselben Inhalt als eingebetteten Abschnitt der "Anleitung" braucht, ohne
+ * ein zweites, verschachteltes Backdrop-Panel innerhalb des Anleitung-Panels
+ * zu öffnen (Panel-in-Panel wäre hier unnötig komplex/verwirrend - lieber
+ * einmal die Liste selbst teilen als KEYWORD_GLOSSARY.map(...) zu
+ * duplizieren). `keywordGlossaryPanel` ruft sie unverändert weiter auf.
  */
 
 import type { Keyword } from "../../model";
 import { KEYWORD_GLOSSARY, KEYWORD_GLOSSARY_BY_KEYWORD } from "../keywordGlossary";
 import { h, text } from "../h";
+
+/** Reine Liste aller Keyword-Einträge, ohne Backdrop/Panel/Header - s. Dateikommentar. */
+export function keywordGlossaryList(): HTMLElement {
+  return h(
+    "div",
+    { class: "tutorial-help-list" },
+    KEYWORD_GLOSSARY.map((entry) =>
+      h("div", { class: "tutorial-help-entry" }, [
+        h("div", { class: "tutorial-help-entry-title" }, [text(entry.title)]),
+        h("div", { class: "tutorial-help-entry-body" }, [text(entry.explanation)]),
+      ]),
+    ),
+  );
+}
 
 export function keywordGlossaryButton(onClick: () => void): HTMLElement {
   return h(
@@ -50,16 +72,7 @@ export function keywordGlossaryPanel(onClose: () => void): HTMLElement {
             h("h3", { class: "tutorial-help-title" }, [text("Schlüsselwörter")]),
             h("button", { class: "btn btn-cancel btn-small", onclick: onClose }, [text("Schließen")]),
           ]),
-          h(
-            "div",
-            { class: "tutorial-help-list" },
-            KEYWORD_GLOSSARY.map((entry) =>
-              h("div", { class: "tutorial-help-entry" }, [
-                h("div", { class: "tutorial-help-entry-title" }, [text(entry.title)]),
-                h("div", { class: "tutorial-help-entry-body" }, [text(entry.explanation)]),
-              ]),
-            ),
-          ),
+          keywordGlossaryList(),
         ],
       ),
     ],

@@ -42,7 +42,9 @@ describe("Keyword-Glossar (v0.1.14)", () => {
     document.body.append(root);
 
     subscribe(() => render(root));
-    render(root); // Deckbau-Screen Spieler 1 (App-Startzustand)
+    render(root); // Hauptmenü (App-Startzustand)
+    click(queryOne(root, ".main-menu-new-game-btn"));
+    click(queryOne(root, ".opponent-select-hotseat-btn")); // -> Deckbau-Screen Spieler 1
 
     const row = queryOne(root, '[data-card-id="core.abyssal-lurker"]');
     const span = queryOne<HTMLElement>(row, ".keyword-highlight");
@@ -74,6 +76,8 @@ describe("Keyword-Glossar (v0.1.14)", () => {
 
     subscribe(() => render(root));
     render(root);
+    click(queryOne(root, ".main-menu-new-game-btn"));
+    click(queryOne(root, ".opponent-select-hotseat-btn")); // -> Deckbau-Screen Spieler 1
 
     // Schon im Deckbau-Screen erreichbar (Auftrag: Karten im Pool zeigen
     // dieselben Schlüsselwörter, die Verwirrung ist nicht auf die laufende

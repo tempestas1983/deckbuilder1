@@ -31,12 +31,16 @@ let lastError: string | undefined;
 let uiMode: UiMode = { kind: "idle" };
 
 /**
- * App-Ebene-Zustand (siehe types.ts#AppPhase): startet immer im Deckbau für
- * player1, kein Teil des GameState, keine automatische Demo-Partie mehr
- * beim App-Start (das war v0.1-v0.1.4-Verhalten, s. docs/frontend-status.md
- * "Nächste Schritte" Punkt 6, jetzt durch den Deckbau-Screen ersetzt).
+ * App-Ebene-Zustand (siehe types.ts#AppPhase): startet immer im echten
+ * Hauptmenü (Titelbildschirm), kein Teil des GameState. Vor dem
+ * "echtes Hauptmenü"-Umbau startete die App direkt im Deckbau-Screen für
+ * player1 (v0.1.5-Verhalten) - Deckbau ist seitdem nur noch über die
+ * Hauptmenü-Optionen "Neues Spiel" (via `opponentSelect`) bzw. "Deck Builder"
+ * (direkt, `mode: "standalone"`) erreichbar, s. types.ts#AppPhase für den
+ * vollständigen Ablauf. Noch davor (v0.1-v0.1.4) lief hier automatisch eine
+ * Demo-Partie, s. docs/frontend-status.md "Nächste Schritte" Punkt 6.
  */
-let appPhase: AppPhase = { kind: "deckbuild", player: "player1" };
+let appPhase: AppPhase = { kind: "mainMenu" };
 
 // ---------------------------------------------------------------------------
 // Deck-Persistenz über Sessions hinweg (v0.1.8): localStorage-Fallback für
@@ -90,7 +94,7 @@ function saveDeckToLocalStorage(player: PlayerId, list: Record<string, number>):
 
 /**
  * Zuletzt gesammelte Decklisten pro Spieler. Bleiben bewusst über
- * "Neues Spiel" (zurück zum Deckbau, s. backToDeckbuilder) hinweg erhalten,
+ * "Zurück zum Hauptmenü" (s. backToMainMenu) hinweg erhalten,
  * damit der Deckbau-Screen beim erneuten Öffnen als Vorbefüllung dient
  * (bessere UX für wiederholte Testpartien) - kein Hard-Requirement, aber
  * explizit erwünscht laut Auftrag. **Seit v0.1.8**: Start-Wert lädt
@@ -393,6 +397,214 @@ export function closeKeywordGlossaryPanel(): void {
   notify();
 }
 
+// ---------------------------------------------------------------------------
+// "Anleitung"-Panel (vierter Hauptmenü-Button neben "Neues Spiel"/"Deck
+// Builder"/"Tutorial", s. components/mainMenu.ts/rulesGuidePanel.ts):
+// Kartentypen/Schlüsselwörter/Tipps zum entspannten Nachlesen außerhalb einer
+// Partie. Reiner Anzeige-Zustand, exakt analog zu
+// isKeywordGlossaryPanelOpen/toggleKeywordGlossaryPanel oben - bewusst kein
+// eigener AppPhase-Screen (s. Dateikommentar rulesGuidePanel.ts).
+// ---------------------------------------------------------------------------
+
+let rulesGuideOpen = false;
+
+export function isRulesGuideOpen(): boolean {
+  return rulesGuideOpen;
+}
+
+export function toggleRulesGuide(): void {
+  rulesGuideOpen = !rulesGuideOpen;
+  notify();
+}
+
+export function closeRulesGuide(): void {
+  rulesGuideOpen = false;
+  notify();
+}
+
+// ---------------------------------------------------------------------------
+// Benannte, dauerhaft gespeicherte Decks: erweitert die simple "letzte
+// Deckliste pro Spieler"-Persistenz oben (LAST_DECK_STORAGE_KEY, EIN Slot pro
+// Spieler, kein Name) um eine echte kleine Deck-Verwaltung - der Nutzer kann
+// eine fertig gebaute Deckliste unter einem selbst gewählten Namen (+
+// optionaler Beschreibung) sichern und beliebig viele solcher Decks parallel
+// vorhalten, um sie später wieder zu laden (s. components/savedDecksPanel.ts
+// fürs UI). Gleiches defensives Persistenz-Muster wie überall in dieser
+// Datei: try/catch um jeden localStorage-Zugriff, ein Fehler hier darf die
+// App nie zum Absturz bringen.
+// ---------------------------------------------------------------------------
+
+export interface SavedDeck {
+  id: string;
+  name: string;
+  description?: string;
+  decklist: Record<string, number>;
+  /** ISO-Zeitstempel (new Date().toISOString()) - dient sowohl der Anzeige als auch der Sortierung (neueste zuerst). */
+  savedAt: string;
+}
+
+const SAVED_DECKS_STORAGE_KEY = "deckbuilder1.savedDecks";
+
+function isSavedDeckShape(value: unknown): value is SavedDeck {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === "string" &&
+    typeof v.name === "string" &&
+    typeof v.savedAt === "string" &&
+    typeof v.decklist === "object" &&
+    v.decklist !== null &&
+    !Array.isArray(v.decklist)
+  );
+}
+
+/** Defensiv wie loadDeckFromLocalStorage: ungültige/fehlende Daten -> leere Liste statt Absturz. */
+function loadSavedDecksFromLocalStorage(): SavedDeck[] {
+  try {
+    const raw = window.localStorage.getItem(SAVED_DECKS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isSavedDeckShape);
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedDecks(next: SavedDeck[]): void {
+  try {
+    window.localStorage.setItem(SAVED_DECKS_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // localStorage nicht verfügbar/voll/deaktiviert - einfach ignorieren (s.o.).
+  }
+}
+
+let savedDecks: SavedDeck[] = loadSavedDecksFromLocalStorage();
+
+/** Alle gespeicherten Decks, neueste zuerst (Anzeige-Reihenfolge fürs "Deck laden"-Panel). */
+export function listSavedDecks(): SavedDeck[] {
+  return [...savedDecks].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+}
+
+/** Reine Anzeige-/Storage-ID, keine Regelrelevanz - `crypto.randomUUID` ist nicht in jeder Umgebung garantiert (ältere Browser/jsdom), daher ein simpler, kollisionsarmer Fallback. */
+function generateSavedDeckId(): string {
+  return `deck-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Speichert `decklist` unter `name` (+ optionaler `description`). Existiert
+ * bereits ein gespeichertes Deck mit demselben Namen (Vergleich getrimmt,
+ * ohne Groß-/Kleinschreibung), wird DESSEN Eintrag überschrieben (gleiche
+ * id, neuer `savedAt`-Zeitstempel) statt einen zweiten, gleichnamigen
+ * Eintrag anzulegen - kein Bestätigungsdialog nötig, der Rückgabewert
+ * `overwritten` erlaubt dem UI trotzdem einen passenden Hinweistext
+ * ("aktualisiert" statt "gespeichert"). `name` wird leer/nur-Whitespace
+ * NICHT akzeptiert (liefert `undefined` statt eines Eintrags) - das Anlegen
+ * eines unbenannten Decks wäre für "Deck laden" später nicht wiederauffindbar;
+ * das UI verhindert diesen Fall bereits durch einen deaktivierten
+ * "Speichern"-Button, dies ist zusätzlich ein Sicherheitsnetz.
+ */
+export function saveDeckAs(
+  name: string,
+  description: string | undefined,
+  decklist: Record<string, number>,
+): { id: string; overwritten: boolean } | undefined {
+  const trimmedName = name.trim();
+  if (!trimmedName) return undefined;
+  const trimmedDescription = description?.trim();
+  const savedAt = new Date().toISOString();
+  const existing = savedDecks.find((d) => d.name.trim().toLowerCase() === trimmedName.toLowerCase());
+  if (existing) {
+    savedDecks = savedDecks.map((d) =>
+      d.id === existing.id
+        ? { ...d, name: trimmedName, description: trimmedDescription || undefined, decklist: { ...decklist }, savedAt }
+        : d,
+    );
+    persistSavedDecks(savedDecks);
+    notify();
+    return { id: existing.id, overwritten: true };
+  }
+  const id = generateSavedDeckId();
+  savedDecks = [
+    ...savedDecks,
+    { id, name: trimmedName, description: trimmedDescription || undefined, decklist: { ...decklist }, savedAt },
+  ];
+  persistSavedDecks(savedDecks);
+  notify();
+  return { id, overwritten: false };
+}
+
+export function deleteSavedDeck(id: string): void {
+  savedDecks = savedDecks.filter((d) => d.id !== id);
+  persistSavedDecks(savedDecks);
+  notify();
+}
+
+/** Lädt ein gespeichertes Deck in die aktuelle Deckliste von `player` (über das bestehende `setDecklist`, s.u.) - No-op, falls die id nicht (mehr) existiert (z.B. in einem zweiten, bereits geschlossenen Tab gelöscht). */
+export function loadSavedDeck(player: PlayerId, id: string): void {
+  const found = savedDecks.find((d) => d.id === id);
+  if (!found) return;
+  setDecklist(player, { ...found.decklist });
+}
+
+// "Deck speichern"-Formular und "Deck laden"-Liste sind zwei getrennte
+// Popover-Panels (s. components/savedDecksPanel.ts) - reiner Anzeige-Zustand,
+// analog zu isMusicPanelOpen/isKeywordGlossaryPanelOpen oben. Öffnet eines der
+// beiden das jeweils andere, wird es geschlossen (verhindert zwei
+// überlappende Popover gleichzeitig) - rein kosmetisch, keine Regelrelevanz.
+let saveDeckFormOpen = false;
+let loadDeckPanelOpen = false;
+
+export function isSaveDeckFormOpen(): boolean {
+  return saveDeckFormOpen;
+}
+
+export function toggleSaveDeckForm(): void {
+  saveDeckFormOpen = !saveDeckFormOpen;
+  if (saveDeckFormOpen) loadDeckPanelOpen = false;
+  notify();
+}
+
+export function closeSaveDeckForm(): void {
+  saveDeckFormOpen = false;
+  notify();
+}
+
+export function isLoadDeckPanelOpen(): boolean {
+  return loadDeckPanelOpen;
+}
+
+export function toggleLoadDeckPanel(): void {
+  loadDeckPanelOpen = !loadDeckPanelOpen;
+  if (loadDeckPanelOpen) saveDeckFormOpen = false;
+  notify();
+}
+
+export function closeLoadDeckPanel(): void {
+  loadDeckPanelOpen = false;
+  notify();
+}
+
+// ---------------------------------------------------------------------------
+// Deck-Analyse-Bereich (Mana-Kurve/Farb-/Typverteilung, s.
+// components/deckAnalysis.ts): rein einklappbar, keine Persistenz nötig
+// (bewusst kein localStorage-Eintrag, anders als z.B. musicEnabled - das ist
+// reine Layout-Bequemlichkeit ohne Bedarf, sie über einen Reload hinweg zu
+// merken). Standardmäßig eingeklappt sichtbar (aufgeklappt), da sie direkt
+// nützliche Live-Information zum aktuell zusammengestellten Deck liefert.
+// ---------------------------------------------------------------------------
+
+let deckAnalysisPanelOpen = true;
+
+export function isDeckAnalysisPanelOpen(): boolean {
+  return deckAnalysisPanelOpen;
+}
+
+export function toggleDeckAnalysisPanel(): void {
+  deckAnalysisPanelOpen = !deckAnalysisPanelOpen;
+  notify();
+}
+
 export function getPool(): CardPool {
   return pool;
 }
@@ -432,6 +644,65 @@ export function getAppPhase(): AppPhase {
   return appPhase;
 }
 
+// ---------------------------------------------------------------------------
+// Hauptmenü-Navigation ("echtes Hauptmenü statt Direkteinstieg"-Umbau): die
+// drei Hauptmenü-Optionen ("Neues Spiel"/"Deck Builder"/"Tutorial", s.
+// components/mainMenu.ts) sowie die Gegner-Auswahl, die "Neues Spiel"
+// zwischenschaltet (s. components/opponentSelect.ts). `startTutorial()` unten
+// (unverändert gegenüber dem vorherigen Stand, nur jetzt zusätzlich vom
+// Hauptmenü statt einem Button im player1-Deckbau-Screen aus erreichbar)
+// gehört inhaltlich hierher, bleibt aber an ihrer ursprünglichen Stelle
+// weiter unten (Tutorial-Abschnitt), um den dortigen Kontext nicht
+// auseinanderzureißen.
+// ---------------------------------------------------------------------------
+
+/** "Neues Spiel" im Hauptmenü: zeigt zuerst die Gegner-Auswahl (KI-Schwierigkeit oder "2 Spieler"/Hotseat), bevor player1 mit dem Deckbau beginnt. */
+export function startNewGameFlow(): void {
+  appPhase = { kind: "opponentSelect" };
+  notify();
+}
+
+/**
+ * "Deck Builder" im Hauptmenü: derselbe Deckbau-Screen wie beim normalen
+ * Partie-Einstieg (`deckBuilderScreen`, s. components/deckBuilder.ts), aber
+ * im eigenständigen `mode: "standalone"` - der Screen bietet dort statt
+ * "Weiter"/"Spiel starten" einen "Zurück zum Hauptmenü"-Button an, es folgt
+ * KEINE Partie-Vorbereitung. Nutzt bewusst denselben `decklists.player1`-Slot
+ * wie der normale player1-Deckbau (kein separater Speicherort nötig) - die
+ * benannte Deck-Verwaltung (SavedDeck, s.u.) ist ohnehin der eigentliche
+ * Persistenz-Weg für "in Ruhe Decks zusammenstellen".
+ */
+export function openDeckBuilderStandalone(): void {
+  appPhase = { kind: "deckbuild", player: "player1", mode: "standalone" };
+  notify();
+}
+
+/**
+ * Gegner-Auswahl (s. components/opponentSelect.ts) - Option "KI mit
+ * Schwierigkeit `difficulty`": markiert player2 sofort als bot-gesteuert
+ * (identisch zu `setBotControlled`/`setBotDifficulty`, die auch der
+ * bestehende KI-Umschalter im player2-Deckbau-Screen nutzt) und führt zu
+ * player1s Deckbau. Das eigentliche zufällige player2-Deck + der direkte
+ * Partiestart (player2-Deckbau-Screen wird dabei komplett übersprungen)
+ * passieren erst, sobald player1 sein Deck bestätigt (s.
+ * render.ts#renderDeckBuilder, `onConfirm`) - genau wie beim bisherigen
+ * "Zufälliges KI-Deck + weiter"-Kurzstart, nur jetzt schon VOR statt NACH
+ * player1s eigenem Deckbau ausgelöst.
+ */
+export function chooseOpponentBot(difficulty: BotDifficulty): void {
+  setBotControlled("player2", true);
+  setBotDifficulty("player2", difficulty);
+  appPhase = { kind: "deckbuild", player: "player1", mode: "newGame" };
+  notify();
+}
+
+/** Gegner-Auswahl - Option "2 Spieler" (Hotseat): player2 bleibt/wird menschlich gesteuert und baut nach player1 wie gehabt sein eigenes Deck (unverändertes Verhalten). */
+export function chooseOpponentHotseat(): void {
+  setBotControlled("player2", false);
+  appPhase = { kind: "deckbuild", player: "player1", mode: "newGame" };
+  notify();
+}
+
 /** Aktuell gesammelte Deckliste eines Spielers (Vorbefüllung für den Deckbau-Screen). */
 export function getDecklist(player: PlayerId): Record<string, number> {
   return decklists[player];
@@ -464,7 +735,7 @@ export function confirmDeck(player: PlayerId): void {
     saveDeckToLocalStorage(player, decklists[player]);
   }
   if (player === "player1") {
-    appPhase = { kind: "deckbuild", player: "player2" };
+    appPhase = { kind: "deckbuild", player: "player2", mode: "newGame" };
     notify();
     return;
   }
@@ -478,11 +749,17 @@ export function copyDeckFromPlayer1(): void {
 }
 
 /**
- * "Neues Spiel" im laufenden Spiel: zurück zum Deckbau-Screen (player1
- * zuerst) statt wie in v0.1-v0.1.4 einfach die Seite neu zu laden - die
- * zuletzt benutzten Decklisten bleiben als Vorbefüllung erhalten (s.o.).
+ * "Zurück zum Hauptmenü" im laufenden Spiel/nach Spielende: zurück zum
+ * echten Hauptmenü (`mainMenu`, s. types.ts#AppPhase) statt wie vor dem
+ * "echtes Hauptmenü"-Umbau direkt in den player1-Deckbau-Screen zu springen
+ * (der hieß diese Funktion vormals `backToDeckbuilder`) - und lange davor
+ * (v0.1-v0.1.4) einfach die Seite neu zu laden. Die zuletzt benutzten
+ * Decklisten UND die zuletzt gewählte Gegner-Einstellung
+ * (botControlledPlayers/botDifficulty, s.u.) bleiben als Vorbefüllung
+ * erhalten - ein erneutes "Neues Spiel" im Hauptmenü landet über
+ * `opponentSelect` wieder beim gewohnten Ablauf.
  */
-export function backToDeckbuilder(): void {
+export function backToMainMenu(): void {
   // v0.1.11: Tutorial-Modus sauber verlassen (Auftrag Punkt 5, "verändert die
   // normale Partie nicht") - stellt player2s Bot-Einstellungen von VOR dem
   // Tutorial-Start wieder her (s. startTutorial unten), statt player2
@@ -500,13 +777,15 @@ export function backToDeckbuilder(): void {
     preTutorialBotControlled = undefined;
     preTutorialBotDifficulty = undefined;
   }
-  appPhase = { kind: "deckbuild", player: "player1" };
+  appPhase = { kind: "mainMenu" };
   // Keyword-Glossar-Popover/-Panel sind reine Anzeige-Overlays ohne
   // Spielstand-Bezug - beim Verlassen der Partie sauber schließen, damit sie
   // nicht unsichtbar "offen" in den nächsten Deckbau-Screen durchschlagen.
   openKeywordPopover = undefined;
   keywordGlossaryPanelOpen = false;
   musicPanelOpen = false;
+  saveDeckFormOpen = false;
+  loadDeckPanelOpen = false;
   stopBotLoop();
   notify();
 }
@@ -525,8 +804,8 @@ export function backToDeckbuilder(): void {
 // AppPhase-Zustand in store.ts "mitzuverwalten" statt einen zweiten
 // Beobachter-Mechanismus einzuführen (s. docs/frontend-status.md).
 //
-// Persistenz-Entscheidung (Auftrag Punkt 5): bleibt über "Neues Spiel"
-// (backToDeckbuilder) hinweg erhalten, exakt wie die gesammelten Decklisten
+// Persistenz-Entscheidung (Auftrag Punkt 5): bleibt über "Zurück zum
+// Hauptmenü" (backToMainMenu) hinweg erhalten, exakt wie die gesammelten Decklisten
 // (decklists oben) - wer einmal "Spieler 2 von KI steuern lassen" aktiviert
 // hat, will das für die naechste Testpartie i.d.R. nicht jedes Mal neu
 // anklicken. Nur ein frischer App-Start (Modul-Neuladen) setzt es zurück.
@@ -553,7 +832,7 @@ export function setBotControlled(player: PlayerId, controlled: boolean): void {
 // nur GENUTZT, wenn isBotControlled(player) true ist (s. runBotStep unten),
 // bleibt aber auch sonst gesetzt (z.B. schon gewählt, bevor der KI-Umschalter
 // aktiviert wird). Persistenz-Entscheidung identisch zu botControlledPlayers
-// oben: bleibt über "Neues Spiel" (backToDeckbuilder) hinweg erhalten, nur
+// oben: bleibt über "Zurück zum Hauptmenü" (backToMainMenu) hinweg erhalten, nur
 // ein frischer App-Start (Modul-Neuladen) setzt auf DEFAULT_BOT_DIFFICULTY
 // zurück.
 // ---------------------------------------------------------------------------
@@ -619,7 +898,7 @@ let tutorialSequenceFinished = false;
 let tutorialLastBuffTarget: InstanceId | undefined;
 
 // Vorherige Bot-Einstellungen von player2, um sie beim Verlassen des Tutorials
-// wiederherzustellen (s. backToDeckbuilder unten) - das Tutorial soll die
+// wiederherzustellen (s. backToMainMenu unten) - das Tutorial soll die
 // normale Partie/den normalen Deckbau NICHT dauerhaft verändern (Auftrag
 // Punkt 5), auch nicht "Spieler 2 war vorher NICHT bot-gesteuert".
 let preTutorialBotControlled: boolean | undefined;

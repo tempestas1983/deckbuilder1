@@ -21,6 +21,7 @@ import {
   buttonWithText,
   captureStateDuring,
   click,
+  enterHotseatNewGame,
   keepAllMulligans,
   makeSeededRandom,
   queryOne,
@@ -53,6 +54,7 @@ describe("Modaler Spell casten (v0.1.6)", () => {
 
     subscribe(() => render(root));
     render(root);
+    enterHotseatNewGame(root);
 
     // Beide Spieler: 4x void-covenant (Deckvalidierungs-Maximum für
     // Nicht-Terrains) + 36x void-rift (Terrains sind unbegrenzt) - reicht,

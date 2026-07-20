@@ -20,6 +20,7 @@ import {
   buttonWithText,
   captureStateDuring,
   click,
+  enterHotseatNewGame,
   keepAllMulligans,
   makeSeededRandom,
   queryOne,
@@ -52,6 +53,7 @@ describe("X-Kosten-Fähigkeit aktivieren (v0.1.6)", () => {
 
     subscribe(() => render(root));
     render(root);
+    enterHotseatNewGame(root);
 
     // Beide Spieler: 4x cinderwrack-engine ({generic:4}-Relikt) + 36x
     // void-rift (Terrains unbegrenzt) - Terrains zahlen generische Kosten

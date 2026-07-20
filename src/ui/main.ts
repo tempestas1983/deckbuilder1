@@ -1,11 +1,14 @@
 /**
  * Einstiegspunkt des Frontends (Vite-Entry, siehe index.html).
- * Verdrahtet Store <-> Render-Loop und zeigt initial den Deckbau-Screen
- * (AppPhase "deckbuild", s. store.ts/types.ts) - erst nach "Spiel starten"
- * (beide Decklisten bestätigt) läuft `initGame` und das eigentliche
- * Spielbrett erscheint. Vor v0.1.5 startete hier automatisch eine
- * Demo-Partie mit zwei identischen Zufalls-Decks (`buildDemoDeck`,
- * deck.ts) - das ist jetzt der "Zufällig füllen"-Button im Deckbau-Screen.
+ * Verdrahtet Store <-> Render-Loop und zeigt initial das Hauptmenü (AppPhase
+ * "mainMenu", s. store.ts/types.ts) - von dort führt "Neues Spiel" über die
+ * Gegner-Auswahl in den Deckbau-Screen (AppPhase "deckbuild"); erst nachdem
+ * beide Decklisten bestätigt sind (bzw. player2 als KI übersprungen wurde)
+ * läuft `initGame` und das eigentliche Spielbrett erscheint. Vor dem "echtes
+ * Hauptmenü"-Umbau startete die App direkt im Deckbau-Screen (v0.1.5 -
+ * v0.1.x); noch davor (vor v0.1.5) lief hier automatisch eine Demo-Partie mit
+ * zwei identischen Zufalls-Decks (`buildDemoDeck`, deck.ts) - das ist jetzt
+ * der "Zufällig füllen"-Button im Deckbau-Screen.
  */
 
 import "./style.css";

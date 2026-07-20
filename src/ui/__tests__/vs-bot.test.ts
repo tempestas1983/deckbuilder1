@@ -29,7 +29,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonWithText, click, makeSeededRandom, queryAll, queryOne, setChecked } from "./testHelpers";
+import { buttonWithText, click, enterHotseatNewGame, makeSeededRandom, queryAll, queryOne, setChecked } from "./testHelpers";
 
 describe("Gegen die KI spielen (v0.1.7, Spieler 2 = Bot)", () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -56,6 +56,11 @@ describe("Gegen die KI spielen (v0.1.7, Spieler 2 = Bot)", () => {
       // Wie main.ts: erst abonnieren, DANACH den ersten Render anstoßen.
       subscribe(() => render(root));
       render(root);
+      // Hauptmenü -> "Neues Spiel" -> "2 Spieler" (Hotseat): dieser Test prüft
+      // bewusst den bestehenden, manuellen KI-Umschalter AUF dem
+      // player2-Deckbau-Screen (statt der neuen Gegner-Auswahl VOR dem
+      // Deckbau) - beide Wege setzen dieselbe store.ts-Bot-Steuerung.
+      enterHotseatNewGame(root);
 
       // Spieler 1: ganz normaler manueller Deckbau (Zufällig füllen + Weiter) -
       // die KI-Umschaltung betrifft laut Auftrag ausschließlich Spieler 2.

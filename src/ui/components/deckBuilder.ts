@@ -1,6 +1,12 @@
 /**
- * Deckbau-Screen: läuft VOR dem eigentlichen Spiel (siehe types.ts#AppPhase),
- * ein Screen pro Spieler, sequenziell (player1 zuerst, dann player2).
+ * Deckbau-Screen: in zwei Modi verwendet (s. types.ts#AppPhase, `mode` in
+ * DeckBuilderOptions unten):
+ * - "newGame": läuft VOR der eigentlichen Partie, ein Screen pro Spieler,
+ *   sequenziell (player1 zuerst, dann player2 - außer player2 wurde in der
+ *   Gegner-Auswahl schon als bot-gesteuert markiert, dann wird dieser Screen
+ *   für player2 komplett übersprungen, s. render.ts#renderDeckBuilder).
+ * - "standalone": eigenständiger "Deck Builder"-Menüpunkt im Hauptmenü, nur
+ *   für player1, OHNE dass danach automatisch eine Partie beginnt.
  *
  * Zeigt den kompletten Kartenpool (`getPool()`) mit +/- Kopienwahl pro
  * Karte, laufender Gesamtzahl + Validierungsstatus (deckValidation.ts, reine
@@ -26,24 +32,38 @@ import { ruleTextNodes } from "./keywordText";
 import {
   closeKeywordGlossary,
   closeKeywordGlossaryPanel,
+  closeLoadDeckPanel,
   closeMusicPanel,
+  closeSaveDeckForm,
+  deleteSavedDeck,
   getMusicCurrentTrack,
   getMusicRepeatMode,
   getMusicTracks,
   getOpenKeywordGlossary,
+  isDeckAnalysisPanelOpen,
   isKeywordGlossaryPanelOpen,
+  isLoadDeckPanelOpen,
   isMusicEnabled,
   isMusicPanelOpen,
+  isSaveDeckFormOpen,
   isSfxEnabled,
+  listSavedDecks,
+  loadSavedDeck,
+  saveDeckAs,
   selectMusicTrack,
   setMusicRepeatMode,
+  toggleDeckAnalysisPanel,
   toggleKeywordGlossaryPanel,
+  toggleLoadDeckPanel,
   toggleMusicEnabled,
   toggleMusicPanel,
+  toggleSaveDeckForm,
   toggleSfxEnabled,
 } from "../store";
+import { deckAnalysisPanel } from "./deckAnalysis";
 import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./keywordGlossaryPanel";
 import { musicPanel, musicPanelButton } from "./musicPanel";
+import { loadDeckButton, loadDeckPanel, resetSaveDeckDraft, saveDeckButton, saveDeckForm } from "./savedDecksPanel";
 import { sfxToggleButton } from "./sfxToggle";
 import { validateDecklist } from "../deckValidation";
 
@@ -94,10 +114,23 @@ export interface DeckBuilderOptions {
   pool: CardPool;
   player: PlayerId;
   decklist: Record<string, number>;
+  /**
+   * "echtes Hauptmenü"-Umbau: unterscheidet den normalen Partie-Einstieg
+   * ("newGame", unverändertes Verhalten - "Weiter"/"Spiel starten"-Footer-
+   * Button, s. `onConfirm`) vom eigenständigen "Deck Builder"-Menüpunkt
+   * ("standalone", nur für player1 erreichbar, s. store.ts#openDeckBuilderStandalone):
+   * dort ersetzt ein "Zurück zum Hauptmenü"-Button (`onBackToMainMenu`) den
+   * Confirm-Button - es folgt KEINE Partie-Vorbereitung. Restlicher Screen
+   * (Kartenpool, +/-, Speichern/Laden, Analyse, Filter) ist in beiden Modi
+   * identisch, nichts davon wird dafür verdoppelt.
+   */
+  mode: "newGame" | "standalone";
   /** true = player2-Screen: bietet die "Gleiches Deck übernehmen"-Abkürzung an. */
   offerCopyFromPlayer1: boolean;
   onChange: (next: Record<string, number>) => void;
   onRandomFill: () => void;
+  /** Nutzer-Feedback: ohne Reset-Möglichkeit war schwer erkennbar, welche Karten schon im Deck stecken - setzt die Deckliste komplett auf leer. */
+  onClearDeck: () => void;
   onCopyFromPlayer1: () => void;
   onConfirm: () => void;
   /**
@@ -121,13 +154,14 @@ export interface DeckBuilderOptions {
   botDifficulty: BotDifficulty;
   onChangeBotDifficulty: (next: BotDifficulty) => void;
   /**
-   * v0.1.11 (geführtes Tutorial-Probespiel): nur auf dem player1-Screen
-   * gesetzt (dem faktischen App-Startbildschirm, s. render.ts#renderDeckBuilder)
-   * - ein Klick überspringt den kompletten restlichen Deckbau (auch den
-   * player2-Screen) und startet sofort eine feste Tutorial-Partie
-   * (store.ts#startTutorial).
+   * NUR relevant/genutzt, wenn `mode === "standalone"` (s.o.) - "Zurück zum
+   * Hauptmenü"-Footer-Button statt des Confirm-Buttons. Das Tutorial ist seit
+   * dem "echtes Hauptmenü"-Umbau ausschließlich über das Hauptmenü selbst
+   * erreichbar (vormals ein zusätzlicher Button auf diesem Screen, s.
+   * store.ts#startTutorial-Dateikommentar) - kein `onStartTutorial`-Feld
+   * mehr hier, um diese Redundanz zu vermeiden.
    */
-  onStartTutorial?: () => void;
+  onBackToMainMenu?: () => void;
 }
 
 export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
@@ -178,6 +212,7 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
   applyFilterVisibility(poolContainer, pool);
 
   const confirmLabel = player === "player2" ? "Spiel starten" : "Weiter (Spieler 2 baut Deck)";
+  const headingText = opts.mode === "standalone" ? "Deck Builder" : `Deckbau: ${player}`;
 
   // v0.1.7: Der KI-Umschalter erscheint bewusst nur auf dem player2-Screen
   // (analog zu offerCopyFromPlayer1) - der Auftrag verlangt "Spieler 2 = KI",
@@ -241,28 +276,6 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
         ])
       : undefined;
 
-  // v0.1.11: "Tutorial starten" - nur auf dem player1-Screen (s.
-  // DeckBuilderOptions.onStartTutorial-Kommentar). Eigene, auffällige Box
-  // direkt unter der Überschrift, damit sie sofort ins Auge fällt, statt erst
-  // nach dem Deckbau entdeckt zu werden.
-  const tutorialBox = opts.onStartTutorial
-    ? h("div", { class: "deckbuilder-tutorial-box" }, [
-        h("div", { class: "deckbuilder-tutorial-heading" }, [text("Neu hier?")]),
-        h("div", { class: "deckbuilder-tutorial-hint" }, [
-          text(
-            "Das Tutorial startet direkt eine kurze, geführte Beispielpartie mit " +
-              "fertigen Decks gegen eine ruhig spielende KI - mit Erklär-Hinweisen " +
-              "zu allen wichtigen Spielkonzepten.",
-          ),
-        ]),
-        h(
-          "button",
-          { class: "btn btn-play deckbuilder-tutorial-start-btn", onclick: opts.onStartTutorial },
-          [text("Tutorial starten")],
-        ),
-      ])
-    : undefined;
-
   // Keyword-Glossar (Auftrag Punkt 3): auch schon während des Deckbaus
   // erreichbar, nicht erst in der laufenden Partie - der Kartenpool zeigt
   // hier dieselben Schlüsselwörter im Regeltext (s. poolRow oben).
@@ -271,23 +284,23 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
   return h("div", { class: "deckbuilder-screen" }, [
     openKeywordPopover ? keywordPopoverBubble(openKeywordPopover, () => closeKeywordGlossary()) : undefined,
     h("div", { class: "deckbuilder-header-row" }, [
-      h("h2", { class: "deckbuilder-title" }, [text(`Deckbau: ${player}`)]),
+      h("h2", { class: "deckbuilder-title" }, [text(headingText)]),
       h("div", { class: "deckbuilder-header-actions" }, [
         // App-weite Hintergrundmusik (s. musicPlayer.ts): auch im Deckbau
-        // jederzeit erreichbar/sichtbar, es gibt keinen eigenen Titelbildschirm
-        // (das Spiel startet direkt hier).
+        // jederzeit erreichbar/sichtbar, genau wie im Hauptmenü (s.
+        // components/mainMenu.ts) und in der laufenden Partie.
         musicPanelButton(() => toggleMusicPanel()),
         sfxToggleButton(isSfxEnabled(), () => toggleSfxEnabled()),
         keywordGlossaryButton(() => toggleKeywordGlossaryPanel()),
       ]),
     ]),
-    tutorialBox,
     aiToggle,
     h("div", { class: "deckbuilder-controls" }, [
       searchInput,
       typeSelect,
       colorSelect,
       h("button", { class: "btn deckbuilder-random-fill-btn", onclick: opts.onRandomFill }, [text("Zufällig füllen")]),
+      h("button", { class: "btn btn-cancel deckbuilder-clear-btn", onclick: opts.onClearDeck }, [text("Deck leeren")]),
       opts.offerCopyFromPlayer1
         ? h(
             "button",
@@ -295,20 +308,43 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
             [text("Gleiches Deck wie Spieler 1 übernehmen")],
           )
         : undefined,
+      // Benannte Deck-Persistenz (Speichern/Laden über beliebig viele
+      // Slots, s. store.ts#SavedDeck) - unabhängig von der bestehenden
+      // "letzte Deckliste"-Vorbefüllung oben, ergänzt sie nur.
+      saveDeckButton(() => toggleSaveDeckForm()),
+      loadDeckButton(() => toggleLoadDeckPanel()),
     ]),
-    h("div", { class: "deckbuilder-status" + (validation.valid ? " valid" : " invalid") }, [text(validation.statusText)]),
+    h("div", { class: "deckbuilder-status-row" }, [
+      h("div", { class: "deckbuilder-status" + (validation.valid ? " valid" : " invalid") }, [text(validation.statusText)]),
+      deckAnalysisPanel({
+        pool,
+        decklist,
+        open: isDeckAnalysisPanelOpen(),
+        onToggleOpen: () => toggleDeckAnalysisPanel(),
+      }),
+    ]),
     poolContainer,
-    h("div", { class: "deckbuilder-footer" }, [
-      h(
-        "button",
-        {
-          class: "btn btn-play deckbuilder-confirm-btn",
-          disabled: !validation.valid,
-          onclick: opts.onConfirm,
-        },
-        [text(confirmLabel)],
-      ),
-    ]),
+    h(
+      "div",
+      { class: "deckbuilder-footer" },
+      [
+        opts.mode === "standalone"
+          ? h(
+              "button",
+              { class: "btn btn-cancel deckbuilder-back-to-menu-btn", onclick: opts.onBackToMainMenu },
+              [text("Zurück zum Hauptmenü")],
+            )
+          : h(
+              "button",
+              {
+                class: "btn btn-play deckbuilder-confirm-btn",
+                disabled: !validation.valid,
+                onclick: opts.onConfirm,
+              },
+              [text(confirmLabel)],
+            ),
+      ],
+    ),
     isKeywordGlossaryPanelOpen() ? keywordGlossaryPanel(() => closeKeywordGlossaryPanel()) : undefined,
     isMusicPanelOpen()
       ? musicPanel({
@@ -320,6 +356,41 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
           onSelectTrack: (track) => selectMusicTrack(track),
           onSetRepeatMode: (mode) => setMusicRepeatMode(mode),
           onClose: () => closeMusicPanel(),
+        })
+      : undefined,
+    isSaveDeckFormOpen()
+      ? saveDeckForm({
+          cardCount: validation.total,
+          onSave: (name, description) => {
+            if (!name.trim()) return; // Button ist in diesem Fall bereits deaktiviert - reines Sicherheitsnetz
+            saveDeckAs(name, description, decklist);
+            resetSaveDeckDraft();
+            closeSaveDeckForm();
+          },
+          onClose: () => {
+            resetSaveDeckDraft();
+            closeSaveDeckForm();
+          },
+        })
+      : undefined,
+    isLoadDeckPanelOpen()
+      ? loadDeckPanel({
+          decks: listSavedDecks(),
+          onLoad: (id) => {
+            loadSavedDeck(player, id);
+            closeLoadDeckPanel();
+          },
+          onDelete: (id) => {
+            const deck = listSavedDecks().find((d) => d.id === id);
+            const label = deck ? `"${deck.name}"` : "dieses Deck";
+            // Irreversible Aktion -> einfache Bestätigung (kein eigenes
+            // Modal-System nötig, s. Auftrag - identisches Muster wie
+            // render.ts#onConcede für "Aufgeben").
+            if (window.confirm(`${label} wirklich löschen? Das kann nicht rückgängig gemacht werden.`)) {
+              deleteSavedDeck(id);
+            }
+          },
+          onClose: () => closeLoadDeckPanel(),
         })
       : undefined,
   ]);

@@ -79,14 +79,39 @@ export type UiMode =
     };
 
 /**
- * App-Ebene-Zustand, AUSSERHALB des GameState: steuert, ob gerade der
- * Deckbau-Screen (pro Spieler, sequenziell) oder das eigentliche Spielbrett
- * angezeigt wird. Kein Teil der Engine/des GameState - reiner UI-Ablauf, wie
- * `UiMode` oben, nur eine Ebene höher (vor dem ersten `initGame`-Aufruf gibt
- * es noch gar keinen `GameState`).
+ * App-Ebene-Zustand, AUSSERHALB des GameState: steuert, welcher der vier
+ * "Bildschirme" der App gerade angezeigt wird. Kein Teil der Engine/des
+ * GameState - reiner UI-Ablauf, wie `UiMode` oben, nur eine Ebene höher (vor
+ * dem ersten `initGame`-Aufruf gibt es noch gar keinen `GameState`).
+ *
+ * Ablauf seit dem "echtes Hauptmenü statt Direkteinstieg"-Umbau (s.
+ * store.ts#appPhase-Dateikommentar für den Startzustand):
+ * `mainMenu` (Startbildschirm, Titel/Logo + große Buttons) --"Neues Spiel"-->
+ * `opponentSelect` (KI-Schwierigkeit ODER "2 Spieler"/Hotseat wählen)
+ * --Auswahl--> `deckbuild` (player1, `mode: "newGame"`) --Bestätigen-->
+ * entweder direkt `playing` (falls player2 in `opponentSelect` als
+ * bot-gesteuert markiert wurde - der player2-Deckbau-Screen wird dabei
+ * übersprungen, s. render.ts#renderDeckBuilder) oder `deckbuild` (player2,
+ * `mode: "newGame"`) --Bestätigen--> `playing`.
+ *
+ * `mainMenu` --"Deck Builder"--> `deckbuild` (player1, `mode: "standalone"`):
+ * derselbe Deckbau-Screen wie oben (Kartenpool, Speichern/Laden, Analyse),
+ * aber OHNE Partie-Vorbereitung danach - ein "Zurück zum Hauptmenü"-Button
+ * ersetzt dort den "Weiter"/"Spiel starten"-Button (s.
+ * components/deckBuilder.ts#DeckBuilderOptions.mode).
+ *
+ * `mainMenu` --"Tutorial"--> `playing` (überspringt Gegner-Auswahl UND
+ * Deckbau komplett, s. store.ts#startTutorial - unverändert gegenüber dem
+ * bisherigen Tutorial-Einstieg, nur der Auslöse-Ort ist jetzt das
+ * Hauptmenü statt ein Button im player1-Deckbau-Screen).
+ *
+ * `backToMainMenu()` (s. store.ts, vormals `backToDeckbuilder`) führt aus
+ * `playing` IMMER zurück zu `mainMenu`, nie mehr direkt zu `deckbuild`.
  */
 export type AppPhase =
-  | { kind: "deckbuild"; player: PlayerId }
+  | { kind: "mainMenu" }
+  | { kind: "opponentSelect" }
+  | { kind: "deckbuild"; player: PlayerId; mode: "newGame" | "standalone" }
   | { kind: "playing" };
 
 export function targetKeyOf(target: ChosenTarget): string {

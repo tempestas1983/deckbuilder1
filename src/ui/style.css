@@ -1237,6 +1237,151 @@ body {
   color: #e0b95a;
 }
 
+/* Status-Zeile: Deck-Validierung + Deck-Analyse (Mana-Kurve/Farb-/Typ-
+   verteilung) nebeneinander - Auftrag "neben der aktuellen '60 Karten -
+   Deck gültig'-Anzeige". Bricht auf schmalen Bildschirmen per flex-wrap
+   untereinander um. */
+.deckbuilder-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.deckbuilder-status-row .deckbuilder-status {
+  flex: 0 0 auto;
+}
+
+/* Deck-Analyse-Bereich (Mana-Kurve/Farbverteilung/Typverteilung) --------- */
+
+.deckbuilder-analysis {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.deckbuilder-analysis-toggle {
+  align-self: flex-start;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.deckbuilder-analysis-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.deck-analysis-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+/* Mana-Kurve: schmale vertikale Balken, ein "Balkendiagramm" komplett aus
+   CSS (kein Chart-Framework, s. Dateikommentar deckAnalysis.ts). */
+.deck-analysis-curve {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 90px;
+}
+
+.deck-analysis-curve-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 0;
+  height: 100%;
+  gap: 2px;
+}
+
+.deck-analysis-curve-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.deck-analysis-curve-bar-track {
+  display: flex;
+  align-items: flex-end;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.deck-analysis-curve-bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+}
+
+.deck-analysis-curve-bucket-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.deck-analysis-x-note {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Farb-/Typverteilung: horizontale Balken (Label - Balken - Anzahl). */
+.deck-analysis-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.deck-analysis-bar-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 24px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.deck-analysis-bar-label {
+  color: var(--muted);
+}
+
+.deck-analysis-bar-track {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.deck-analysis-bar-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 5px;
+  background: var(--mana-colorless);
+}
+
+.deck-analysis-bar-fill.mana-flame { background: var(--mana-flame); }
+.deck-analysis-bar-fill.mana-tide { background: var(--mana-tide); }
+.deck-analysis-bar-fill.mana-wild { background: var(--mana-wild); }
+.deck-analysis-bar-fill.mana-light { background: var(--mana-light); }
+.deck-analysis-bar-fill.mana-void { background: var(--mana-void); }
+.deck-analysis-bar-fill.mana-colorless { background: var(--mana-colorless); }
+
+.deck-analysis-bar-fill-neutral {
+  background: var(--accent);
+}
+
+.deck-analysis-bar-count {
+  text-align: right;
+  font-weight: 700;
+}
+
 /* Kartenpool-Grid: statt einer Tabellenzeilen-Liste ein Flex-Wrap-Raster aus
    kompakten Kartenrahmen (.deck-pool-row nutzt dasselbe .card-frame-*-Layout
    wie Hand-/Battlefield-Karten, s.o.) - hält den Pool (113 Karten) trotzdem
@@ -1291,38 +1436,14 @@ body {
   z-index: 5;
 }
 
-/* "Tutorial starten" (v0.1.11) --------------------------------------------
-   Auffällige Box direkt unter der Deckbau-Überschrift auf dem player1-Screen
-   (dem faktischen App-Startbildschirm) - siehe Auftrag Teil 2 Punkt 1. */
-.deckbuilder-tutorial-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  border-radius: 8px;
-  border: 2px solid var(--accent);
-  background: var(--panel-2);
-}
+/* "Tutorial starten" - ehemals eine auffällige Box direkt unter der
+   Deckbau-Überschrift auf dem player1-Screen (v0.1.11 - v0.1.x). Seit dem
+   "echtes Hauptmenü"-Umbau ist "Tutorial" ein eigener Menüpunkt im Hauptmenü
+   (s. `.main-menu-tutorial-btn` weiter unten) - diese Regeln sind damit
+   entfallen, um Redundanz zu vermeiden (s. store.ts#startTutorial-
+   Dateikommentar).
 
-.deckbuilder-tutorial-heading {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.deckbuilder-tutorial-hint {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.deckbuilder-tutorial-start-btn {
-  align-self: flex-start;
-  font-size: 15px;
-  font-weight: 700;
-  padding: 8px 16px;
-}
-
-/* Tutorial-Sprechblase + Hilfe-Panel (v0.1.11) ---------------------------- */
+   Tutorial-Sprechblase + Hilfe-Panel (v0.1.11) ---------------------------- */
 
 .tutorial-tip-bubble {
   display: flex;
@@ -1529,6 +1650,77 @@ body {
   font-weight: 700;
 }
 
+/* Benannte, dauerhaft gespeicherte Decks (Speichern/Laden) --------------
+   Nutzt bewusst dieselben `.tutorial-help-*`-Klassen fürs Rahmen-/Kopfzeilen-
+   Layout wie musicPanel.ts/keywordGlossaryPanel.ts (s. components/
+   savedDecksPanel.ts-Dateikommentar), nur die formularspezifischen Innereien
+   bekommen eigene Klassen. */
+.save-deck-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.save-deck-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.save-deck-name-input,
+.save-deck-description-input {
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.save-deck-description-input {
+  resize: vertical;
+  min-height: 56px;
+}
+
+.save-deck-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.load-deck-empty {
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.load-deck-list {
+  max-height: 50vh;
+}
+
+.load-deck-entry-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.load-deck-entry-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.load-deck-load-btn {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.load-deck-delete-btn {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
 /* Keyword-Klick-Popover (v0.1.14) ------------------------------------------
    Kleine Erklär-Sprechblase für EIN einzelnes Keyword, ausgelöst durch Klick
    auf ein hervorgehobenes Wort im Kartentext (s. components/keywordText.ts,
@@ -1561,4 +1753,244 @@ body {
 
 .keyword-popover-close-btn {
   align-self: flex-start;
+}
+
+/* Hauptmenü / Titelbildschirm ("echtes Hauptmenü statt Direkteinstieg",
+   s. components/mainMenu.ts) ------------------------------------------------
+   Bewusst deutlich prominenter als der bisherige Deckbau-Screen (großer
+   Titel-Schriftzug + große, klar abgesetzte Buttons statt der normalen
+   kleinen `.btn`-Standardgröße) - Stilvorbild sind die bereits im Projekt
+   etablierten "auffälligen" Bausteine (`.decision-spotlight-banner` oben,
+   `.board-opponent-avatar` weiter oben): Taverne-Farbverlauf/-Rahmen +
+   weicher Glow statt der neutralen `.panel`/`.panel-2`-Flächen, die sonst für
+   funktionale UI (Deckbau, Log, ...) verwendet werden. Die vorhandene
+   Taverne-Hintergrundatmosphäre (`.board-backdrop-img`, s. sceneArt.ts) läuft
+   unabhängig von `#app` weiter und scheint hinter diesem größtenteils
+   transparenten Screen durch. */
+.main-menu-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  min-height: calc(100vh - 60px);
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.main-menu-header-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.main-menu-titlecard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.main-menu-title {
+  font-size: clamp(36px, 6vw, 56px);
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #f2d38a;
+  text-shadow:
+    0 0 18px rgba(255, 196, 130, 0.45),
+    0 2px 0 rgba(0, 0, 0, 0.6);
+}
+
+.main-menu-subtitle {
+  font-size: 15px;
+  color: var(--parchment-muted);
+  font-style: italic;
+}
+
+.main-menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(420px, 90vw);
+}
+
+.main-menu-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 16px 20px;
+  border-radius: 10px;
+  border: 2px solid var(--tavern-border);
+  background: linear-gradient(135deg, var(--tavern-panel-a), var(--tavern-panel-b));
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 210, 160, 0.06);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.main-menu-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(224, 185, 90, 0.55);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.5),
+    0 0 16px 2px rgba(255, 196, 130, 0.18);
+}
+
+.main-menu-btn-label {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.main-menu-btn-hint {
+  font-size: 12px;
+  color: var(--parchment-muted);
+}
+
+/* "Neues Spiel" ist die primäre Aktion - grüner Akzentrahmen wie `.btn-play`,
+   sonst identisches Layout zu den übrigen beiden Buttons. */
+.main-menu-new-game-btn {
+  border-color: var(--good);
+}
+
+.main-menu-new-game-btn .main-menu-btn-label {
+  color: #b8f2cf;
+}
+
+/* "Anleitung"-Panel (vierter Hauptmenü-Button, s.
+   components/rulesGuidePanel.ts) - nutzt dieselben `.tutorial-help-*`-Klassen
+   fürs Rahmen-/Kopfzeilen-Layout wie musicPanel.ts/keywordGlossaryPanel.ts/
+   savedDecksPanel.ts, ist aber deutlich inhaltsreicher (vier Abschnitte) und
+   bekommt daher eine breitere/höhere `.rules-guide-panel`-Zusatzklasse sowie
+   eigene Klassen für die Abschnitts-Überschriften und die einfachen
+   Tipp-Listen (Kartentypen/Schlüsselwörter laufen weiter über die
+   bestehenden `.tutorial-help-list`/`.tutorial-help-entry`-Klassen). */
+.rules-guide-panel {
+  width: min(680px, 92vw);
+  max-height: 86vh;
+}
+
+.rules-guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.rules-guide-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rules-guide-section-title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.rules-guide-tip-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rules-guide-tip {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Gegner-Auswahl (Zwischenschritt "Neues Spiel" -> Deckbau, s.
+   components/opponentSelect.ts) - dieselbe große Taverne-Optik wie das
+   Hauptmenü, nur mit Karten-Buttons statt Titel-Buttons. */
+.opponent-select-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.opponent-select-title {
+  margin: 0;
+  font-size: clamp(24px, 4vw, 32px);
+  color: #f2d38a;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
+}
+
+.opponent-select-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(560px, 92vw);
+}
+
+.opponent-select-section-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--parchment-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.opponent-select-difficulty-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.opponent-select-difficulty-btn {
+  flex: 1 1 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 2px solid var(--tavern-border);
+  background: linear-gradient(135deg, var(--tavern-panel-a), var(--tavern-panel-b));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.opponent-select-difficulty-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(224, 185, 90, 0.55);
+}
+
+.opponent-select-difficulty-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.opponent-select-difficulty-label {
+  font-size: 12px;
+  color: var(--parchment-muted);
+}
+
+.opponent-select-hotseat-btn {
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.opponent-select-back-btn {
+  margin-top: 8px;
 }

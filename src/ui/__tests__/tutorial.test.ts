@@ -7,10 +7,12 @@
  * erzeugte DOM, kein direkter store.dispatch()-Bypass für die geprüfte
  * Interaktion).
  *
- * Deckt den in docs/frontend-status.md (v0.1.16) beschriebenen Fluss ab:
- * Startbildschirm (Deckbau-Screen Spieler 1) -> "Tutorial starten"
- * (überspringt den kompletten restlichen Deckbau, inkl. Spieler-2-Screen)
- * -> Partie läuft mit den festen Decks aus tutorialDeck.ts + festem Seed,
+ * Deckt den in docs/frontend-status.md (v0.1.16) beschriebenen Fluss ab
+ * (seit dem "echtes Hauptmenü"-Umbau startet die App im Hauptmenü statt
+ * direkt im Deckbau, "Tutorial" ist dort einer von drei Menüpunkten):
+ * Hauptmenü -> "Tutorial" (überspringt Gegner-Auswahl UND den kompletten
+ * Deckbau, inkl. Spieler-2-Screen) -> Partie läuft mit den festen Decks aus
+ * tutorialDeck.ts + festem Seed,
  * Spieler 2 automatisch bot-gesteuert ("medium") -> geführte Schritt-Sequenz
  * läuft durch: Starthand/Mulligan-Hinweis -> Prioritäts-Konzept ->
  * Terrain spielen (Instruktion -> Aktion -> Bestätigung) -> Terrain für Mana
@@ -60,16 +62,18 @@ describe("Tutorial-Modus (v0.1.16)", () => {
       subscribe(() => render(root));
       render(root);
 
-      // Startbildschirm = Deckbau-Screen Spieler 1 - "Tutorial starten" ist
-      // NUR hier sichtbar (nicht auf dem Spieler-2-Screen, s. deckBuilder.ts).
-      expect(getAppPhase()).toEqual({ kind: "deckbuild", player: "player1" });
-      const tutorialBtn = queryOne<HTMLButtonElement>(root, ".deckbuilder-tutorial-start-btn");
-      expect(tutorialBtn.textContent).toBe("Tutorial starten");
+      // Startbildschirm = Hauptmenü - "Tutorial" ist einer der drei
+      // Hauptmenü-Buttons (s. components/mainMenu.ts), seit dem "echtes
+      // Hauptmenü"-Umbau nicht mehr ein Button im player1-Deckbau-Screen.
+      expect(getAppPhase()).toEqual({ kind: "mainMenu" });
+      const tutorialBtn = queryOne<HTMLButtonElement>(root, ".main-menu-tutorial-btn");
+      expect(tutorialBtn.textContent).toContain("Tutorial");
 
       click(tutorialBtn);
 
-      // Der komplette restliche Deckbau (auch Spieler 2) wurde übersprungen -
-      // die Partie läuft direkt mit den festen tutorialDeck.ts-Decks.
+      // Gegner-Auswahl UND der komplette Deckbau (beide Spieler) wurden
+      // übersprungen - die Partie läuft direkt mit den festen
+      // tutorialDeck.ts-Decks.
       expect(getAppPhase()).toEqual({ kind: "playing" });
       expect(root.querySelector(".deckbuilder-screen")).toBeFalsy();
       expect(queryOne(root, ".status-bar")).toBeTruthy();
@@ -214,7 +218,8 @@ describe("Tutorial-Modus (v0.1.16)", () => {
       const backBtn = buttonWithText(root, ".btn.btn-cancel", "Zurück zum Hauptmenü");
       expect(backBtn).toBeTruthy();
       click(backBtn);
-      expect(getAppPhase()).toEqual({ kind: "deckbuild", player: "player1" });
+      expect(getAppPhase()).toEqual({ kind: "mainMenu" });
+      expect(root.querySelector(".main-menu-screen")).toBeTruthy();
       expect(isTutorialActive()).toBe(false);
       expect(isBotControlled("player2")).toBe(false);
 

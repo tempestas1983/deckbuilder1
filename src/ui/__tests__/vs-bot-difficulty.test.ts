@@ -19,7 +19,16 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonWithText, click, makeSeededRandom, queryAll, queryOne, selectValue, setChecked } from "./testHelpers";
+import {
+  buttonWithText,
+  click,
+  enterHotseatNewGame,
+  makeSeededRandom,
+  queryAll,
+  queryOne,
+  selectValue,
+  setChecked,
+} from "./testHelpers";
 
 describe("Bot-Schwierigkeitsstufen-UI (v0.1.9)", () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -46,6 +55,11 @@ describe("Bot-Schwierigkeitsstufen-UI (v0.1.9)", () => {
       document.body.append(root);
       subscribe(() => render(root));
       render(root);
+      // Hauptmenü -> "Neues Spiel" -> "2 Spieler" (Hotseat): dieser Test prüft
+      // bewusst den bestehenden, manuellen Schwierigkeits-Selector AUF dem
+      // player2-Deckbau-Screen (statt der neuen Gegner-Auswahl VOR dem
+      // Deckbau) - beide Wege setzen dieselbe store.ts-Bot-Steuerung.
+      enterHotseatNewGame(root);
 
       // Spieler 1: normaler manueller Deckbau.
       click(queryOne(root, ".deckbuilder-random-fill-btn"));

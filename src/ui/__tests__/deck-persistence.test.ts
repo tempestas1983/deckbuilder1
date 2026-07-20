@@ -13,7 +13,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { click, queryOne } from "./testHelpers";
+import { click, enterHotseatNewGame, queryOne } from "./testHelpers";
 
 describe("Deck-Persistenz über localStorage (v0.1.8)", () => {
   beforeEach(() => {
@@ -30,6 +30,7 @@ describe("Deck-Persistenz über localStorage (v0.1.8)", () => {
 
     store.subscribe(() => render(root));
     render(root);
+    enterHotseatNewGame(root);
 
     // Spieler 1: zufällig füllen + bestätigen (löst store.ts#confirmDeck aus,
     // das seit v0.1.8 zusätzlich in localStorage speichert).
@@ -62,11 +63,14 @@ describe("Deck-Persistenz über localStorage (v0.1.8)", () => {
     const rootAfterReload = document.createElement("div");
     document.body.append(rootAfterReload);
 
-    // Frischer Modul-Zustand: App startet wie immer im Deckbau für player1,
-    // OHNE dass irgendjemand in dieser "Session" schon etwas gebaut hätte.
+    // Frischer Modul-Zustand: App startet wie immer im Hauptmenü, OHNE dass
+    // irgendjemand in dieser "Session" schon etwas gebaut hätte - "Neues
+    // Spiel" -> "2 Spieler" führt zum player1-Deckbau-Screen.
     storeAfterReload.subscribe(() => renderAfterReload(rootAfterReload));
     renderAfterReload(rootAfterReload);
-    expect(storeAfterReload.getAppPhase()).toEqual({ kind: "deckbuild", player: "player1" });
+    expect(storeAfterReload.getAppPhase()).toEqual({ kind: "mainMenu" });
+    enterHotseatNewGame(rootAfterReload);
+    expect(storeAfterReload.getAppPhase()).toEqual({ kind: "deckbuild", player: "player1", mode: "newGame" });
 
     // Die Vorbefüllung kommt nach dem "Reload" ausschließlich aus
     // localStorage (In-Memory ist ja frisch/leer) und entspricht exakt dem
@@ -97,6 +101,7 @@ describe("Deck-Persistenz über localStorage (v0.1.8)", () => {
 
     store.subscribe(() => render(root));
     render(root);
+    enterHotseatNewGame(root);
 
     click(queryOne(root, ".deckbuilder-random-fill-btn"));
     click(queryOne(root, ".deckbuilder-confirm-btn"));
@@ -125,6 +130,7 @@ describe("Deck-Persistenz über localStorage (v0.1.8)", () => {
 
     store.subscribe(() => render(root));
     render(root);
+    enterHotseatNewGame(root);
 
     expect(() => {
       click(queryOne(root, ".deckbuilder-random-fill-btn"));
@@ -133,7 +139,7 @@ describe("Deck-Persistenz über localStorage (v0.1.8)", () => {
 
     // Der eigentliche App-Flow (Deckbau -> nächster Spieler) funktioniert
     // trotzdem unbeeinträchtigt weiter - nur das Speichern schlägt (leise) fehl.
-    expect(store.getAppPhase()).toEqual({ kind: "deckbuild", player: "player2" });
+    expect(store.getAppPhase()).toEqual({ kind: "deckbuild", player: "player2", mode: "newGame" });
 
     setItemSpy.mockRestore();
   });

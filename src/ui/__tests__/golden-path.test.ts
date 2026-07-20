@@ -87,6 +87,12 @@ describe("Frontend Golden Path (End-to-End ab App-Start, v0.1.5)", () => {
     subscribe(() => render(root));
     render(root);
 
+    // Startbildschirm ist seit dem "echtes Hauptmenü"-Umbau das Hauptmenü,
+    // nicht mehr direkt der Deckbau - "Neues Spiel" -> "2 Spieler" (Hotseat)
+    // führt zum bisherigen Einstiegspunkt dieses Tests.
+    click(queryOne(root, ".main-menu-new-game-btn"));
+    click(queryOne(root, ".opponent-select-hotseat-btn"));
+
     // Leeres Deck -> Confirm-Button ist gesperrt.
     let confirmBtn = queryOne<HTMLButtonElement>(root, ".deckbuilder-confirm-btn");
     expect(confirmBtn.disabled).toBe(true);
@@ -109,14 +115,22 @@ describe("Frontend Golden Path (End-to-End ab App-Start, v0.1.5)", () => {
 
     // Wie main.ts: erst abonnieren, DANACH den ersten Render anstoßen.
     subscribe(() => render(root));
-    render(root); // Deckbau-Screen Spieler 1 (Startzustand der App, kein initGame()-Aufruf)
-    expect(getAppPhase()).toEqual({ kind: "deckbuild", player: "player1" });
+    render(root); // Hauptmenü (Startzustand der App, kein initGame()-Aufruf)
+    expect(getAppPhase()).toEqual({ kind: "mainMenu" });
+    expect(root.querySelector(".main-menu-screen")).toBeTruthy();
+
+    // "Neues Spiel" -> Gegner-Auswahl -> "2 Spieler" (Hotseat) - führt zum
+    // bisherigen Einstiegspunkt dieses Tests (player1-Deckbau-Screen).
+    click(queryOne(root, ".main-menu-new-game-btn"));
+    expect(getAppPhase()).toEqual({ kind: "opponentSelect" });
+    click(queryOne(root, ".opponent-select-hotseat-btn"));
+    expect(getAppPhase()).toEqual({ kind: "deckbuild", player: "player1", mode: "newGame" });
     expect(root.querySelector(".deckbuilder-screen")).toBeTruthy();
 
     // Spieler 1: Zufällig füllen, dann Weiter.
     click(queryOne(root, ".deckbuilder-random-fill-btn"));
     click(queryOne(root, ".deckbuilder-confirm-btn"));
-    expect(getAppPhase()).toEqual({ kind: "deckbuild", player: "player2" });
+    expect(getAppPhase()).toEqual({ kind: "deckbuild", player: "player2", mode: "newGame" });
 
     // Spieler 2: Abkürzung "Gleiches Deck wie Spieler 1 übernehmen", dann Spiel starten.
     click(queryOne(root, ".deckbuilder-copy-p1-btn"));

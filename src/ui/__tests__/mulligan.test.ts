@@ -9,7 +9,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonWithText, click, makeSeededRandom, queryOne } from "./testHelpers";
+import { buttonWithText, click, enterHotseatNewGame, makeSeededRandom, queryOne } from "./testHelpers";
 
 describe("Mulligan-UI (v0.1.6)", () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -29,6 +29,7 @@ describe("Mulligan-UI (v0.1.6)", () => {
 
     subscribe(() => render(root));
     render(root);
+    enterHotseatNewGame(root);
 
     // Deckbau beider Spieler (wie golden-path.test.ts) - Deckinhalt ist für
     // diesen Test irrelevant, nur Handgröße/mulligans-Zähler zählen.

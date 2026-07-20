@@ -1,11 +1,129 @@
 # Laufender Zwischenstand
 
-Datum: 2026-07-19
+Datum: 2026-07-20
 Zweck: Einziger Ort, an dem der Projektkontext ein `/clear` überlebt. Wird von
 `documenter` bei jedem finalen Sweep aktualisiert. Details/Begründungen stehen
 in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 `docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
 Dokument ist die Kurzfassung "wo stehen wir gerade".
+
+## Meilenstein: Echtes Hauptmenü, Taverne-Atmosphäre/Sound/Musik-Playlist, Auto-Pass/Spotlight, Deck speichern/analysieren (reines Frontend, keine Engine-/Model-/Kartenpool-/KI-Änderung)
+
+Die mit Abstand umfangreichste Frontend-Session bisher
+(`docs/frontend-status.md` v0.1.16 → v0.1.20, drei committete Schritte
+`afae4bc`/`9fdb742`/`c44f033` + ein zum Zeitpunkt dieses Sweeps NOCH NICHT
+committeter vierter Schritt). Alles gegen den tatsächlichen Code
+(`Read`/`Grep`, nicht nur Commit-Nachrichten) verifiziert.
+
+- **v0.1.17 — größte strukturelle Änderung: echtes Hauptmenü statt
+  Direkteinstieg.** `types.ts#AppPhase` komplett umgebaut: `mainMenu`
+  (neuer App-Start, `components/mainMenu.ts`, vier Optionen) →
+  `opponentSelect` (`components/opponentSelect.ts`: KI-Schwierigkeit ODER
+  „2 Spieler"/Hotseat) → `deckbuild` (jetzt mit `mode: "newGame" | "standalone"`)
+  → `playing`. Bei KI-Wahl wird player2s Deckbau-Screen komplett übersprungen
+  (automatisches Zufallsdeck, sofortiger Partiestart). „Deck Builder" ist ein
+  neuer eigenständiger Deckbau-Modus ohne Partie-Start. „Anleitung" ist ein
+  neues, rein statisches Nachschlage-Panel (`components/rulesGuidePanel.ts`:
+  Kartentypen, eingebettetes Keyword-Glossar, Spiel-/Deckbau-Tipps).
+  `store.ts#backToMainMenu` (vormals `backToDeckbuilder`) führt aus einer
+  laufenden Partie jetzt IMMER zum Hauptmenü.
+- **v0.1.17 — Taverne-Atmosphäre + Szenen-Artwork.** Ein viewport-breiter
+  Board-Hintergrund (`tavern-background.png`, Body-Ebene, `z-index: -1`)
+  sowie ein großformatiges Gegner-Porträt in einer eigenen 220px-Spalte
+  rechts neben dem Spielfeld (`avatar-<difficulty>.png`), beides mit
+  CSS-Fallback. `docs/scene-art-brief.md` war layoutseitig schon vorher
+  aktualisiert (Porträt-Spalte statt Inline-Bild) — der documenter hat bei
+  diesem Sweep nur den oberen „Status"-Absatz korrigiert, der noch fälschlich
+  „UI-Anbindung nicht beauftragt" behauptete; per Glob bestätigt: alle vier
+  Bilddateien liegen bereits unter `docs/scene-art/` (gitignored).
+  Bot-Anzeigenamen (`src/ai/difficulty.ts#BOT_DISPLAY_NAMES`: „Ollo
+  Wackelhand"/„Guntram Eichenfaust"/„Silas Kaltblick" statt „player2", nur bei
+  bot-gesteuerten Spielern, `PlayerId` selbst unverändert).
+- **v0.1.17 — Animationen + verdeckte Gegner-Hand.**
+  `document.startViewTransition()` (Fallback bei fehlender Browser-
+  Unterstützung/`prefers-reduced-motion`) lässt Karten per
+  `view-transition-name` zwischen Hand/Battlefield/Friedhof „morphen" statt
+  hart zu snappen — Bot-Züge dadurch nachvollziehbar statt Snap, plus ein
+  Lebenspunkte-„Puls" bei Änderung. Jede Nicht-„player1"-Hand zeigt jetzt nur
+  noch Kartenrückseiten + Anzahl (`hiddenHandZone`) — bewusst hingenommene
+  Einschränkung: ein echter zweiter Hotseat-Mensch kann seine Hand dadurch
+  nicht mehr aktiv anklicken (kein Deadlock, Cleanup-Abwurf bewusst
+  ausgenommen).
+- **v0.1.17/v0.1.18 — Sound + Musik.** Zwölf Soundeffekte (`docs/sfx/`,
+  CC0-Quellen in `docs/sfx/SOURCES.md`, event-basiert über
+  `store.ts#playSfxForEvent`). Hintergrundmusik startete als feste
+  Einzeldatei (v0.1.17), wurde in v0.1.18 auf Auto-Discovery umgestellt
+  (`docs/music/` → `/music/index.json`, `components/musicPanel.ts`:
+  Titelauswahl + Wiederholungsmodus Einzeltitel/Playlist) — beide über ein
+  auf mehrere Asset-Ordner verallgemeinertes `vite.config.ts#staticArtPlugin`
+  ausgeliefert. Per Glob bestätigt: 6 Musiktitel liegen bereits unter
+  `docs/music/` (gitignored).
+- **v0.1.18/v0.1.19 — Auto-Pass + Entscheidungs-Spotlight.**
+  `store.ts#advanceAutomation`/`autoResolvableActionFor`: Priorität wird
+  automatisch weitergereicht bzw. „keine Angreifer"/„keine Blocker"
+  automatisch erklärt, sobald `getLegalActions` keine echte Wahl mehr bietet;
+  steht eine echte Wahl an, macht ein auffälliges
+  `decisionSpotlightBanner` statt des bisherigen unauffälligen Buttons
+  darauf aufmerksam. **v0.1.19-Bugfix:** reine Mana-Fähigkeiten (Terrain fürs
+  Mana antippen, `isManaAbility: true`) zählten fälschlich als „echte Wahl"
+  und verhinderten Auto-Pass praktisch komplett/lösten das Spotlight-Banner
+  ständig unnötig aus — `isRealPriorityCandidate` schließt sie jetzt explizit
+  aus.
+- **v0.1.17 — Tutorial-Bugfix.** `getTutorialPassPriorityBlockReason` sperrt
+  „Priorität passen" jetzt zusätzlich während der `mainPhaseOnly`-Schritte
+  (`playTerrain`/`castCreature`), solange eine passende Kandidatenaktion
+  existiert — verhindert versehentliches Überspringen dieser Tutorial-Schritte.
+- **v0.1.20 (zum Zeitpunkt dieses Sweeps NOCH NICHT committet, laut
+  `git status`: `components/deckAnalysis.ts`/`components/savedDecksPanel.ts`
+  neu, `components/deckBuilder.ts`/`store.ts`/`style.css` geändert) — Deck
+  speichern/laden + Deck-Analyse + „Deck leeren".** `store.ts#SavedDeck`:
+  benannte Deck-Speicherfunktion (Name + optionale Beschreibung, beliebig
+  viele Slots, `localStorage`, unabhängig von der bestehenden „zuletzt
+  bestätigte Deckliste"-Persistenz aus v0.1.8), `components/savedDecksPanel.ts`
+  (Speichern-Formular + Laden-Panel mit Löschen). `components/deckAnalysis.ts`:
+  Mana-Kurve/Farb-/Typverteilung der aktuellen Deckliste, reine CSS-Balken,
+  live bei jedem +/--Klick neu berechnet. Zusätzlich ein „Deck leeren"-Button.
+- **Testzahlen:** Engine unverändert bei **130** (keine Engine-Änderung).
+  UI-Testdateien liefern laut Grep-Auszählung **19** einzeln benannte Fälle
+  über 12 Dateien — neu seit v0.1.16: `golden-path.test.ts` (Umbenennung/
+  Anpassung der bisherigen Golden-Path-Verifikation auf den Weg über das neue
+  Hauptmenü), `main-menu.test.ts` (die drei neuen Hauptmenü-Klickpfade,
+  inkl. Speichern eines Decks im „Deck Builder"-Modus — verifiziert damit
+  bereits einen Teil von v0.1.20 mit), `rules-guide.test.ts`.
+  **Wichtiger Hinweis:** `npm test`/`npm run build` konnten in dieser
+  documenter-Session mangels Shell-Werkzeug NICHT selbst ausgeführt werden
+  (anders als in einigen früheren Sweeps) — alle Zahlen/Verhaltens-
+  behauptungen stammen aus direkter Code-/Kommentar-Lektüre der
+  tatsächlichen `src/ui/*`-Dateien (u. a. `store.ts`, `render.ts`,
+  `vite.config.ts`, alle neuen `components/*.ts`), NICHT aus Fertigstellungs-
+  Nachrichten übernommen, aber auch nicht durch einen echten Testlauf/
+  Browser-Screenshot bestätigt. Ebenso offen: echte Browser-Verifikation der
+  Optik (Taverne-Hintergrund, Avatar-Spalte, Animationen, Spotlight-Banner).
+- **documenter (dieser Sweep, 2026-07-20):** `docs/frontend-status.md` von
+  v0.1.16 auf v0.1.20 gehoben — vier neue „auf einen Blick"-Kurzfassungen +
+  vier neue Detail-Abschnitte (v0.1.17-v0.1.20) ergänzt, „Setup/Start" (App
+  startet jetzt im Hauptmenü, nicht mehr direkt im Deckbau — die alte
+  Formulierung war überholt), „Struktur"-Tabelle (neue Dateien/Zeilen +
+  Annotationen an bestehenden Zeilen), „Was funktioniert" (Auto-Pass/
+  Spotlight/automatische Kampf-Deklaration ergänzt) und „Bewusste
+  Vereinfachungen" (Mehrfach-Deck-Verwaltung/Gegner-Auswahl/Hotseat-Hand-
+  Einschränkung korrigiert) sowie „Nächste Schritte" (neue Punkte 13-17)
+  aktualisiert. `docs/scene-art-brief.md`: veralteten Status-Absatz korrigiert
+  (behauptete noch „UI-Anbindung nicht beauftragt", obwohl der Folgeschritt-
+  Absatz direkt darunter bereits „inzwischen umgesetzt" sagte — jetzt
+  konsistent, inkl. Bestätigung per Glob, dass alle vier Bilddateien bereits
+  vorliegen). `docs/README.md`: Kopfzeile/Statustabelle auf v0.1.20 gehoben,
+  neuer „Seit dem letzten Sweep"-Absatz, „Weitere offene Punkte" für
+  frontend-engineer aktualisiert (Punkt 8 „fehlende Übergangsanimationen" als
+  erledigt markiert, zwei neue Punkte: v0.1.20 uncommitted, Test-/Browser-
+  Verifikation seit v0.1.17 ausstehend). **Keine Code-Datei angefasst** —
+  dieser Sweep war reine Dokumentationsarbeit. `docs/rules-engine.md`,
+  `docs/engine-status.md`, `docs/ai-status.md`, `docs/cards/starter-set.md`
+  waren nicht Gegenstand dieses Sweeps (keine Engine-/Model-/Kartenpool-/
+  KI-Änderung in der zugrundeliegenden Session) — nur eine kleine, seit
+  längerem veraltete Versionsreferenz in `docs/frontend-status.md`s
+  Kopfzeile (verwies noch auf `rules-engine.md` v0.3.1 statt v0.3.3) wurde
+  nebenbei korrigiert.
 
 ## Meilenstein: Artwork-Vorhaben abgeschlossen + Tutorial-Neubau + Keyword-Glossar (reines Frontend, keine Engine-/Model-/Kartenpool-Änderung)
 
@@ -707,9 +825,9 @@ weitgehend unabhängige Entwicklungsstränge, plus ein neues, nicht in die
 |---|---|---|
 | Regelwerk | v0.3.3 (9.14: einheitlicher stiller Nicht-Permanent-Fizzle für `eventSubject`; 9.15: zonenbasierte Todesdefinition, `onDeath{self}` typ-agnostisch) | — (Design-Dokument), inhaltlich bereits vollständig konsistent mit dem Code vorgefunden |
 | Datenmodell | v0.2.1 mit v0.3-Erweiterungen (unverändert seit v0.3.1 — 9.14/9.15 brauchten keinen Modell-Umbau, nur Kommentar-Präzisierungen) | unverändert an sich |
-| Engine | v0.3.5 (v0.3.3 firstStrike-Token-Crash-Fix, v0.3.4 Battlefield-Guard für `destroyPermanent`/`returnToHand`/`exilePermanent`, v0.3.5 zentraler Tod-Hook in `zones.ts#leaveBattlefield`) | **163 Tests grün + 1 bewusst übersprungen** (Analyse-Tool) — 130 Engine (unverändert seit v0.3.5) + 33 UI/KI, Engine-Zahl per Grep gegengezählt (`npm test`/`npm run build` in dieser Sweep-Session mangels Ausführungswerkzeug nicht selbst ausgeführt) |
+| Engine | v0.3.5 (v0.3.3 firstStrike-Token-Crash-Fix, v0.3.4 Battlefield-Guard für `destroyPermanent`/`returnToHand`/`exilePermanent`, v0.3.5 zentraler Tod-Hook in `zones.ts#leaveBattlefield`) | **130 Engine-Tests** (unverändert seit v0.3.5, keine Engine-Änderung in dieser Session), Zahl per Grep gegengezählt (`npm test`/`npm run build` in dieser Sweep-Session mangels Ausführungswerkzeug nicht selbst ausgeführt) |
 | Starter-Kartenset | v0.15 (300 Karten + 3 Token-Definitionen, 9 Batches + 3 Balance-Korrekturrunden) | per Grep gegen `src/cards/starter-set.ts` verifiziert (303 `id:"core.…"` − 3 echte Token = 300; ein 4. Grep-Treffer ist nur ein Kommentar) |
-| Frontend/UI | v0.1.16 (v0.1.11 Tutorial v1 + KI-Umschalter-Sichtbarkeit, v0.1.12/13 Artwork-Einbindung + Kunstbereich-Vergrößerung, v0.1.14 Tutorial-Startspieler fix player1, v0.1.15 Keyword-Glossar, v0.1.16 Tutorial-Neubau als 13-Schritte-Sequenz) | 163/163 laut `docs/frontend-status.md` v0.1.15/v0.1.16, per Grep gegen `src/ui/__tests__/*` plausibilisiert |
+| Frontend/UI | **v0.1.20** (v0.1.17 echtes Hauptmenü + Taverne-Atmosphäre/Szenen-Artwork + View-Transitions-Animationen + verdeckte Gegner-Hand + Sound, v0.1.18 Auto-Discovery-Musik-Playlist + Auto-Pass + Entscheidungs-Spotlight, v0.1.19 Mana-Fähigkeit-Bugfix, v0.1.20 Deck speichern/laden + Deck-Analyse-Panel + „Deck leeren" — **v0.1.20 selbst laut `git status` noch NICHT committet**) | UI-Testdateien liefern laut Grep-Auszählung 19 einzeln benannte Fälle über 12 Dateien (neu: `golden-path.test.ts`/`main-menu.test.ts`/`rules-guide.test.ts`) — **kein echter `npm test`-Lauf in dieser Session möglich** (kein Shell-Werkzeug), Zahlen sind Code-/Grep-basiert plausibilisiert, nicht durch Testlauf bestätigt |
 | KI-Gegner | v2.1 (easy/medium/hard, `src/ai/difficulty.ts` + `easyBot.ts`/`hardBot.ts`/`boardEval.ts`; v2.1 = zwei Legalitätsfixes fürs 300-Karten-Set + Farb-Balance-Analyse-Tool) | deterministischer Stärkevergleich bestätigt strikte Stufenordnung (>= 60 % der entschiedenen Partien je Stufe höher); fand und meldete den in der Engine-Zeile gelisteten firstStrike-Crash |
 | Karten-Artwork (Nutzer-Vorhaben, außerhalb der Pipeline) | `docs/cards/card-art-brief.md`, `docs/cards/artworks/` | **abgeschlossen** — alle 300 Artworks fertig, per Glob nachgezählt, vollständig ins UI integriert (s. Frontend-Zeile), bewusst nicht im Git-Repo (`.gitignore`); der zuvor gefundene Dateinamens-Mismatch bei `core.bastion-forgeworks` ist behoben |
 
@@ -736,12 +854,16 @@ Meilenstein oben). Verbleibend:
   Migration `chooseManaColor`/`chooseDiscard`/`orderScry` (s.o.); Bot-vs-Bot-
   Zuschauermodus (Umschalter bisher nur für Spieler 2); Deckbau-Screen-
   Performance mit dem jetzt tatsächlich sehr großen 300-Karten-Pool ist
-  weiterhin ungeprüft (die frühere Sorge „bei weit über 109 Karten" ist
-  eingetreten, aber nicht neu gemessen); **neu (2026-07-19, Nutzer-Notiz,
-  kein aktiver Auftrag):** fehlende Übergangsanimationen, besonders wenn die
-  KI spielt — das Spielbrett aktualisiert sich abrupt/„flackert" bei jeder
-  KI-Aktion statt einer nachvollziehbaren Übergangsanimation (Ursache: das
-  bewusst diffing-freie Voll-Neuaufbau-Rendering).
+  weiterhin ungeprüft. ~~Fehlende Übergangsanimationen~~ **erledigt in
+  v0.1.17** (View-Transitions-Animationen). **Neu (2026-07-20):** ein
+  gezielter Test für Laden/Löschen/Überschreiben eines gespeicherten Decks
+  sowie für die Deck-Analyse-Anzeige selbst fehlt noch (v0.1.20 ist bisher
+  nur indirekt über `main-menu.test.ts` mitverifiziert); **v0.1.20 committen**
+  (stand laut `git status` bei diesem Sweep noch aus); echte Browser-/
+  Screenshot-Verifikation der v0.1.17-Optik (Taverne-Hintergrund,
+  Avatar-Spalte, Animationen, Spotlight-Banner) steht aus; ein echter
+  `npm test`/`npm run build`-Lauf seit v0.1.17 steht ebenfalls aus (dem
+  documenter stand in dieser Session kein Shell-Werkzeug zur Verfügung).
 - **game-architect:** offene Rückfrage vom engine-engineer zu
   `StaticAbility.scope` bei `costChange`; die großen, bewusst vertagten
   Themen aus Abschnitt 10 (>2 Spieler, Kontrollwechsel/Kopier-Effekte/
@@ -763,4 +885,12 @@ Meilenstein oben). Verbleibend:
 - **documenter:** Der beim Sweep vom 2026-07-18 gemeldete Dateinamens-Mismatch
   im Artwork-Ordner (`core-bastion-forgework.png` statt
   `core-bastion-forgeworks.png`) ist inzwischen vom Nutzer behoben (per Glob
-  verifiziert, s. Meilenstein oben) — kein offener Punkt mehr.
+  verifiziert, s. Meilenstein oben) — kein offener Punkt mehr. **Neu
+  (2026-07-20):** dieser Sweep hatte kein Shell-Werkzeug zur Verfügung —
+  `npm test`/`npm run build` konnten nicht selbst ausgeführt werden (anders
+  als bei manchen früheren Sweeps); alle Behauptungen in
+  `docs/frontend-status.md`/`docs/README.md`/diesem Dokument stammen aus
+  direkter `Read`/`Grep`-Lektüre der `src/ui/*`-Dateien. Bei einem künftigen
+  Sweep mit Shell-Zugriff sollte `npm test`/`npm run build` nachgeholt und
+  gegen die hier dokumentierten Zahlen (130 Engine, 19 UI-Testfälle)
+  gegengeprüft werden.

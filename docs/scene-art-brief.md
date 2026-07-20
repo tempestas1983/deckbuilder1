@@ -7,11 +7,18 @@ Prinzip wie beim Karten-Artwork (`docs/cards/card-art-brief.md`): Bild-
 generierung ist nicht Teil dieses Projekts/dieser Werkzeugkette, daher wird
 hier extern (Gemini) erzeugt und später eingebunden.
 
-**Status:** Nur der Brief — die Bilder existieren noch nicht, und die
-UI-Anbindung (frontend-engineer) ist bewusst noch NICHT beauftragt. Das
-passiert erst in einem Folge-Schritt, nachdem die Bilder generiert wurden
-(gleiches Muster wie beim Kartenpool: erst Brief, dann Generierung durch
-den User, dann separate Einbindung).
+**Status (aktualisiert 2026-07-20, documenter):** Die UI-Anbindung ist
+inzwischen fertig (`docs/frontend-status.md` v0.1.17) —
+`src/ui/components/sceneArt.ts` liefert den Board-Hintergrund sowie die drei
+Gegner-Avatare aus, `vite.config.ts#sceneArtPlugin` liefert `docs/scene-art/`
+dev- und build-seitig aus, s. „Folgeschritt" unten für die Details. Per Verzeichnis-Listing bestätigt: alle vier Bilddateien
+(`tavern-background.png`, `avatar-easy.png`, `avatar-medium.png`,
+`avatar-hard.png`) liegen bereits unter `docs/scene-art/` — der CSS-Fallback
+(Holzmaserungs-/Kerzenschein-Atmosphäre auf `.board`, s.
+`sceneArt.ts`-Dateikommentar) greift also im Normalfall gar nicht mehr,
+sondern nur noch, falls eine Datei künftig fehlt/umbenannt wird. Dieser Brief
+(Stilleitfaden + Prompt-Tabelle) bleibt als Auftragsgrundlage für die
+Bildgenerierung unverändert gültig, unabhängig vom Anbindungsstand.
 
 **Generierung:** gleiches Skript wie bei den Karten,
 `tools/image-generation/gemini_batch_images.py`. Die Prompt-Tabelle liegt

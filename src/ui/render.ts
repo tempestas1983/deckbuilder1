@@ -13,7 +13,9 @@
 
 import type { ActivatedAbility, GameState, InstanceId, PlayerAction, PlayerId } from "../model";
 import {
-  backToDeckbuilder,
+  backToMainMenu,
+  chooseOpponentBot,
+  chooseOpponentHotseat,
   closeKeywordGlossary,
   closeKeywordGlossaryPanel,
   closeMusicPanel,
@@ -47,6 +49,7 @@ import {
   isTutorialBubbleVisible,
   isTutorialHelpOpen,
   legalActions,
+  openDeckBuilderStandalone,
   resetUiMode,
   selectMusicTrack,
   setBotControlled,
@@ -55,6 +58,7 @@ import {
   setMusicRepeatMode,
   setUiMode,
   skipTutorialStep,
+  startNewGameFlow,
   startTutorial,
   toggleKeywordGlossaryPanel,
   toggleMusicEnabled,
@@ -72,6 +76,8 @@ import { sfxToggleButton } from "./components/sfxToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
 import { deckBuilderScreen } from "./components/deckBuilder";
+import { mainMenuScreen } from "./components/mainMenu";
+import { opponentSelectScreen } from "./components/opponentSelect";
 import { buildDemoDeck } from "./deck";
 import { handCard, handCardDiscardToggle, handCardHidden } from "./components/handCard";
 import { playerPanel } from "./components/playerPanel";
@@ -101,7 +107,7 @@ import {
   xTargetShapeAllowsStackObject,
 } from "./actionUtil";
 import { validateDecklist } from "./deckValidation";
-import { targetKeyOf, type UiMode } from "./types";
+import { targetKeyOf, type AppPhase, type UiMode } from "./types";
 
 const PLAYER_IDS: PlayerId[] = ["player1", "player2"];
 
@@ -166,7 +172,7 @@ function prefersReducedMotion(): boolean {
 }
 
 let hasRenderedOnce = false;
-let previousAppPhaseKind: "deckbuild" | "playing" | undefined;
+let previousAppPhaseKind: AppPhase["kind"] | undefined;
 
 /**
  * Lebenspunkte-"Ticken" (Auftrag Punkt 3): reiner Anzeige-Zustand außerhalb
@@ -386,14 +392,34 @@ export function render(root: HTMLElement): void {
 function renderRoot(root: HTMLElement): void {
   const phase = getAppPhase();
   root.innerHTML = "";
+  if (phase.kind === "mainMenu") {
+    root.append(
+      mainMenuScreen({
+        onNewGame: () => startNewGameFlow(),
+        onDeckBuilder: () => openDeckBuilderStandalone(),
+        onTutorial: () => startTutorial(),
+      }),
+    );
+    return;
+  }
+  if (phase.kind === "opponentSelect") {
+    root.append(
+      opponentSelectScreen({
+        onChooseBot: (difficulty) => chooseOpponentBot(difficulty),
+        onChooseHotseat: () => chooseOpponentHotseat(),
+        onBack: () => backToMainMenu(),
+      }),
+    );
+    return;
+  }
   if (phase.kind === "deckbuild") {
-    root.append(renderDeckBuilder(phase.player));
+    root.append(renderDeckBuilder(phase.player, phase.mode));
     return;
   }
   renderGameBoard(root);
 }
 
-function renderDeckBuilder(player: PlayerId): HTMLElement {
+function renderDeckBuilder(player: PlayerId, mode: "newGame" | "standalone"): HTMLElement {
   const pool = getPool();
   const decklist = getDecklist(player);
 
@@ -401,9 +427,11 @@ function renderDeckBuilder(player: PlayerId): HTMLElement {
     pool,
     player,
     decklist,
-    offerCopyFromPlayer1: player === "player2",
+    mode,
+    offerCopyFromPlayer1: mode === "newGame" && player === "player2",
     onChange: (next) => setDecklist(player, next),
     onRandomFill: () => setDecklist(player, buildDemoDeck(pool)),
+    onClearDeck: () => setDecklist(player, {}),
     onCopyFromPlayer1: () => copyDeckFromPlayer1(),
     onConfirm: () => {
       // Defensive Doppelprüfung - der Button ist im Deckbau-Screen bereits
@@ -412,15 +440,29 @@ function renderDeckBuilder(player: PlayerId): HTMLElement {
       // ohne diese Sperre aufgerufen wird (z.B. künftige Tastatursteuerung).
       if (!validateDecklist(pool, decklist).valid) return;
       confirmDeck(player);
+      // "echtes Hauptmenü"-Umbau: wurde der Gegner in der Gegner-Auswahl
+      // bereits als KI festgelegt (s. store.ts#chooseOpponentBot), wird der
+      // player2-Deckbau-Screen komplett übersprungen - exakt dasselbe
+      // "zufällig füllen + markieren + sofort bestätigen"-Vorgehen wie beim
+      // bisherigen "Zufälliges KI-Deck + weiter"-Kurzstart (s.
+      // onAiQuickstart unten), nur direkt im Anschluss an player1s eigene
+      // Bestätigung statt über einen eigenen Button auf dem player2-Screen.
+      if (player === "player1" && isBotControlled("player2")) {
+        const randomDeck = buildDemoDeck(pool);
+        setDecklist("player2", randomDeck);
+        confirmDeck("player2");
+      }
     },
     // v0.1.7 ("Spieler 2 = KI"): Umschalter setzt nur das Flag
     // (store.ts#setBotControlled) - der Nutzer kann trotzdem ganz normal
     // weiter sein eigenes Deck bauen und über "Spiel starten" fortfahren
     // (das Flag entscheidet nur, wer die Züge später automatisch spielt, s.
-    // store.ts#dispatch/initGame). "Zufälliges KI-Deck + weiter" ist die im
-    // Auftrag gewünschte Abkürzung: füllt zufällig (buildDemoDeck, wie
-    // "Zufällig füllen"), markiert bot-gesteuert und bestätigt SOFORT -
-    // überspringt damit effektiv den manuellen Deckbau-Screen für player2.
+    // store.ts#dispatch/initGame). "Zufälliges KI-Deck + weiter" bleibt als
+    // Abkürzung DIREKT auf dem player2-Screen erhalten (erreichbar über
+    // "Neues Spiel" -> "2 Spieler", falls dort doch noch spontan gegen die KI
+    // gespielt werden soll) - der reguläre Weg, gegen die KI zu spielen, ist
+    // seit dem "echtes Hauptmenü"-Umbau aber die Gegner-Auswahl VOR dem
+    // Deckbau (s. store.ts#chooseOpponentBot/components/opponentSelect.ts).
     botControlled: isBotControlled(player),
     onToggleBotControl: () => setBotControlled(player, !isBotControlled(player)),
     // v0.1.9: Schwierigkeitsstufen-Auswahl (docs/ai-status.md Abschnitt 9.8) -
@@ -435,12 +477,11 @@ function renderDeckBuilder(player: PlayerId): HTMLElement {
         confirmDeck(player);
       }
     },
-    // v0.1.11: "Tutorial starten" ist nur auf dem allerersten Screen (player1,
-    // faktisch der App-"Startbildschirm", s. docs/frontend-status.md) sichtbar
-    // - startTutorial() (store.ts) überspringt den kompletten restlichen
-    // Deckbau-Ablauf (auch den player2-Screen) und startet die Partie direkt
-    // mit den festen Decks aus tutorialDeck.ts.
-    onStartTutorial: player === "player1" ? () => startTutorial() : undefined,
+    // NUR im eigenständigen "Deck Builder"-Menüpunkt gesetzt (s.
+    // components/deckBuilder.ts#DeckBuilderOptions.mode) - "Weiter"/"Spiel
+    // starten" gibt es dort nicht, stattdessen führt dieser Callback direkt
+    // zurück ins Hauptmenü.
+    onBackToMainMenu: mode === "standalone" ? () => backToMainMenu() : undefined,
   });
 }
 
@@ -594,8 +635,8 @@ function statusBar(state: GameState, mode: UiMode): HTMLElement {
     sfxToggleButton(isSfxEnabled(), () => toggleSfxEnabled()),
     h(
       "button",
-      { class: "btn btn-cancel", onclick: () => backToDeckbuilder() },
-      [text(isTutorialActive() ? "Zurück zum Hauptmenü" : "Neues Spiel")],
+      { class: "btn btn-cancel", onclick: () => backToMainMenu() },
+      [text("Zurück zum Hauptmenü")],
     ),
   ]);
 }

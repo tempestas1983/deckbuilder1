@@ -51,6 +51,19 @@ export function selectValue(el: HTMLSelectElement | null | undefined, value: str
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+/**
+ * "echtes Hauptmenü"-Umbau: die App startet nicht mehr direkt im
+ * player1-Deckbau-Screen, sondern im Hauptmenü (`mainMenu`, s.
+ * types.ts#AppPhase). Klickt "Neues Spiel" -> "2 Spieler" (Hotseat) - der
+ * Standard-Einstieg für Tests, die (wie vor diesem Umbau) einen normalen
+ * Zwei-Spieler-Deckbau (player1, danach player2) direkt ab App-Start
+ * brauchen, ohne dass die Gegner-Auswahl selbst Gegenstand des Tests ist.
+ */
+export function enterHotseatNewGame(root: ParentNode): void {
+  click(queryOne(root, ".main-menu-new-game-btn"));
+  click(queryOne(root, ".opponent-select-hotseat-btn"));
+}
+
 export function queryOne<T extends Element = Element>(root: ParentNode, selector: string): T {
   const el = root.querySelector<T>(selector);
   if (!el) throw new Error(`Element nicht gefunden: ${selector}`);

@@ -15,7 +15,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { click, keepAllMulligans, makeSeededRandom, queryOne } from "./testHelpers";
+import { click, enterHotseatNewGame, keepAllMulligans, makeSeededRandom, queryOne } from "./testHelpers";
 
 describe('"Aufgeben"-Button (v0.1.8)', () => {
   let randomSpy: ReturnType<typeof vi.spyOn>;
@@ -36,6 +36,7 @@ describe('"Aufgeben"-Button (v0.1.8)', () => {
 
     store.subscribe(() => render(root));
     render(root);
+    enterHotseatNewGame(root);
 
     // Deckbau (Hotseat, keine KI) - beide Spieler zufällig füllen bzw. von
     // Spieler 1 übernehmen, exakt wie im golden-path-Test.
