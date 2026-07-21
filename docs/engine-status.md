@@ -1,8 +1,8 @@
 # Engine-Status
 
-Status: v0.3.5 (engine-engineer) — 2026-07-10 (Bugfix, konkreter Umsetzungsauftrag
-des game-architect zu Entscheidung 9.15 — s. Abschnitt "v0.3.5" unten;
-vorheriger Stand: v0.3.4, 2026-07-10)
+Status: v0.3.6 (engine-engineer) — 2026-07-21 (Bugfix, vom Nutzer über den
+Orchestrator gemeldet, Root Cause bereits durch Code-Lesen lokalisiert — s.
+Abschnitt "v0.3.6" unten; vorheriger Stand: v0.3.5, 2026-07-10)
 Grundlage: `docs/rules-engine.md` (Regelwerk v0.3, vier vertagte Punkte aus
 Abschnitt 10 geschlossen: `onDamageReceived`, Mulligan, X auf aktivierten
 Fähigkeiten, Modal-Effekte; v0.3.1-Nachtrag zu Entscheidung 9.13), `src/model/*`
@@ -42,6 +42,56 @@ grün + 1 bewusst übersprungener Analyse-Test** — Details `docs/status.md`.
 Dieses Dokument richtet sich an frontend-engineer (worauf aufbauen?), card-designer
 (welche DSL-Primitive funktionieren zuverlässig?) und game-architect (offene
 Klärungspunkte, siehe Abschnitt "Offene Fragen").
+
+## v0.3.6: Bugfix — `isLegalBlock` prüfte nicht, ob der Blocker eine Unit ist
+
+**Gemeldet** vom Nutzer über den Orchestrator: In `declareBlockers` erschien
+für einen Spieler ohne jede Kreatur trotzdem ein "echte Wahl"-Blocker-Panel,
+obwohl er gar nicht blocken konnte. Root Cause vom Orchestrator bereits durch
+Code-Lesen lokalisiert.
+
+**Root Cause:** `combat.ts#isLegalBlock` prüfte für den `blocker`-Parameter
+zwar Controller/`permanentState`/Tapped-Status/Combat-Rolle, aber NICHT, ob
+die Instanz überhaupt ein `type: "unit"`-Permanent ist (im Gegensatz zu
+`guardianUnitsRequiringBlock` in derselben Datei, die diesen Typ-Guard
+korrekt hatte). `legal-actions.ts#combatCandidates` iteriert für
+`declareBlockers`-Kandidaten über das komplette `battlefield` des
+Verteidigers (alle Permanent-Typen, nicht nur Units) und ruft für jeden
+Eintrag `isLegalBlock` auf. Besaß der Verteidiger keine Kreaturen, aber ein
+ungetapptes Nicht-Unit-Permanent (typischerweise ein diesen Zug noch nicht
+für Mana genutztes Terrain, oder ein Relic/Enchantment), lieferte
+`isLegalBlock` fälschlich `true`, wodurch `combatCandidates` NEBEN dem
+leeren `{ blocks: [] }`-Kandidaten einen zusätzlichen (illegalen) Kandidaten
+mit diesem Nicht-Unit-Permanent als "Blocker" erzeugte. Die UI-Logik
+(`src/ui/store.ts#autoResolvableActionFor`,
+`src/ui/render.ts#hasRealDeclareBlockersChoice`) verlässt sich exakt auf
+"genau 1 Kandidat = keine echte Wahl, automatisch `blocks: []` auflösen,
+kein Panel zeigen" — mit dem zusätzlichen falschen Kandidaten griff diese
+Heuristik nicht mehr, und dem Spieler wurde ein Blocker-Panel angezeigt, in
+dem es de facto nichts Legales zu wählen gab außer "kein Block".
+
+**Fix:** `isLegalBlock` bekommt denselben Typ-Guard wie
+`guardianUnitsRequiringBlock` — `getDefinitionForInstance(pool, state,
+blocker)` auflösen und bei `def.type !== "unit"` sofort `false`
+zurückgeben, noch vor der Tapped-Prüfung. Reiner Engine-Fix; die
+UI-seitige "genau 1 Kandidat"-Heuristik war bereits korrekt implementiert
+und musste nicht angefasst werden — mit den jetzt korrekten Kandidaten von
+der Engine verschwindet das UI-Symptom automatisch.
+
+**Regressionstest** (`src/engine/__tests__/legal-actions.test.ts`, neue
+Describe-Gruppe "getLegalActions: declareBlockers-Kandidaten bei
+Nicht-Unit-Permanents (Bugfix-Regression)"): Verteidiger ohne Units, aber
+mit einem ungetappten Terrain auf dem Battlefield; Angreifer greift an;
+`getLegalActions` im `declareBlockers`-Step liefert für den Verteidiger nur
+noch GENAU EINEN Kandidaten (`{ kind: "declareBlockers", blocks: [] }`),
+keinen mit dem Terrain als Blocker mehr — plus Konsistenzcheck, dass
+`applyAction` einen hypothetischen Block mit dem Terrain weiterhin ablehnt
+(war schon vorher der Fall, `actions.ts` validiert unabhängig über
+`isLegalBlock`).
+
+**Verifikation:** `npm test`: 168 Tests grün (167 Bestand + 1 neuer
+Regressionstest) + 1 bewusst übersprungener Analyse-Test. `npm run build`
+(`tsc --noEmit`): sauber.
 
 ## v0.3.5: Bugfix — `onDeath{self}`/`onUnitDied` feuerten nur auf dem SBA-Pfad, nicht bei `destroyPermanent`/`sacrificeSelf` (Entscheidung 9.15)
 

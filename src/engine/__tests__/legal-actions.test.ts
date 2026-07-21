@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createRulesEngine } from "../engine";
 import { getLegalActions } from "../legal-actions";
-import { buildTestPool, standardTestDecks, UNAFFORDABLE_COSTS_RELIC } from "./fixtures";
-import { applyOk, putOnBattlefield } from "./test-helpers";
+import { BEAR, buildTestPool, FLAME_TERRAIN, standardTestDecks, UNAFFORDABLE_COSTS_RELIC } from "./fixtures";
+import { advanceToStep, applyOk, bothPass, makeNotSummoningSick, putOnBattlefield } from "./test-helpers";
 
 /**
  * Regressionstest für den in docs/ai-status.md gemeldeten und in
@@ -101,6 +101,54 @@ describe("getLegalActions: additionalCosts-Bezahlbarkeit bei activateAbility (Bu
       sourceInstanceId: relicId,
       abilityIndex: 2,
       chosenTargets: [],
+    });
+    expect(result.error).toBeDefined();
+  });
+});
+
+/**
+ * Regressionstest für den vom Orchestrator lokalisierten Bug: `isLegalBlock`
+ * (combat.ts) prüfte nicht, ob der `blocker` überhaupt eine Unit ist. Hatte
+ * der Verteidiger KEINE Kreaturen, aber ein ungetapptes Nicht-Unit-Permanent
+ * (z.B. ein noch nicht für Mana getapptes Terrain), erzeugte
+ * `combatCandidates` (legal-actions.ts) fälschlich einen zusätzlichen
+ * `declareBlockers`-Kandidaten mit diesem Terrain als "Blocker" - wodurch die
+ * UI (store.ts#autoResolvableActionFor / render.ts#hasRealDeclareBlockersChoice,
+ * die exakt auf "genau 1 Kandidat = leere Deklaration" prüfen) fälschlich ein
+ * "echte Wahl"-Panel für Blocker anzeigte, obwohl der Spieler gar keine
+ * blockfähige Kreatur besitzt.
+ */
+describe("getLegalActions: declareBlockers-Kandidaten bei Nicht-Unit-Permanents (Bugfix-Regression)", () => {
+  it("Verteidiger ohne Units, aber mit ungetapptem Terrain: einziger Kandidat ist die leere Blocker-Deklaration", () => {
+    const pool = buildTestPool();
+    const decks = standardTestDecks();
+    const engine = createRulesEngine(pool);
+    let { state } = engine.createGame({ decks, skipMulligans: true, seed: 400, startingPlayer: "player1" });
+
+    const attacker = putOnBattlefield(state, BEAR, "player1");
+    makeNotSummoningSick(state, attacker);
+    const terrain = putOnBattlefield(state, FLAME_TERRAIN, "player2");
+    expect(state.cards[terrain]!.permanentState!.tapped).toBe(false);
+    expect(state.players.player2.battlefield.some((id) => state.cards[id]?.permanentState !== undefined)).toBe(true);
+
+    state = advanceToStep(engine, state, "main1");
+    state = bothPass(engine, state); // -> beginCombat
+    state = bothPass(engine, state); // -> declareAttackers (Turn-Based Action)
+    state = applyOk(engine, state, { kind: "declareAttackers", player: "player1", attackers: [attacker] });
+    state = bothPass(engine, state); // -> declareBlockers
+    expect(state.step).toBe("declareBlockers");
+
+    const legal = getLegalActions(state, "player2", pool);
+    const declareBlockersCandidates = legal.filter((a) => a.kind === "declareBlockers");
+    expect(declareBlockersCandidates).toHaveLength(1);
+    expect(declareBlockersCandidates[0]).toMatchObject({ kind: "declareBlockers", blocks: [] });
+
+    // Konsistenzcheck: applyAction lehnt einen (hypothetischen) Block mit dem
+    // Terrain als Blocker konsequent ab.
+    const result = engine.applyAction(state, {
+      kind: "declareBlockers",
+      player: "player2",
+      blocks: [{ blocker: terrain, attacker }],
     });
     expect(result.error).toBeDefined();
   });

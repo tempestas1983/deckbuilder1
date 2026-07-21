@@ -68,6 +68,8 @@ export function isLegalBlock(
 ): boolean {
   const blockerCard = state.cards[blocker];
   if (!blockerCard || blockerCard.controller !== defender || !blockerCard.permanentState) return false;
+  const blockerDef = getDefinitionForInstance(pool, state, blocker);
+  if (blockerDef.type !== "unit") return false;
   if (blockerCard.permanentState.tapped) return false;
   if (blockerCard.permanentState.combat?.role === "blocker") return false; // schon zugeordnet
   const attackerCard = state.cards[attacker];
