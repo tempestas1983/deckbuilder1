@@ -247,12 +247,17 @@ body {
   display: flex;
   flex-direction: column;
   /* Auftrag "Battlefields sollen aneinander stoßen" (Nutzer-Feedback):
-     `.board` hat immer genau zwei Kinder (die beiden `.player-area`-Boxen,
-     s. boardSection/PLAYER_IDS), dieser Abstand ist also exakt die
-     Nahtstelle zwischen player1s und player2s Bereich - deutlich verkleinert
-     gegenüber vorher (14px), damit die beiden Battlefields (die jetzt an
-     genau dieser Stelle liegen, s. render.ts#playerArea) optisch spürbar
-     näher zusammenrücken. */
+     `.board` hatte ursprünglich immer genau zwei Kinder (die beiden
+     `.player-area`-Boxen, s. boardSection/PLAYER_IDS) - dieser Abstand war
+     also exakt die Nahtstelle zwischen player1s und player2s Bereich,
+     deutlich verkleinert gegenüber vorher (14px), damit die beiden
+     Battlefields (die an genau dieser Stelle liegen, s.
+     render.ts#playerArea) optisch spürbar näher zusammenrücken. Seit Auftrag
+     "Stack soll zwischen die Battlefields statt nach unten" hat `.board` ein
+     DRITTES Kind: `stackPanel(...)` sitzt als mittleres Element genau in
+     dieser Nahtstelle (s. boardSection) - der Abstand bleibt bewusst klein,
+     damit die Stack-Box eng zwischen den beiden Spielerbereichen sitzt statt
+     sie sichtbar auseinanderzudrücken. */
   gap: 5px;
   position: relative;
   isolation: isolate;
@@ -1300,11 +1305,19 @@ body {
   outline: 2px solid var(--bad);
 }
 
+/* Auftrag "Stack soll zwischen die Battlefields statt nach unten": sitzt
+   jetzt als drittes `.board`-Kind zwischen den beiden `.player-area`-Boxen
+   (s. render.ts#boardSection) statt gesondert unter dem gesamten Spielfeld.
+   Vertikales Innenpolster gegenüber vorher reduziert (10px -> 6px oben/
+   unten), da die Box an dieser engen Nahtstelle sonst wuchtiger wirkt als
+   die knapp gepolsterten `.player-area-touch-*`-Kanten direkt darüber/
+   darunter; die horizontale Randgestaltung bleibt unverändert, `.board`s
+   eigener 5px-Gap trennt die Box weiterhin sauber von beiden Battlefields. */
 .stack-panel {
   border: 1px solid var(--tavern-border);
   border-radius: 8px;
   background: linear-gradient(135deg, rgba(48, 36, 22, 0.92), rgba(26, 19, 12, 0.94));
-  padding: 10px;
+  padding: 6px 10px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
@@ -1344,7 +1357,7 @@ body {
 .stack-empty {
   color: var(--muted);
   font-style: italic;
-  padding: 6px;
+  padding: 6px 10px;
 }
 
 /* Deckbau-Screen (v0.1.5) --------------------------------------------- */

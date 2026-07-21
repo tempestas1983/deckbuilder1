@@ -543,8 +543,12 @@ function renderGameBoard(root: HTMLElement): void {
     })(),
     ...actionBanner(state, mode),
     state.winner !== undefined ? gameOverBanner(state) : undefined,
+    // Auftrag "Stack soll zwischen die Battlefields statt nach unten": der
+    // `stackPanel(...)`-Aufruf sitzt jetzt INNERHALB von `boardSection` (als
+    // drittes `.board`-Kind zwischen den beiden `playerArea`-Boxen) statt
+    // hier gesondert unter dem gesamten Board zu stehen - hier NICHT mehr
+    // aufrufen, sonst erscheint der Stack doppelt.
     boardSection(state, pool, mode),
-    stackPanel(state, pool, stackPanelOptions(state, mode)),
     tutorialActive && isTutorialHelpOpen() ? tutorialHelpPanel(() => closeTutorialHelp()) : undefined,
     // Auftrag Punkt 3: das globale Keyword-Nachschlagewerk ist in JEDER
     // Partie erreichbar (nicht nur im Tutorial-Modus, anders als
@@ -884,7 +888,22 @@ function boardSection(state: GameState, pool: ReturnType<typeof getPool>, mode: 
     // aufgerufen). `.board` behält nur seine eigene reine CSS-Atmosphäre
     // (Holzmaserung-Verlauf/Rauschen `.board::before`, Kerzenschein-Glow
     // `.board::after`).
-    PLAYER_IDS.map((playerId) => playerArea(state, pool, playerId, mode, targetMap)),
+    //
+    // Auftrag "Stack soll zwischen die Battlefields statt nach unten": der
+    // Stack ist gemeinsamer Spielzustand (Warteschlange für Zaubersprüche/
+    // Fähigkeiten, die noch auflösen müssen - gehört keinem der beiden
+    // Spieler allein), darum sitzt `stackPanel(...)` hier bewusst als
+    // DRITTES Kind zwischen den beiden `playerArea`-Aufrufen: player1s
+    // Battlefield endet am Ende seiner Box, player2s Battlefield beginnt am
+    // Anfang seiner Box (s. Kommentar in style.css bei `.board`) - genau an
+    // dieser Nahtstelle (schon vorher die geringste Lücke im Board) landet
+    // jetzt der Stack, statt wie zuvor gesondert unter dem gesamten
+    // `board-row`-Block zu stehen.
+    [
+      playerArea(state, pool, "player1", mode, targetMap),
+      stackPanel(state, pool, stackPanelOptions(state, mode)),
+      playerArea(state, pool, "player2", mode, targetMap),
+    ],
   );
 
   // Rechte Board-Spalte: TRÄGT jetzt den Zug-Flow (Auftrag "Zug-/Step-Info

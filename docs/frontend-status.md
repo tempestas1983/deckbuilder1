@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.25 (frontend-engineer) — 2026-07-21
+Status: v0.1.26 (frontend-engineer) — 2026-07-21
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -3524,6 +3524,75 @@ row`/`.bot-speed-panel-btn-active`-Regeln). Gelöscht:
 `src/ui/components/logPanel.ts`. Neu: `src/ui/components/botSpeedPanel.ts`.
 Keine Änderung an `src/engine/*`/`src/model/*`/`src/ai/*`, kein
 Kartenbalancing.
+
+## Stack-Anzeige zwischen die Battlefields verschoben (v0.1.26, 2026-07-21)
+
+Nutzer-Nachfrage nach der Bedeutung von „Stack ist leer" (Antwort: der Stack
+ist die gemeinsame Warteschlange für Zaubersprüche/Fähigkeiten, die noch
+auflösen müssen — geteilter Spielzustand, gehört keinem der beiden Spieler
+allein), daraufhin die Folgefrage „sollte das dann nicht zwischen die
+battlefields statt nach unten?". Reines Layout, keine Engine-/Model-Änderung,
+keine Änderung an `stackPanel.ts`/`stackPanelOptions`-Logik selbst.
+
+### `render.ts`: `stackPanel(...)` von `renderGameBoard` nach `boardSection` verschoben
+
+Seit v0.1.24 grenzen player1s und player2s Battlefield direkt an der
+Nahtstelle zwischen den beiden `.player-area`-Boxen aneinander (dort liegt
+mit 5px auch die kleinste Lücke im gesamten Board). `stackPanel(...)` wurde
+bisher ganz am Ende des root `children`-Arrays gerendert (unter dem
+kompletten `boardSection`-Block inkl. Turn-Flow-Spalte), jetzt sitzt der
+Aufruf stattdessen als DRITTES Element von `.board` in `boardSection`, genau
+zwischen den beiden `playerArea(...)`-Aufrufen (bewusstes Hardcoding auf
+`"player1"`/`"player2"` statt `PLAYER_IDS.map`, analog zu anderer bestehender
+2-Spieler-Logik im Projekt — `PLAYER_IDS` hat immer genau 2 Einträge). Die
+alte Aufrufstelle in `renderGameBoard` wurde entfernt, damit der Stack nicht
+doppelt erscheint; der `stackPanel`-Import bleibt unverändert bestehen.
+`stackPanelOptions(state, mode)` (Konter-Ziele/`targetableKeys`/
+`onTargetClick`) ist unverändert eine eigenständige Funktion ohne Zugriff auf
+`boardSection`-lokale Variablen und wird 1:1 weiterverwendet — keine
+Funktionsänderung, nur eine andere Aufrufstelle.
+
+### `style.css`: Nahtstellen-Optik statt eigenständiger Sektion
+
+- `.board`-Kommentar korrigiert: hatte „immer genau zwei Kinder" behauptet,
+  gilt seit diesem Auftrag nicht mehr — `.board` hat jetzt drei Kinder (zwei
+  `.player-area`-Boxen + `stackPanel(...)` als mittleres Element).
+- `.stack-panel`-Innenpolster von `10px` (alle Seiten) auf `6px 10px`
+  reduziert (vertikal knapper), da die Box an der engen, nur 5px breiten
+  Nahtstelle sonst wuchtiger wirkt als die knapp gepolsterten
+  `.player-area-touch-*`-Kanten direkt darüber/darunter (s. v0.1.24).
+  `.stack-empty` (Leerzustand „Stack ist leer.") auf denselben Wert `6px
+  10px` angeglichen (vorher `6px` einheitlich, unabhängig vom
+  `.stack-panel`-Padding, da `.stack-empty` in der Kaskade nach
+  `.stack-panel` steht und dessen Padding vollständig überschreibt statt zu
+  ergänzen — beide Zustände wirken jetzt einheitlich kompakt). Horizontale
+  Randgestaltung/Border/Radius/Gradient/Box-Shadow von `.stack-panel`
+  unverändert; `.board`s eigener 5px-Gap trennt die Box weiterhin sauber von
+  beiden Battlefields, kein `align-items`-Override nötig (Default `stretch`
+  gibt der Stack-Box automatisch dieselbe Breite wie die beiden
+  `.player-area`-Boxen).
+
+### Verifikation
+
+`npm test`: 168/168 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test) — identisch zur Baseline, kein Test hing an der bisherigen
+Position von `stackPanel` im Root-Kinderarray (vorab per Grep geprüft, keine
+Tests referenzieren `.stack-panel`/`boardSection` direkt). `npm run build`
+(`tsc --noEmit`) fehlerfrei. Ein Dev-Server lief auf Port 5173, in dieser
+Session standen jedoch keine Browser-/Computer-Use-Werkzeuge zur Verfügung
+(nur Read/Grep/Glob/Write/Edit/Bash) — keine echte Screenshot-Verifikation
+möglich, nur Code-Lektüre + `tsc`/`vitest` (gleiche Einschränkung wie in
+mehreren vorherigen Sessions, s. Punkt 15 unten sowie v0.1.24/v0.1.25 oben).
+
+**Ergebnis:** Geändert: `src/ui/render.ts` (`stackPanel(...)`-Aufruf von
+`renderGameBoard` nach `boardSection` verschoben, dort als drittes `.board`-
+Kind zwischen den beiden `playerArea(...)`-Aufrufen), `src/ui/style.css`
+(`.board`-Kommentar korrigiert, `.stack-panel`/`.stack-empty`-Innenpolster
+angepasst). Keine Änderung an `src/ui/components/stackPanel.ts`
+(`stackPanel`/`StackPanelOptions`), an `stackPanelOptions` selbst, an
+`playerArea`/Battlefield-Reihenfolge oder an
+`src/engine/*`/`src/model/*`/`src/ai/*` — reines Layout, keine neue
+Spiellogik, kein Kartenbalancing.
 
 ## Nächste Schritte (Vorschläge)
 
