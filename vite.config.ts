@@ -215,6 +215,7 @@ export default defineConfig({
   plugins: [cardArtworkPlugin(), sceneArtPlugin(), musicPlugin(), musicIndexPlugin(), sfxPlugin()],
   server: {
     port: 5173,
+    host: true,
   },
   build: {
     outDir: "dist-ui",
