@@ -41,22 +41,35 @@ export function artworkUrl(cardId: string): string {
 }
 
 export function cardFrameArt(def: CardDefinition): HTMLElement {
-  return h("div", { class: "card-frame-art" }, [
-    h("img", {
-      class: "card-frame-art-img",
-      src: artworkUrl(def.id),
-      alt: "",
-      loading: "lazy",
-      decoding: "async",
-      onload: (ev: Event) => {
-        (ev.currentTarget as HTMLElement).classList.add("card-frame-art-img-loaded");
-      },
-      onerror: (ev: Event) => {
-        // Datei existiert (noch) nicht - Normalfall für die meisten Karten:
-        // Bild-Element entfernen, damit der bisherige Farbverlauf-
-        // Hintergrund von .card-frame-art unverändert sichtbar bleibt.
-        (ev.currentTarget as HTMLElement).remove();
-      },
-    }),
-  ]);
+  const img = h("img", {
+    class: "card-frame-art-img",
+    src: artworkUrl(def.id),
+    alt: "",
+    loading: "lazy",
+    decoding: "async",
+    onload: (ev: Event) => {
+      (ev.currentTarget as HTMLElement).classList.add("card-frame-art-img-loaded");
+    },
+    onerror: (ev: Event) => {
+      // Datei existiert (noch) nicht - Normalfall für die meisten Karten:
+      // Bild-Element entfernen, damit der bisherige Farbverlauf-
+      // Hintergrund von .card-frame-art unverändert sichtbar bleibt.
+      (ev.currentTarget as HTMLElement).remove();
+    },
+  }) as HTMLImageElement;
+  // render.ts baut #app bei JEDER Zustandsänderung per innerHTML komplett neu
+  // auf (s. dortiger Dateikommentar) - dieses <img> wird also bei laufender
+  // Partie im Sekundentakt neu erzeugt. War das Bild bereits (z.B. aus dem
+  // Browser-Cache) geladen, liefert der Browser hier bereits synchron
+  // `complete === true`/`naturalWidth > 0` - dann sofort sichtbar schalten
+  // statt erneut auf das (in diesem Fall nichts mehr bewirkende) "load"-
+  // Event zu warten, sonst ergäbe jeder Rebuild einen kurzen
+  // Unsichtbar-dann-Einblenden-Sprung (sichtbares Blinken). Der obige
+  // "load"-Handler bleibt unverändert als Fallback für den echten ersten
+  // Ladevorgang der Session bestehen (dort soll der sanfte Fade-in
+  // weiterhin passieren).
+  if (img.complete && img.naturalWidth > 0) {
+    img.classList.add("card-frame-art-img-loaded");
+  }
+  return h("div", { class: "card-frame-art" }, [img]);
 }

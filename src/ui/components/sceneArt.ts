@@ -108,7 +108,7 @@ export function initBoardBackdrop(): void {
  * `.board-active-avatar`).
  */
 export function botAvatarImg(difficulty: BotDifficulty): HTMLElement {
-  return h("img", {
+  const img = h("img", {
     class: "board-opponent-avatar-img",
     src: botAvatarUrl(difficulty),
     alt: "",
@@ -120,7 +120,23 @@ export function botAvatarImg(difficulty: BotDifficulty): HTMLElement {
     onerror: (ev: Event) => {
       (ev.currentTarget as HTMLElement).remove();
     },
-  });
+  }) as HTMLImageElement;
+  // Anders als der Board-Hintergrund (s. initBoardBackdrop-Kommentar oben)
+  // lebt dieses <img> INNERHALB des per innerHTML komplett neu aufgebauten
+  // #app-Baums (render.ts) und wird darum bei laufender Partie im
+  // Sekundentakt neu erzeugt (besonders auffällig während automatischer
+  // Bot-Züge). War das Bild bereits geladen (z.B. Browser-Cache), liefert
+  // der Browser hier bereits synchron `complete === true`/`naturalWidth > 0`
+  // - dann sofort sichtbar schalten statt erneut auf das (in diesem Fall
+  // nichts mehr bewirkende) "load"-Event zu warten, sonst ergäbe jeder
+  // Rebuild einen kurzen Unsichtbar-dann-Einblenden-Sprung (sichtbares
+  // Blinken). Der obige "load"-Handler bleibt unverändert als Fallback für
+  // den echten ersten Ladevorgang der Session bestehen (dort soll der
+  // sanfte Fade-in weiterhin passieren).
+  if (img.complete && img.naturalWidth > 0) {
+    img.classList.add("board-opponent-avatar-img-loaded");
+  }
+  return img;
 }
 
 /**

@@ -3891,6 +3891,55 @@ Screenshot-Verifikation der neuen Abschnittstrennung/Hervorhebung.
 `.deck-pool-row-owned`). Keine Engine-/Modell-Änderung, kein Kartenbalancing,
 keine neuen Abhängigkeiten.
 
+## Bugfix: wiederkehrendes Bild-Blinken bei Karten-/Avatar-Artwork (v0.1.30, 2026-07-21)
+
+Nutzer-Report nach dem View-Transition-Wrapper-Fix (Commit `50e8c5b`, behob
+das Vollbild-Übergangs-Flackern beim Rendern): „aber es blinkt noch immer".
+Reines Frontend, keine Engine-/Modell-Änderung.
+
+### Ursache
+
+`render.ts#render()` baut `#app` bei JEDER Zustandsänderung per `innerHTML`
+komplett neu auf (kein DOM-Diffing) — bestätigt per `MutationObserver`, feuert
+während eines automatischen Bot-Zugs etwa alle ~900ms (passend zum
+eingestellten Bot-Tempo). `cardFrameArt()` (`cardArt.ts`) und `botAvatarImg()`
+(`sceneArt.ts`) folgten beide demselben Muster: das `<img>` startet per CSS
+unsichtbar (`opacity: 0`), erst das `onload`-Event schaltet die `-loaded`-
+Klasse (und damit `opacity: 1`) frei — gedacht für den sanften Fade-in beim
+ERSTEN echten Ladevorgang. Weil das Bild-Element aber bei JEDEM Rebuild neu
+erzeugt wird, startet es jedes Mal wieder bei `opacity: 0` und muss erneut auf
+das (zwar aus dem Browser-Cache sofort verfügbare, aber technisch weiterhin
+asynchrone) `onload`-Event warten — sichtbar als wiederkehrendes
+Unsichtbar-dann-Einblenden, bei jedem Kartenbild UND dem Avatar-Bild,
+verstärkt durch die hohe Render-Frequenz während Bot-Zügen.
+
+### Fix
+
+`cardFrameArt` (`cardArt.ts`) und `botAvatarImg` (`sceneArt.ts`): direkt nach
+dem Erzeugen des `<img>`-Elements wird jetzt synchron geprüft, ob der Browser
+das Bild bereits auflösen konnte (`img.complete && img.naturalWidth > 0`) —
+falls ja, wird die `-loaded`-Klasse sofort gesetzt statt auf das `onload`-
+Event zu warten. Der bestehende `onload`-Handler bleibt unverändert als
+Fallback für den echten ersten Ladevorgang der Session bestehen (dort greift
+weiterhin der sanfte Fade-in); `onerror`-Verhalten (Bild-Element bei
+fehlender Datei entfernen) unverändert. `render.ts` selbst wurde NICHT
+angefasst (separates Problem vom vorherigen View-Transition-Fix).
+
+### Verifikation
+
+`npm test`: 175/175 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test), keine Regression — `img.complete`/`naturalWidth` verhalten
+sich in jsdom defensiv genug (typischerweise `false`/`0` ohne echten
+Netzwerk-Request), sodass in Tests unverändert der bestehende `onload`-Pfad
+greift, kein Crash. `npm run build` (`tsc --noEmit`) fehlerfrei. Kein
+Browser-/Computer-Use-Werkzeug in dieser Session verfügbar, um das Blinken
+selbst live nachzustellen — Fix beruht auf der vom Orchestrator bereits per
+Live-Browser-Test (`MutationObserver` + Netzwerk-Log) verifizierten Diagnose.
+
+**Ergebnis:** Geändert: `src/ui/components/cardArt.ts` (`cardFrameArt`),
+`src/ui/components/sceneArt.ts` (`botAvatarImg`). Keine Engine-/Modell-
+Änderung, kein Kartenbalancing, keine neuen Abhängigkeiten.
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
