@@ -3364,6 +3364,95 @@ Option `highlightedInstanceIds`, `.action-glow`-Klasse auf `stack-row`),
 Keine Änderung an `src/engine/*`/`src/model/*`/`src/ai/*` — reines Frontend,
 keine neue Spiellogik, kein Kartenbalancing.
 
+## Battlefields grenzen direkt aneinander, KI-Hand wandert nach unten (v0.1.24, 2026-07-21)
+
+Nutzer-Auftrag (wörtlich): "das 'battlefield' von spieler 1 und spieler 2
+sollte quasi aneinander stoßen, denn dort ist ja das, was passiert. die
+'hand' der ki spieler muss ich gar nicht sehen ... die kann nach ganz unten
+geschoben werden." Reines Layout, keine Engine-/Model-Änderung.
+
+### `render.ts#playerArea`: gespiegelte Kindreihenfolge je Spieler
+
+Bisher identische Kindreihenfolge für beide Spieler (Panel → Hand →
+Battlefield → Graveyard), dadurch lagen player1s Graveyard UND player2s
+Panel+Hand zwischen den beiden Battlefields. Jetzt (PLAYER_IDS-Reihenfolge,
+`boardSection`, rechte Turn-Flow-Spalte bewusst unangetastet):
+
+- **player1** (oben): Panel → Hand → **Battlefield** (Battlefield jetzt
+  ganz unten in der Box, direkt an der Nahtstelle zu player2).
+- **player2** (unten): **Battlefield** → Panel → Hand (Battlefield ganz
+  oben, direkt an der Nahtstelle; player2s Hand — zeigt wegen
+  `handCard.ts#handCardHidden` ohnehin nur verdeckte Kartenrücken, s.
+  dortiger Kommentar — landet dadurch ganz am unteren Seitenende, der am
+  wenigsten prominenten Position).
+
+Ergebnis-Reihenfolge von oben nach unten: player1-Panel → player1-Hand →
+player1-Battlefield → player2-Battlefield → player2-Panel → player2-Hand —
+exakt die geforderte Anordnung.
+
+**Graveyard-Platzierung (eigene Design-Entscheidung, im Auftrag bewusst
+offengelassen):** an den jeweiligen äußeren Rand gebunden statt zwischen
+Panel und Hand — player1s Graveyard ganz oben vor seinem Panel, player2s
+Graveyard ganz unten nach seiner Hand. Damit kann kein Graveyard je
+zwischen die beiden Battlefields geraten, unabhängig von künftigen
+Änderungen an den übrigen Zonen. Zusätzlich bewusst kompakter/dezenter
+gestaltet (kleinere `min-height`/Padding der Zonenfläche, reduzierte
+Label-Deckkraft, s. `.player-zone-block-graveyard` in `style.css`) — der
+Graveyard ist relevant, aber nicht "das, was gerade passiert" (im
+Gegensatz zum Battlefield). Die Karten selbst (`cardTile`) bleiben
+unverändert groß, nur die umgebende Fläche schrumpft.
+
+Jede Zone steckt jetzt in einem eigenen `.player-zone-block`-Wrapper
+(Label + Zonenfläche zusammen), damit die drei Blöcke (Hand/Battlefield/
+Graveyard) unabhängig voneinander pro Spieler neu angeordnet werden
+können, ohne `handZone`/`battlefieldZone`/`graveyardZone` selbst
+anzufassen (deren Funktionslogik ist unverändert, nur wo/wie sie
+zusammengesetzt werden, hat sich geändert).
+
+### `style.css`: sichtbare Nahtstelle statt reiner Umsortierung
+
+- `.board`-Gap (Abstand zwischen den beiden `.player-area`-Boxen — `.board`
+  hat immer genau zwei Kinder) von 14px auf 5px reduziert, da an dieser
+  einen Stelle jetzt exakt die beiden Battlefields aufeinandertreffen.
+- Neue Modifier-Klassen `.player-area-touch-bottom` (player1) /
+  `.player-area-touch-top` (player2): verkleinern gezielt NUR das
+  Innenpolster und die Eckenrundung an der gemeinsamen Kante (10px → 4px
+  Padding, 10px → 3px Radius an den beiden inneren Ecken), damit die
+  beiden Spielfelder optisch spürbar "aneinander stoßen", ohne die beiden
+  `.player-area`-Boxen zu einer einzigen Box verschmelzen zu müssen (wäre
+  eine deutlich größere Restrukturierung mit Risiko für
+  `.player-area-deciding`, laut Auftrag nicht verlangt). `.player-area
+  -deciding` (Entscheidungs-Rahmen, `outline`+`box-shadow`, keine
+  `border-radius`/`padding`-Eigenschaften) bleibt davon unberührt und
+  umrandet weiterhin die komplette Box des jeweils entscheidenden
+  Spielers, unabhängig von der neuen internen Reihenfolge — verifiziert
+  per Code-Lektüre (Selektor-Reihenfolge in `style.css`: die neuen
+  Touch-Klassen stehen VOR `.player-area-deciding`, Kaskade greift wie
+  erwartet).
+
+### Verifikation
+
+`npm test`: 167/167 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test) — identisch zur Baseline, kein Test hing an der bisherigen
+DOM-Reihenfolge innerhalb `.player-area` (vorab per Grep geprüft). `npm run
+build` (`tsc --noEmit`) sowie zusätzlich `npm run build:ui` (`vite build`)
+beide fehlerfrei. Echte Browser-/Screenshot-Verifikation des neuen Layouts
+steht aus — kein Browser-/Computer-Use-Werkzeug in dieser Session
+verfügbar, kein laufender Dev-/Preview-Server gefunden (nur Code-Lektüre +
+`tsc`/`vitest`/`vite build`, gleiche Einschränkung wie in mehreren
+vorherigen Sessions, s. Punkt 15 unten).
+
+**Ergebnis:** Geänderte Dateien: `src/ui/render.ts` (`playerArea`:
+gespiegelte Kindreihenfolge je `playerId`, neue lokale `panelNode`/
+`handNode`/`battlefieldNode`/`graveyardNode`-Wrapper, neue
+`player-area-touch-*`-Modifier-Klasse), `src/ui/style.css` (`.board`-Gap
+reduziert, neue `.player-zone-block`/`.player-area-touch-bottom`/
+`.player-area-touch-top`/`.player-zone-block-graveyard`-Regeln). Keine
+Änderung an `handZone`/`battlefieldZone`/`graveyardZone` selbst, an
+`boardSection`/`PLAYER_IDS`, an der rechten Turn-Flow-Spalte oder an
+`src/engine/*`/`src/model/*`/`src/ai/*` — reines Layout, keine neue
+Spiellogik, kein Kartenbalancing.
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt

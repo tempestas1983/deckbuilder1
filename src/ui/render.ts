@@ -13,9 +13,11 @@
 
 import type { ActivatedAbility, GameState, InstanceId, PlayerAction, PlayerId } from "../model";
 import {
+  BOT_SPEED_LABELS,
   backToMainMenu,
   chooseOpponentBot,
   chooseOpponentHotseat,
+  closeBotSpeedPanel,
   closeKeywordGlossary,
   closeKeywordGlossaryPanel,
   closeMusicPanel,
@@ -26,9 +28,9 @@ import {
   dispatch,
   getAppPhase,
   getBotDifficulty,
+  getBotSpeedPreset,
   getDecklist,
   getLastError,
-  getLog,
   getMusicCurrentTrack,
   getMusicRepeatMode,
   getMusicTracks,
@@ -42,6 +44,7 @@ import {
   getUiMode,
   hasRealPriorityChoice,
   isBotControlled,
+  isBotSpeedPanelOpen,
   isKeywordGlossaryPanelOpen,
   isMusicEnabled,
   isMusicPanelOpen,
@@ -55,12 +58,14 @@ import {
   selectMusicTrack,
   setBotControlled,
   setBotDifficulty,
+  setBotSpeedPreset,
   setDecklist,
   setMusicRepeatMode,
   setUiMode,
   skipTutorialStep,
   startNewGameFlow,
   startTutorial,
+  toggleBotSpeedPanel,
   toggleKeywordGlossaryPanel,
   toggleMusicEnabled,
   toggleMusicPanel,
@@ -73,6 +78,8 @@ import { tutorialHelpButton, tutorialHelpPanel, tutorialInstructionBanner, tutor
 import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } from "./components/keywordGlossaryPanel";
 import { decisionSpotlightBanner } from "./components/decisionSpotlight";
 import { musicPanel, musicPanelButton } from "./components/musicPanel";
+import { botSpeedPanel, botSpeedPanelButton } from "./components/botSpeedPanel";
+import { BOT_SPEED_LABELS } from "./store";
 import { sfxToggleButton } from "./components/sfxToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
@@ -86,7 +93,6 @@ import { playerPanel } from "./components/playerPanel";
 import { botAvatarImg, humanAvatarPlaceholder } from "./components/sceneArt";
 import { turnFlowPanel } from "./components/turnFlowPanel";
 import { stackPanel } from "./components/stackPanel";
-import { logPanel } from "./components/logPanel";
 import {
   attackersPanel,
   blockersPanel,
@@ -540,7 +546,6 @@ function renderGameBoard(root: HTMLElement): void {
     state.winner !== undefined ? gameOverBanner(state) : undefined,
     boardSection(state, pool, mode),
     stackPanel(state, pool, stackPanelOptions(state, mode)),
-    logPanel(getLog()),
     tutorialActive && isTutorialHelpOpen() ? tutorialHelpPanel(() => closeTutorialHelp()) : undefined,
     // Auftrag Punkt 3: das globale Keyword-Nachschlagewerk ist in JEDER
     // Partie erreichbar (nicht nur im Tutorial-Modus, anders als
@@ -953,8 +958,23 @@ function playerArea(
   // dass hier je ein Rahmen aufblitzen würde).
   const isDeciding = decidingPlayer(state) === playerId;
 
-  return h("div", { class: isDeciding ? "player-area player-area-deciding" : "player-area" }, [
-    playerPanel(state, playerId, {
+  // Auftrag "Battlefields sollen aneinander stoßen" (Nutzer-Feedback): die
+  // beiden `.player-area`-Boxen liegen als direkte `.board`-Geschwister
+  // übereinander (s. boardSection - player1 oben, player2 unten,
+  // PLAYER_IDS-Reihenfolge bewusst unangetastet). Damit an genau dieser
+  // Nahtstelle nichts Unwichtiges mehr zwischen den beiden Battlefields
+  // liegt, wird NUR die interne Kindreihenfolge je Spieler gespiegelt:
+  // - player1 (oben): Panel -> Hand -> Battlefield (Battlefield sitzt damit
+  //   ganz unten in player1s Box, direkt vor der Nahtstelle zu player2).
+  // - player2 (unten): Battlefield -> Panel -> Hand (Battlefield sitzt damit
+  //   ganz oben in player2s Box, direkt hinter der Nahtstelle). Die Hand
+  //   von player2 (zeigt wegen handCard.ts#handCardHidden ohnehin nur
+  //   verdeckte Kartenrücken, s. Auftrag) wandert dadurch ganz ans untere
+  //   Ende der Seite - die am wenigsten prominente Position, wie gefordert.
+  // Der Graveyard beider Spieler bleibt bewusst an den jeweiligen äußeren
+  // Rand gebunden (player1 ganz oben vor dem Panel, player2 ganz unten nach
+  // der Hand), damit er nie zwischen den beiden Battlefields landen kann.
+  const panelNode = playerPanel(state, playerId, {
       lifePulse,
       botControlled: isBotControlled(playerId),
       // v0.1.9: Anzeige der aktiven Bot-Schwierigkeitsstufe im Spielbrett-
@@ -991,14 +1011,35 @@ function playerArea(
             }
           }
         : undefined,
-    }),
-    h("div", { class: "zone-label" }, [text("Hand")]),
-    handZone(state, pool, playerId, mode),
+  });
+
+  const handNode = h("div", { class: "player-zone-block" }, [h("div", { class: "zone-label" }, [text("Hand")]), handZone(state, pool, playerId, mode)]);
+  const battlefieldNode = h("div", { class: "player-zone-block" }, [
     h("div", { class: "zone-label" }, [text("Battlefield")]),
     battlefieldZone(state, pool, playerId, mode, targetMap),
+  ]);
+  const graveyardNode = h("div", { class: "player-zone-block player-zone-block-graveyard" }, [
     h("div", { class: "zone-label" }, [text("Graveyard")]),
     graveyardZone(state, pool, playerId),
   ]);
+
+  const children =
+    playerId === "player1"
+      ? [graveyardNode, panelNode, handNode, battlefieldNode]
+      : [battlefieldNode, panelNode, handNode, graveyardNode];
+
+  // "player-area-touch-bottom"/"-top": player1s Box endet jetzt mit ihrem
+  // Battlefield, player2s Box beginnt mit ihrem Battlefield (s.o.) - diese
+  // Zusatzklassen verkleinern gezielt NUR das Innenpolster + die
+  // Eckenrundung an genau dieser gemeinsamen Nahtstelle (style.css), damit
+  // die beiden Battlefields optisch "aneinander stoßen" statt durch das
+  // normale Panel-Innenpolster getrennt zu wirken - ohne die beiden Boxen zu
+  // einer einzigen verschmelzen zu müssen (`.player-area-deciding` bleibt
+  // dadurch unverändert funktionsfähig, s. Auftrag).
+  const touchClass = playerId === "player1" ? " player-area-touch-bottom" : " player-area-touch-top";
+  const areaClass = (isDeciding ? "player-area player-area-deciding" : "player-area") + touchClass;
+
+  return h("div", { class: areaClass }, children);
 }
 
 function handZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: PlayerId, mode: UiMode): HTMLElement {

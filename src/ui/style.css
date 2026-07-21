@@ -246,7 +246,14 @@ body {
 .board {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  /* Auftrag "Battlefields sollen aneinander stoßen" (Nutzer-Feedback):
+     `.board` hat immer genau zwei Kinder (die beiden `.player-area`-Boxen,
+     s. boardSection/PLAYER_IDS), dieser Abstand ist also exakt die
+     Nahtstelle zwischen player1s und player2s Bereich - deutlich verkleinert
+     gegenüber vorher (14px), damit die beiden Battlefields (die jetzt an
+     genau dieser Stelle liegen, s. render.ts#playerArea) optisch spürbar
+     näher zusammenrücken. */
+  gap: 5px;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -399,6 +406,51 @@ body {
   color: var(--parchment-muted);
   opacity: 0.85;
   margin-top: 4px;
+}
+
+/* Auftrag "Battlefields sollen aneinander stoßen": jede Zone (Hand/
+   Battlefield/Graveyard) steckt jetzt in einem eigenen `.player-zone-block`
+   (render.ts#playerArea), damit die Reihenfolge je Spieler unabhängig
+   voneinander gespiegelt werden kann (player1: Panel -> Hand -> Battlefield,
+   player2: Battlefield -> Panel -> Hand). Reiner Layout-Wrapper, keine
+   optische Änderung der Zonen selbst. */
+.player-zone-block {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Nahtstelle zwischen den beiden Spielfeldern (s. `.board`-Kommentar oben):
+   player1s Box endet jetzt mit ihrem Battlefield, player2s Box beginnt mit
+   ihrem - an genau dieser Kante wird das Innenpolster verkleinert und die
+   Eckenrundung reduziert, damit die beiden `.player-area`-Boxen spürbar
+   "aneinander stoßen" statt durch das normale Panel-Polster getrennt zu
+   wirken. `.player-area-deciding` (Entscheidungs-Rahmen) bleibt davon
+   unberührt, da es weiterhin die komplette Box umrandet. */
+.player-area-touch-bottom {
+  padding-bottom: 4px;
+  border-bottom-left-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+
+.player-area-touch-top {
+  padding-top: 4px;
+  border-top-left-radius: 3px;
+  border-top-right-radius: 3px;
+}
+
+/* Graveyard bewusst dezenter/kompakter als Hand/Battlefield (Auftrag: darf
+   an den äußeren Rand wandern, ist aber nicht "das, was gerade passiert") -
+   reduziertes Innenpolster/Mindesthöhe der Zone selbst sowie eine leicht
+   zurückgenommene Label-Deckkraft, s. render.ts#playerArea
+   (`player-zone-block-graveyard`). Die Karten darin (cardTile) bleiben
+   unverändert groß, nur die umgebende Fläche schrumpft. */
+.player-zone-block-graveyard .zone-label {
+  opacity: 0.6;
+}
+
+.player-zone-block-graveyard .graveyard-zone {
+  min-height: 26px;
+  padding: 5px;
 }
 
 /* Auftrag Teil 3a (Nutzer-Feedback, Screenshot mit eingekreistem Hand-/
@@ -1256,8 +1308,7 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
-.stack-panel-title,
-.log-panel-title {
+.stack-panel-title {
   font-size: 12px;
   text-transform: uppercase;
   color: var(--muted);
@@ -1294,29 +1345,6 @@ body {
   color: var(--muted);
   font-style: italic;
   padding: 6px;
-}
-
-.log-panel {
-  border: 1px solid var(--tavern-border);
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(48, 36, 22, 0.92), rgba(26, 19, 12, 0.94));
-  padding: 10px;
-  max-height: 220px;
-  overflow-y: auto;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-.log-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
-  color: #c8cad2;
-}
-
-.log-entry {
-  border-bottom: 1px solid #2a2d35;
-  padding-bottom: 2px;
 }
 
 /* Deckbau-Screen (v0.1.5) --------------------------------------------- */
