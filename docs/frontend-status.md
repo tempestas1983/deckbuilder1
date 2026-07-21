@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.21 (frontend-engineer) — 2026-07-20
+Status: v0.1.23 (frontend-engineer) — 2026-07-21
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -18,6 +18,22 @@ Stufen `easy`/`medium`/`hard`; `chooseAction` (`src/ai/simpleBot.ts`, v1 =
 Stufe "medium") bleibt weiterhin exportiert; **seit v0.1.17** liefert
 `src/ai/difficulty.ts` zusätzlich `BOT_DISPLAY_NAMES` — erfundene
 Tavernen-Namen der drei Bot-Stufen fürs UI, s. dortiger Abschnitt).
+
+**v0.1.23 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Auftrag „mehr Nachvollziehbarkeit von KI-Spielzügen — auch visuell,
+eine Karte wird gelegt, es wird getappt usw". `store.ts#describeEvent` nennt
+jetzt Kartennamen/Controller statt nur der Event-Art (`spellCast`,
+`abilityActivated`, `triggerFired`, `damageDealt`) und ergänzt eine neue
+Log-Zeile für „Permanent von Hand ins Spiel gebracht" (`zoneChanged`
+hand→battlefield, i.d.R. Terrains). Neu: transiente
+`recentActionInstanceIds` (`getRecentActionInstanceIds()`), befüllt aus
+`spellCast`/`abilityActivated`/`triggerFired`/`permanentTapped`/dem obigen
+`zoneChanged`-Fall, blendet die betroffene(n) Karte(n) ~1,2s lang per neuer
+`.action-glow`-Klasse (Battlefield-Kacheln UND Stack-Zeilen, eigene grüne
+Animation, bewusst NICHT `.tutorial-glow` wiederverwendet) ein — einheitlich
+für Bot- UND Menschzüge. `cardDrawn` bleibt bewusst informationsarm (keine
+Kartennamen — verdeckte Gegner-Hand), `permanentTapped`/`countersChanged`
+bleiben ohne eigene Log-Zeile (Spam-Vermeidung), nur visuell.
 
 **v0.1.21 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Auftrag „KI zieht aus kuratierten Archetyp-Decks statt aus einer reinen
@@ -3235,6 +3251,118 @@ Media-Query stapelt statt auszublenden), `src/ui/__tests__/golden-path.test.ts`
 (Step-Polling auf neuen `data-testid` umgestellt). Keine Änderung an
 `src/engine/*`/`src/model/*`/`src/ai/*` — reines Frontend, keine neue
 Spiellogik.
+
+## Bot-Zug-Nachvollziehbarkeit: angereichertes Event-Log + visuelles Action-Glow (v0.1.23, 2026-07-21)
+
+Nutzer-Auftrag (wörtlich): "ich denke, wir brauchen noch ein wenig mehr
+'nachvollziehbarkeit' im rahmen der KI spielzüge. so dass der spieler klarer
+geführt sieht: was tut der gegner jetzt (auch visuell, eine karte wird
+gelegt, es wird getappt usw)". Reines Frontend, keine Engine-/Model-Änderung —
+alle benötigten `GameEvent`-Felder (`cardInstanceId`, `sourceInstanceId`,
+`instanceId`, `to`, ...) existierten bereits, wurden von `describeEvent` nur
+nicht genutzt.
+
+### Log-Text angereichert (`store.ts#describeEvent`)
+
+- `spellCast`: nennt jetzt den Kartennamen + (falls auflösbar) den
+  Controller, z.B. `player2 castet Feuerstoß (Stack)` statt vorher nur
+  `Karte gecastet (Stack)`.
+- `abilityActivated`: nennt die Quellkarte + Controller, z.B.
+  `player2 aktiviert eine Fähigkeit von Aschfall-Idol`.
+- `triggerFired`: nennt die Quellkarte, z.B.
+  `Ausgelöste Fähigkeit von Aschanspruch-Schrein`.
+- `damageDealt`: nennt jetzt das Ziel (Kreaturname via `cardDef` oder
+  `PlayerId`), z.B. `2 Schaden an Sonnenschwester` statt nur `2 Schaden an
+  card17`.
+- `zoneChanged`: NEU, aber bewusst nur für den Sonderfall Hand→Battlefield
+  (Terrains — Zauber/Kreaturen laufen über den Stack, `from: "stack"`, nicht
+  `"hand"`), z.B. `player2 spielt Flammenkuppe`. Alle anderen Zonenwechsel
+  bleiben unbehandelt (`undefined`), sonst Duplikate mit
+  `stackObjectResolved`/`unitDied`.
+- Bewusst UNVERÄNDERT: `cardDrawn` nennt weiterhin NICHT die gezogene Karte
+  (Informationsleck über die verdeckte Gegner-Hand wäre kein Feature).
+  `permanentTapped`/`permanentUntapped`/`countersChanged` bekommen weiterhin
+  KEINE eigene Log-Zeile (Spam-Vermeidung bei jedem einzelnen Mana-Tap) —
+  stattdessen rein visuell über das Glow-Highlight (s.u.) sichtbar.
+- Neue kleine Hilfsfunktionen `cardNameFor`/`controllerOf`/
+  `describeDamageTarget` (defensiv: `cardNameFor` fängt eine evtl.
+  `cardDef`-Exception ab und liefert `"eine Karte"`, falls eine InstanceId
+  zwischenzeitlich endgültig verschwunden ist, z.B. ein per
+  `removeTokenPermanently` gelöschter Token).
+
+### Neuer transienter UI-Zustand: `recentActionInstanceIds`
+
+`store.ts` hält jetzt eine Menge von InstanceIds, die "gerade eben" von
+einem Event betroffen waren (`spellCast`→`cardInstanceId`,
+`abilityActivated`/`triggerFired`→`sourceInstanceId`,
+`permanentTapped`→`instanceId`, `zoneChanged` Hand→Battlefield→
+`cardInstanceId` — bewusst diese enge Auswahl, nicht z.B. `damageDealt`,
+um das Board nicht bei jedem Event aufblitzen zu lassen), exponiert über
+`getRecentActionInstanceIds()`. Läuft für BEIDE Spieler gleich (kein
+bot-spezifischer Mechanismus). `markRecentAction` leert die Menge
+automatisch nach `RECENT_ACTION_GLOW_MS` (1200ms) via `setTimeout` +
+`notify()`, statt bis zum nächsten Event stehen zu bleiben.
+`resetRecentActionGlow()` wird von `initGame()` aufgerufen — InstanceIds
+starten pro Partie neu bei `"card1"` (`engine/ids.ts#nextInstanceId`), eine
+stehengebliebene alte Glow-Anzeige der VORHERIGEN Partie könnte sonst in der
+neuen zufällig eine unbeteiligte Karte treffen.
+
+### Refactoring: `processEvents` statt vierfach dupliziertem Event-Loop
+
+Die vier fast identischen `for (const e of events) { describeEvent + Log-Push
++ playSfxForEvent }`-Schleifen an den vier Aufrufstellen (`initGame`,
+`dispatch`, `runBotStep`, `applyAutomaticAction`) wurden zu einer
+gemeinsamen `processEvents(events, opts)` zusammengefasst, die zusätzlich
+`collectGlowInstanceIds` aufruft und am Ende `markRecentAction` — vermeidet,
+dass ein künftiges Verhalten nur an drei von vier Stellen ergänzt wird.
+
+### Visuelle Hervorhebung (`render.ts`, `components/stackPanel.ts`, `style.css`)
+
+Neue Klasse `.action-glow` (eigene grüne `--good`-Optik + einmalige
+`action-glow-fade`-Animation, KEIN `infinite`-Puls) — bewusst NICHT
+`.tutorial-glow` wiederverwendet (semantisch anderer Bedeutung: "das hier als
+Nächstes tun" vs. "das ist GERADE passiert", könnten theoretisch gleichzeitig
+an derselben Karte aktiv sein). Zwei Anwendungsstellen:
+
+- `render.ts#battlefieldZone`: NACHTRÄGLICH per `classList.add` auf die
+  bereits gebauten `tiles`-Elemente angewandt (Index-Abgleich mit
+  `battlefield`-Array), statt als weitere `cardTile()`-Option an jeder der
+  ~8 Rückgabestellen der Funktion — vermeidet, dass eine davon künftig
+  vergessen wird.
+- `components/stackPanel.ts`: neue Option `highlightedInstanceIds` — hebt
+  die Stack-Zeile eines gerade gecasteten Zaubers/aktivierten Fähigkeit/
+  Triggers hervor, während die Karte selbst noch auf dem Stack liegt (zu
+  diesem Zeitpunkt noch nicht auf dem Battlefield, `.action-glow` auf einer
+  `cardTile` würde also noch nicht greifen).
+
+Handzone bewusst NICHT angefasst — sobald ein Event mit InstanceId-Bezug
+feuert, hat die betroffene Karte die Hand i.d.R. bereits verlassen (Stack
+oder Battlefield).
+
+### Verifikation
+
+`npm test`: 167/167 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test). `npm run build` (`tsc --noEmit`) sowie zusätzlich `npm run
+build:ui` (`vite build`) beide fehlerfrei. Kein bestehender Test hing an den
+alten Log-Texten (per Grep geprüft: keine Treffer für "Karte gecastet"/
+"Fähigkeit aktiviert"/"Getriggerte Fähigkeit ausgelöst" außerhalb der
+geänderten Zeile selbst). Echte Browser-/Screenshot-Verifikation der
+Glow-Animation steht aus — kein Browser-/Computer-Use-Werkzeug in dieser
+Session verfügbar (nur Code-Lektüre + `tsc`/`vitest`/`vite build`, gleiche
+Einschränkung wie in mehreren vorherigen Sessions).
+
+**Ergebnis:** Geänderte Dateien: `src/ui/store.ts` (angereicherte
+`describeEvent`-Fälle, neue `cardNameFor`/`controllerOf`/
+`describeDamageTarget`/`collectGlowInstanceIds`/`processEvents`/
+`markRecentAction`/`resetRecentActionGlow`/`getRecentActionInstanceIds`,
+vier Aufrufstellen auf `processEvents` umgestellt), `src/ui/render.ts`
+(`battlefieldZone` wendet `.action-glow` nachträglich an, `stackPanelOptions`
+reicht `highlightedInstanceIds` durch, neuer Import
+`getRecentActionInstanceIds`), `src/ui/components/stackPanel.ts` (neue
+Option `highlightedInstanceIds`, `.action-glow`-Klasse auf `stack-row`),
+`src/ui/style.css` (neue `.action-glow`/`@keyframes action-glow-fade`-Regeln).
+Keine Änderung an `src/engine/*`/`src/model/*`/`src/ai/*` — reines Frontend,
+keine neue Spiellogik, kein Kartenbalancing.
 
 ## Nächste Schritte (Vorschläge)
 

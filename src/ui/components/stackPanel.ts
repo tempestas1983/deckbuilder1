@@ -4,7 +4,7 @@
  * Controller und - falls vorhanden - gewählte Ziele/X.
  */
 
-import type { CardPool, ChosenTarget, GameState, StackObject } from "../../model";
+import type { CardPool, ChosenTarget, GameState, InstanceId, StackObject } from "../../model";
 import { cardDef } from "../cardInfo";
 import { h, text } from "../h";
 import { targetKeyOf } from "../types";
@@ -27,6 +27,16 @@ export interface StackPanelOptions {
   /** targetKey -> Klick-Handler, für Konter-Ziele auf dem Stack. */
   targetableKeys?: Set<string>;
   onTargetClick?: (stackObjectId: string) => void;
+  /**
+   * s. store.ts#getRecentActionInstanceIds - wird ein neues Stack-Objekt
+   * hervorgehoben, dessen zugrundeliegende InstanceId (cardInstanceId bei
+   * Zaubern, sourceInstanceId bei Fähigkeiten/Triggern) gerade in dieser
+   * Menge steckt (Auftrag "Nachvollziehbarkeit von KI-Spielzügen"). Dieselbe
+   * `.action-glow`-Optik wie bei cardTile.ts, hier auf die Stack-Zeile
+   * angewandt statt auf eine Kartenkachel, da der Zauber selbst zu diesem
+   * Zeitpunkt nur auf dem Stack liegt, nicht auf dem Battlefield.
+   */
+  highlightedInstanceIds?: ReadonlySet<InstanceId>;
 }
 
 export function stackPanel(state: GameState, pool: CardPool, opts: StackPanelOptions = {}): HTMLElement {
@@ -48,6 +58,7 @@ function stackRow(
   opts: StackPanelOptions,
 ): HTMLElement {
   let label: string;
+  const relevantInstanceId = obj.kind === "spell" ? obj.cardInstanceId : obj.sourceInstanceId;
   if (obj.kind === "spell") {
     label = cardDef(pool, state, obj.cardInstanceId).name;
   } else {
@@ -56,6 +67,7 @@ function stackRow(
   }
   const targetKey = targetKeyOf({ kind: "stackObject", stackObjectId: obj.id });
   const targetable = opts.targetableKeys?.has(targetKey) ?? false;
+  const highlighted = opts.highlightedInstanceIds?.has(relevantInstanceId) ?? false;
 
   const details: (Node | string | false)[] = [
     h("span", { class: "stack-row-controller" }, [text(obj.controller)]),
@@ -70,7 +82,7 @@ function stackRow(
   return h(
     "div",
     {
-      class: `stack-row${idxFromTop === 0 ? " stack-row-top" : ""}${targetable ? " targetable" : ""}`,
+      class: `stack-row${idxFromTop === 0 ? " stack-row-top" : ""}${targetable ? " targetable" : ""}${highlighted ? " action-glow" : ""}`,
       onclick: targetable ? () => opts.onTargetClick?.(obj.id) : undefined,
     },
     [h("div", { class: "stack-row-name" }, [text(label)]), h("div", { class: "stack-row-details" }, details)],

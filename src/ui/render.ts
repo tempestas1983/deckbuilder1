@@ -34,6 +34,7 @@ import {
   getMusicTracks,
   getOpenKeywordGlossary,
   getPool,
+  getRecentActionInstanceIds,
   getState,
   getTutorialActiveStep,
   getTutorialHighlight,
@@ -823,6 +824,7 @@ function stackPanelOptions(state: GameState, mode: UiMode) {
 
   return {
     targetableKeys,
+    highlightedInstanceIds: getRecentActionInstanceIds(),
     onTargetClick: (stackObjectId: string) => {
       const candidate = map.get(targetKeyOf({ kind: "stackObject", stackObjectId }));
       if (candidate) {
@@ -1249,6 +1251,21 @@ function battlefieldZone(
 
     return cardTile(state, pool, id, { tutorialHighlighted });
   });
+
+  // Nutzer-Auftrag ("Nachvollziehbarkeit von KI-Spielzügen ... visuell, eine
+  // Karte wird gelegt, es wird getappt"): die zuletzt betroffene(n) Karte(n)
+  // (s. store.ts#getRecentActionInstanceIds) kurz optisch hervorheben -
+  // bewusst NACHTRÄGLICH per classList statt als weiterer cardTile()-Option
+  // an jeder der ~8 Rückgabestellen oben (jede davon müsste sonst einzeln
+  // gepflegt werden und könnte künftig leicht vergessen werden); die
+  // Reihenfolge von `tiles` entspricht 1:1 der von `battlefield`, daher reicht
+  // ein Index-Abgleich.
+  const recentActionIds = getRecentActionInstanceIds();
+  if (recentActionIds.size > 0) {
+    state.players[playerId].battlefield.forEach((id, idx) => {
+      if (recentActionIds.has(id)) tiles[idx]!.classList.add("action-glow");
+    });
+  }
 
   return h("div", { class: "battlefield-zone" }, tiles);
 }

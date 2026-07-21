@@ -31,6 +31,66 @@ let lastError: string | undefined;
 let uiMode: UiMode = { kind: "idle" };
 
 /**
+ * Transiente "das ist GERADE passiert"-Menge von InstanceIds (Nutzer-Auftrag:
+ * "Nachvollziehbarkeit von KI-Spielzügen ... auch visuell, eine Karte wird
+ * gelegt, es wird getappt usw") - befüllt aus den zuletzt verarbeiteten
+ * GameEvents (s. collectGlowInstanceIds/processEvents unten), von render.ts
+ * über `getRecentActionInstanceIds()` gelesen, um die betroffene(n) Karte(n)
+ * kurz optisch hervorzuheben (eigene `.action-glow`-Klasse, s. style.css -
+ * bewusst NICHT `.tutorial-glow` wiederverwendet, das dort etwas anderes
+ * bedeutet, s. cardTile.ts-Kommentar). Läuft für BEIDE Spieler gleich (kein
+ * bot-spezifischer Mechanismus) - einheitlicher, einfacherer Code, und auch
+ * bei eigenen Aktionen eine sinnvolle, konsistente Rückmeldung.
+ *
+ * Leert sich nach RECENT_ACTION_GLOW_MS von selbst (s. markRecentAction) statt
+ * bis zum nächsten Event stehen zu bleiben - sonst würde die Hervorhebung
+ * einer stillen Karte "kleben bleiben", bis irgendwann ein neues Event kommt.
+ */
+let recentActionInstanceIds: Set<InstanceId> = new Set();
+let recentActionClearTimer: ReturnType<typeof setTimeout> | undefined;
+const RECENT_ACTION_GLOW_MS = 1200;
+
+/** s. recentActionInstanceIds oben - für render.ts (cardTile/stackPanel-Hervorhebung). */
+export function getRecentActionInstanceIds(): ReadonlySet<InstanceId> {
+  return recentActionInstanceIds;
+}
+
+/**
+ * Fügt neue InstanceIds zur Glow-Menge hinzu und (re-)startet den Auto-Clear-
+ * Timer - kommt während desselben Zeitfensters ein weiteres Event für eine
+ * ANDERE Karte hinzu, verlängert sich die Anzeigedauer für ALLE aktuell
+ * hervorgehobenen Karten gemeinsam (einfacher als Einzel-Ablaufzeiten pro
+ * Karte zu verwalten, und in der Praxis unauffällig, da ein einzelner
+ * Bot-Schritt ohnehin meist nur 1-2 Events mit InstanceId-Bezug erzeugt).
+ */
+function markRecentAction(ids: InstanceId[]): void {
+  if (ids.length === 0) return;
+  for (const id of ids) recentActionInstanceIds.add(id);
+  if (recentActionClearTimer !== undefined) clearTimeout(recentActionClearTimer);
+  recentActionClearTimer = setTimeout(() => {
+    recentActionClearTimer = undefined;
+    recentActionInstanceIds = new Set();
+    notify();
+  }, RECENT_ACTION_GLOW_MS);
+  notify();
+}
+
+/**
+ * Verwirft eine evtl. noch laufende Glow-Anzeige der VORHERIGEN Partie sofort
+ * (kein Warten auf den Timer) - wichtig, weil InstanceIds pro Partie neu ab
+ * "card1" vergeben werden (s. engine/ids.ts#nextInstanceId), eine stehen-
+ * gebliebene alte ID könnte also in der neuen Partie zufällig eine ANDERE,
+ * unbeteiligte Karte treffen. Wird von initGame() aufgerufen.
+ */
+function resetRecentActionGlow(): void {
+  if (recentActionClearTimer !== undefined) {
+    clearTimeout(recentActionClearTimer);
+    recentActionClearTimer = undefined;
+  }
+  recentActionInstanceIds = new Set();
+}
+
+/**
  * App-Ebene-Zustand (siehe types.ts#AppPhase): startet immer im echten
  * Hauptmenü (Titelbildschirm), kein Teil des GameState. Vor dem
  * "echtes Hauptmenü"-Umbau startete die App direkt im Deckbau-Screen für
@@ -1345,12 +1405,7 @@ function applyAutomaticAction(action: PlayerAction): void {
   state = result.state;
   uiMode = { kind: "idle" };
   const suppressCardDrawn = batchContainsMulligan(result.events);
-  for (const e of result.events) {
-    const t = describeEvent(e);
-    if (t) log.push(t);
-    playSfxForEvent(e, { suppressCardDrawn });
-  }
-  if (log.length > 300) log = log.slice(-300);
+  processEvents(result.events, { suppressCardDrawn });
   maybeAdvanceTutorialProgress(action);
   notify();
   advanceAutomation();
@@ -1410,12 +1465,7 @@ function runBotStep(): void {
   state = result.state;
   uiMode = { kind: "idle" };
   const suppressCardDrawn = batchContainsMulligan(result.events);
-  for (const e of result.events) {
-    const t = describeEvent(e);
-    if (t) log.push(t);
-    playSfxForEvent(e, { suppressCardDrawn });
-  }
-  if (log.length > 300) log = log.slice(-300);
+  processEvents(result.events, { suppressCardDrawn });
   maybeAdvanceTutorialProgress(action);
   notify();
   // v0.1.18 (Auftrag Teil 1+2): nicht mehr nur den nächsten Bot-Schritt
@@ -1429,6 +1479,44 @@ function runBotStep(): void {
   advanceAutomation();
 }
 
+/**
+ * Kartenname zu einer InstanceId, defensiv: `cardDef` wirft bei unbekannter
+ * InstanceId (s. cardInfo.ts) - kann in Randfällen passieren, wenn ein Event
+ * sich auf eine inzwischen endgültig verschwundene Karte bezieht (z.B. ein
+ * Token, das per removeTokenPermanently sofort aus state.cards gelöscht
+ * wurde, s. engine/zones.ts). Reine Log-/Anzeigehilfe, keine Legalitätslogik.
+ */
+function cardNameFor(instanceId: InstanceId): string {
+  try {
+    return cardDef(pool, state, instanceId).name;
+  } catch {
+    return "eine Karte";
+  }
+}
+
+/** Wie cardNameFor, aber gibt zusätzlich den Controller zurück (für "X castet Y"-Sätze), falls die Instanz noch bekannt ist. */
+function controllerOf(instanceId: InstanceId): PlayerId | undefined {
+  return state.cards[instanceId]?.controller;
+}
+
+/** `damageDealt.to` ist entweder ein Spieler (Literal "player1"/"player2") oder eine InstanceId - hier textuell aufgelöst. */
+function describeDamageTarget(to: InstanceId | PlayerId): string {
+  if (to === "player1" || to === "player2") return to;
+  return cardNameFor(to);
+}
+
+/**
+ * Übersetzt ein GameEvent in eine lesbare Log-Zeile (s. Nutzer-Auftrag
+ * "Nachvollziehbarkeit von KI-Spielzügen") - reine Textaufbereitung anhand
+ * bereits vorhandener Event-Felder (cardInstanceId/sourceInstanceId/...), KEINE
+ * neue Regel-/Legalitätslogik. `cardDrawn` bleibt bewusst UNVERÄNDERT ohne
+ * Kartennamen (der Inhalt einer gezogenen Karte ist Information über die
+ * verdeckte Hand des jeweils ANDEREN Spielers, deren Offenlegung im Log ein
+ * Informationsleck wäre, kein Feature). `permanentTapped`/`permanentUntapped`/
+ * `countersChanged` bleiben ebenfalls bewusst ohne eigene Log-Zeile (sonst
+ * Log-Spam bei jedem einzelnen Mana-Tap) - sie werden stattdessen rein visuell
+ * über `recentActionInstanceIds`/`.action-glow` sichtbar gemacht, s.o.
+ */
 function describeEvent(e: GameEvent): string | undefined {
   switch (e.kind) {
     case "gameStarted":
@@ -1441,12 +1529,20 @@ function describeEvent(e: GameEvent): string | undefined {
       return `${e.player} erhält Priority`;
     case "cardDrawn":
       return `${e.player} zieht eine Karte`;
-    case "spellCast":
-      return `Karte gecastet (Stack)`;
-    case "abilityActivated":
-      return `Fähigkeit aktiviert`;
-    case "triggerFired":
-      return `Getriggerte Fähigkeit ausgelöst`;
+    case "spellCast": {
+      const name = cardNameFor(e.cardInstanceId);
+      const player = controllerOf(e.cardInstanceId);
+      return player ? `${player} castet ${name} (Stack)` : `${name} wird gecastet (Stack)`;
+    }
+    case "abilityActivated": {
+      const name = cardNameFor(e.sourceInstanceId);
+      const player = controllerOf(e.sourceInstanceId);
+      return player ? `${player} aktiviert eine Fähigkeit von ${name}` : `Fähigkeit von ${name} aktiviert`;
+    }
+    case "triggerFired": {
+      const name = cardNameFor(e.sourceInstanceId);
+      return `Ausgelöste Fähigkeit von ${name}`;
+    }
     case "decisionRequired":
       return `Entscheidung nötig (${e.decisionKind}) - ${e.player} muss wählen`;
     case "decisionResolved":
@@ -1457,8 +1553,21 @@ function describeEvent(e: GameEvent): string | undefined {
       return `Stack-Objekt wurde gecountert`;
     case "stackObjectFizzled":
       return `Stack-Objekt verpufft (kein legales Ziel mehr)`;
+    case "zoneChanged": {
+      // Nur der Sonderfall "Permanent wird von Hand ins Spiel gebracht"
+      // (Terrains, s. engine/actions.ts#playTerrain - Zauber laufen über den
+      // Stack, also from: "stack", nicht "hand") wird als eigene Log-Zeile
+      // ergänzt (Nutzer-Auftrag: "eine Karte wird gelegt"). ALLE anderen
+      // Zonenwechsel bleiben bewusst unbehandelt (undefined) - insbesondere
+      // Stack->Battlefield/Graveyard nach Auflösung, das würde sich mit dem
+      // bereits vorhandenen stackObjectResolved/unitDied-Log doppeln.
+      if (e.from !== "hand" || e.to !== "battlefield") return undefined;
+      const name = cardNameFor(e.cardInstanceId);
+      const player = controllerOf(e.cardInstanceId);
+      return player ? `${player} spielt ${name}` : `${name} wird gespielt`;
+    }
     case "damageDealt":
-      return `${e.amount} Schaden an ${e.to}`;
+      return `${e.amount} Schaden an ${describeDamageTarget(e.to)}`;
     case "lifeChanged":
       return `${e.player}: Leben ${e.delta >= 0 ? "+" : ""}${e.delta} → ${e.newTotal}`;
     case "unitDied":
@@ -1477,10 +1586,11 @@ function describeEvent(e: GameEvent): string | undefined {
 }
 
 /**
- * PARALLELE Funktion zu `describeEvent` oben (gleiche drei Aufrufstellen,
- * gleiches Prinzip: reine Beobachtung der von der Engine bereits gelieferten
- * `GameEvent`s, keine eigene Regel-/Legalitätslogik hier) - übersetzt ein
- * Event in einen kurzen, überlappenden Soundeffekt (s. `./sfxPlayer.ts`).
+ * PARALLELE Funktion zu `describeEvent` oben (beide werden ausschließlich
+ * gemeinsam über `processEvents` unten aufgerufen, gleiches Prinzip: reine
+ * Beobachtung der von der Engine bereits gelieferten `GameEvent`s, keine
+ * eigene Regel-/Legalitätslogik hier) - übersetzt ein Event in einen kurzen,
+ * überlappenden Soundeffekt (s. `./sfxPlayer.ts`).
  * `playSfx()` selbst ist defensiv (No-Op ohne `initSfxPlayer()`/bei
  * `isSfxEnabled() === false`), diese Funktion muss sich darum nicht kümmern.
  *
@@ -1543,6 +1653,55 @@ function batchContainsMulligan(events: GameEvent[]): boolean {
 }
 
 /**
+ * Sammelt die InstanceIds, die laut Auftrag ("visuell, eine Karte wird
+ * gelegt, es wird getappt usw") gerade optisch hervorgehoben werden sollen -
+ * bewusst eine ENGE, explizite Auswahl an Event-Arten (nicht z.B.
+ * `damageDealt`/`countersChanged`), um die Hervorhebung auf genau die vom
+ * Auftrag genannten Fälle zu beschränken statt das Board bei jedem Event
+ * aufblitzen zu lassen.
+ */
+function collectGlowInstanceIds(e: GameEvent, out: InstanceId[]): void {
+  switch (e.kind) {
+    case "spellCast":
+      out.push(e.cardInstanceId);
+      return;
+    case "abilityActivated":
+    case "triggerFired":
+      out.push(e.sourceInstanceId);
+      return;
+    case "permanentTapped":
+      out.push(e.instanceId);
+      return;
+    case "zoneChanged":
+      if (e.from === "hand" && e.to === "battlefield") out.push(e.cardInstanceId);
+      return;
+    default:
+      return;
+  }
+}
+
+/**
+ * Gemeinsame Verarbeitung eines Event-Batches (Log-Zeilen, SFX, visuelles
+ * Glow-Highlight) - EINE Implementierung statt vier fast identischer
+ * Kopien an den Aufrufstellen (initGame/dispatch/runBotStep/
+ * applyAutomaticAction), die bisher leicht hätten auseinanderlaufen können
+ * (z.B. wenn nur an drei von vier Stellen ein neues Verhalten ergänzt wird).
+ * Erwartet, dass `state` VOR dem Aufruf bereits auf `result.state` gesetzt
+ * wurde (describeEvent/cardNameFor lesen den module-scoped `state`).
+ */
+function processEvents(events: GameEvent[], opts: { suppressCardDrawn: boolean }): void {
+  const glowIds: InstanceId[] = [];
+  for (const e of events) {
+    const t = describeEvent(e);
+    if (t) log.push(t);
+    playSfxForEvent(e, opts);
+    collectGlowInstanceIds(e, glowIds);
+  }
+  if (log.length > 300) log = log.slice(-300);
+  markRecentAction(glowIds);
+}
+
+/**
  * Startet die eigentliche Partie aus zwei fertigen Decklisten (aus dem
  * Deckbau-Screen, s. `confirmDeck` oben). Ersetzt die frühere Signatur ohne
  * Parameter, die intern immer `buildDemoDeck` für beide Spieler aufrief
@@ -1579,16 +1738,16 @@ export function initGame(
   log = [`Seed: ${seed}`];
   lastError = undefined;
   uiMode = { kind: "idle" };
+  // s. resetRecentActionGlow-Kommentar: InstanceIds starten pro Partie neu
+  // bei "card1" - eine evtl. noch laufende Glow-Anzeige der vorherigen
+  // Partie darf nicht in die neue hinein "durchscheinen".
+  resetRecentActionGlow();
   // Die initiale Starthand-Verteilung (7 cardDrawn-Events je Spieler) wird
   // NIE einzeln vertont (s. playSfxForEvent-Dateikommentar) - anders als bei
   // den beiden anderen Aufrufstellen kommt hier ohnehin nie ein
   // mulliganTaken-Event vor (createGame nutzt drawCard direkt, nicht den
   // mulligan.ts-Pfad), daher fest `true` statt batchContainsMulligan(events).
-  for (const e of events) {
-    const t = describeEvent(e);
-    if (t) log.push(t);
-    playSfxForEvent(e, { suppressCardDrawn: true });
-  }
+  processEvents(events, { suppressCardDrawn: true });
   maybeAdvanceTutorialProgress(undefined);
   notify();
   // v0.1.7: Ist der (nach dem Münzwurf feststehende) erste Akteur bereits
@@ -1666,12 +1825,7 @@ export function dispatch(action: PlayerAction): void {
   state = result.state;
   uiMode = { kind: "idle" };
   const suppressCardDrawn = batchContainsMulligan(result.events);
-  for (const e of result.events) {
-    const t = describeEvent(e);
-    if (t) log.push(t);
-    playSfxForEvent(e, { suppressCardDrawn });
-  }
-  if (log.length > 300) log = log.slice(-300);
+  processEvents(result.events, { suppressCardDrawn });
   maybeAdvanceTutorialProgress(action);
   notify();
   // v0.1.7: Nach jeder menschlichen Aktion prüfen, ob jetzt ein bot-

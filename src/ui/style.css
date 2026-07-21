@@ -1736,6 +1736,36 @@ body {
   }
 }
 
+/* Nutzer-Auftrag ("Nachvollziehbarkeit von KI-Spielzügen ... auch visuell,
+   eine Karte wird gelegt, es wird getappt usw"): kurz aufblitzende
+   Hervorhebung der zuletzt von einem Ereignis betroffenen Karte(n) - egal ob
+   Bot- oder Mensch-Aktion (s. store.ts#recentActionInstanceIds). Bewusst EINE
+   eigene, grüne (statt der blauen `--accent`-Tutorial-Farbe) Klasse/Animation
+   statt `.tutorial-glow` wiederzuverwenden: die Bedeutungen sind
+   unterschiedlich ("das hier als Nächstes tun" vs. "das ist GERADE
+   passiert") und könnten theoretisch gleichzeitig an derselben Karte aktiv
+   sein. Einmaliger Fade statt Endlos-Puls (kein `infinite`) - die Klasse
+   selbst wird nach RECENT_ACTION_GLOW_MS wieder entfernt (s. store.ts), die
+   Animationsdauer ist bewusst gleich lang, damit sie nicht vorher sichtbar
+   "einfriert". */
+.card-tile.action-glow,
+.stack-row.action-glow {
+  outline: 3px solid var(--good);
+  animation: action-glow-fade 1.2s ease-out;
+}
+
+@keyframes action-glow-fade {
+  0% {
+    box-shadow: 0 0 4px 0 var(--good);
+  }
+  20% {
+    box-shadow: 0 0 16px 5px var(--good);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 .tutorial-help-entry-confirmation {
   border-top: 1px dashed var(--border);
   margin-top: 4px;
