@@ -1659,16 +1659,56 @@ body {
    wie Hand-/Battlefield-Karten, s.o.) - hält den Pool (113 Karten) trotzdem
    scrollbar/überschaubar (max-height + overflow-y wie zuvor). */
 .deckbuilder-pool {
+  /* Nutzer-Feedback (2026-07-21): "Im Deck"/"Restlicher Kartenpool" sollen
+     als zwei klar getrennte, vollbreite Abschnitte untereinanderstehen
+     (s. `.deck-pool-section` unten), statt einer einzigen flachen
+     Kartenraster-Liste - daher hier column statt wrap; das eigentliche
+     Karten-Wrap-Raster lebt jetzt eine Ebene tiefer pro Abschnitt. */
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  gap: 14px;
   max-height: 65vh;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px;
   background: var(--panel);
+}
+
+/* Je ein Abschnitt-Wrapper für "Im Deck" und "Restlicher Kartenpool"
+   (s. deckBuilder.ts#buildRows) - innerhalb wieder das vertraute
+   Flex-Wrap-Kartenraster wie zuvor direkt auf .deckbuilder-pool. */
+.deck-pool-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+}
+
+.deck-pool-section-heading {
+  flex-basis: 100%;
+  margin: 0;
+  padding-bottom: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-dim, #9aa5b1);
+  border-bottom: 1px solid var(--border);
+}
+
+.deck-pool-section-owned .deck-pool-section-heading {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Einzelne Karten-Kachel-Hervorhebung für bereits im Deck enthaltene Karten
+   (>0 Kopien) - ergänzt die Abschnittstrennung oben, damit die Zugehörigkeit
+   auch am Tile selbst (nicht nur über die Position/Überschrift) sofort
+   erkennbar ist. */
+.deck-pool-row.deck-pool-row-owned {
+  background: rgba(110, 200, 140, 0.12);
+  box-shadow: 0 0 0 2px var(--accent) inset;
 }
 
 .deck-pool-row-name {

@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.28 (frontend-engineer) — 2026-07-21
+Status: v0.1.29 (frontend-engineer) — 2026-07-21
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -18,6 +18,25 @@ Stufen `easy`/`medium`/`hard`; `chooseAction` (`src/ai/simpleBot.ts`, v1 =
 Stufe "medium") bleibt weiterhin exportiert; **seit v0.1.17** liefert
 `src/ai/difficulty.ts` zusätzlich `BOT_DISPLAY_NAMES` — erfundene
 Tavernen-Namen der drei Bot-Stufen fürs UI, s. dortiger Abschnitt).
+
+**v0.1.29 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Auftrag „bereits im Deck befindliche Karten sollen sich optisch vom
+Rest separieren, statt dass man bei ~300 Pool-Karten jede Zeile auf die kleine
+Kopienzahl-Anzeige absuchen muss". `deckBuilder.ts#buildRows` baut den Pool
+jetzt in zwei `.deck-pool-section`-Abschnitte statt einer flachen Liste, beide
+weiterhin Kinder desselben `.deckbuilder-pool`-Containers: „Im Deck (N
+Karten)" (alle Karten mit >0 Kopien in der aktuellen Deckliste, N = Summe aller
+Kopien, Abschnitt entfällt komplett bei leerem Deck) gefolgt von „Restlicher
+Kartenpool" (Rest), innerhalb beider weiterhin alphabetisch sortiert. Zusätzlich
+hebt eine neue Klasse `.deck-pool-row-owned` (Rahmen-Glow + dezenter
+Hintergrund-Akzent) jede im Deck befindliche Karten-Kachel auch einzeln hervor,
+nicht nur über die Abschnittszugehörigkeit. `applyFilterVisibility` läuft jetzt
+pro Abschnitt (`container.querySelectorAll(".deck-pool-section")` statt global
+über alle Zeilen) und blendet zusätzlich die Abschnittsüberschrift aus, sobald
+der aktuelle Filter innerhalb dieses Abschnitts null Treffer liefert (z.B.
+Suche nach einem Namen, der nur im jeweils anderen Abschnitt vorkommt) — Filter/
+Suche funktionieren weiterhin unverändert über beide Abschnitte hinweg. Reine
+Darstellungsänderung, keine Engine-/Modell-Änderung.
 
 **v0.1.28 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Auftrag „man sollte auswählen können, welches Deck die KI spielt, oder
@@ -3802,6 +3821,75 @@ an `src/engine/*`/`src/model/*`/`src/ai/*` oder an der Geheimhaltungslogik im
 Zufalls-Fall — reine Frontend-Ergänzung, kein Kartenbalancing. Kein Browser-/
 Computer-Use-Werkzeug in dieser Session verfügbar — nur Code-Lektüre +
 `tsc`/`vitest`, keine echte Screenshot-Verifikation des neuen Dropdowns.
+
+## Kartenpool: „Im Deck" optisch vom Rest getrennt (v0.1.29, 2026-07-21)
+
+Nutzer-Auftrag: „was irgendwie noch gut wäre, wäre wenn bereits im deck
+befindliche karten von rest der karten separiert würden optisch. so muss man
+aktuell alle karten durchschauen und auf die sehr kleinen zahlen schauen, ob
+dort mehr als 10 steht". Reines Frontend, keine Engine-/Modell-Änderung.
+
+### `deckBuilder.ts`
+
+- `buildRows(pool, decklist, onChange)`: teilt den (weiterhin alphabetisch
+  sortierten) Kartenpool jetzt in zwei Gruppen — `owned` (Karten mit
+  `decklist[id] > 0`) und `rest` (alle übrigen) — und baut daraus zwei
+  `.deck-pool-section`-Wrapper-`<div>`s, beide direkt als Kinder des
+  zurückgegebenen Arrays (also weiterhin Kinder desselben
+  `.deckbuilder-pool`-Containers, kein zweiter getrennter Container). Jeder
+  Abschnitt trägt eine `<h3 class="deck-pool-section-heading">`: „Im Deck
+  (N Karten)" (N = Summe aller Kopien, nicht nur unterschiedliche Karten) bzw.
+  „Restlicher Kartenpool". Der „Im Deck"-Abschnitt entfällt komplett (keine
+  leere Überschrift), solange die Deckliste leer ist.
+- `poolRow`: neue zusätzliche CSS-Klasse `deck-pool-row-owned` auf der
+  Kartenkachel selbst, sobald `count > 0` — hebt die Karte auch am einzelnen
+  Tile hervor, nicht nur über ihre Position im „Im Deck"-Abschnitt.
+  Kernlayout (Kartenrahmen, +/-, Regeltext-Fallback) unverändert.
+- `applyFilterVisibility(container, pool)`: lief bisher global über
+  `container.querySelectorAll(".deck-pool-row")`. Läuft jetzt pro Abschnitt
+  (`container.querySelectorAll(".deck-pool-section")`, dann je Abschnitt die
+  enthaltenen `.deck-pool-row`-Elemente) und blendet zusätzlich die
+  `.deck-pool-section-heading` dieses Abschnitts aus, sobald der aktuelle
+  Such-/Typ-/Farbfilter darin auf null sichtbare Zeilen kommt (z.B. Suche nach
+  einem Namen, der nur im jeweils anderen Abschnitt vorkommt) — vermeidet eine
+  Überschrift ohne sichtbare Karten darunter. Filter/Suche selbst (Logik in
+  `matchesFilter`) unverändert, funktioniert weiterhin unverändert über beide
+  Abschnitte hinweg, da jede `.deck-pool-row` weiterhin ihr `data-card-id`
+  trägt.
+
+### `style.css`
+
+- `.deckbuilder-pool`: von `display: flex; flex-wrap: wrap` auf
+  `display: flex; flex-direction: column` umgestellt — die beiden Abschnitte
+  stehen jetzt vollbreit untereinander; das bekannte Karten-Wrap-Raster lebt
+  jetzt eine Ebene tiefer.
+- Neu: `.deck-pool-section` (`display: flex; flex-wrap: wrap` — das
+  eigentliche Karten-Raster pro Abschnitt, optisch identisch zum bisherigen
+  Pool-Layout), `.deck-pool-section-heading` (dezente Trennlinie + Großschrift,
+  `flex-basis: 100%` erzwingt den Zeilenumbruch vor den Karten),
+  `.deck-pool-section-owned .deck-pool-section-heading` (Akzentfarbe statt
+  gedämpftem Grau für die „Im Deck"-Überschrift).
+- Neu: `.deck-pool-row.deck-pool-row-owned` — dezenter grüner
+  Hintergrund-Tint + `box-shadow: 0 0 0 2px var(--accent) inset` als
+  Rahmen-Akzent, damit die Zugehörigkeit auch am einzelnen Tile sofort
+  erkennbar ist.
+
+### Verifikation
+
+`npm test`: 175/175 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test), keine Regression — insbesondere `deck-persistence.test.ts`
+(prüft `.deck-pool-row-count` per `data-card-id`-Selektor, funktioniert
+unverändert trotz der neuen Verschachtelung) und alle Deckbau-Golden-Path-/
+Archetyp-/Bot-Deck-Tests bleiben unverändert grün. `npm run build`
+(`tsc --noEmit`) fehlerfrei. Kein Browser-/Computer-Use-Werkzeug in dieser
+Session verfügbar — nur Code-Lektüre + `tsc`/`vitest`, keine echte
+Screenshot-Verifikation der neuen Abschnittstrennung/Hervorhebung.
+
+**Ergebnis:** Geändert: `src/ui/components/deckBuilder.ts`
+(`buildRows`/`poolRow`/`applyFilterVisibility`), `src/ui/style.css`
+(`.deckbuilder-pool`, neu: `.deck-pool-section`/`-heading`/`-owned`,
+`.deck-pool-row-owned`). Keine Engine-/Modell-Änderung, kein Kartenbalancing,
+keine neuen Abhängigkeiten.
 
 ## Nächste Schritte (Vorschläge)
 

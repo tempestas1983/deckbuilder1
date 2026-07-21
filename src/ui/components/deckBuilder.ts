@@ -133,12 +133,29 @@ function matchesFilter(def: CardDefinition): boolean {
   return true;
 }
 
+/**
+ * Wendet Such-/Typ-/Farbfilter auf die Zeilen an - läuft dafür pro Abschnitt
+ * (s. `buildRows` unten: "Im Deck"/"Restlicher Kartenpool", je ein
+ * `.deck-pool-section`) statt global über alle Zeilen, damit zusätzlich die
+ * Abschnittsüberschrift ausgeblendet werden kann, sobald der Filter innerhalb
+ * dieses Abschnitts null Treffer liefert (z.B. Suche nach einem Namen, der
+ * nur im jeweils anderen Abschnitt vorkommt) - vermeidet eine "Im Deck
+ * (3 Karten)"-Überschrift ohne sichtbare Zeilen darunter.
+ */
 function applyFilterVisibility(container: HTMLElement, pool: CardPool): void {
-  const rows = container.querySelectorAll<HTMLElement>(".deck-pool-row");
-  rows.forEach((row) => {
-    const id = row.dataset.cardId;
-    const def = id ? pool[id] : undefined;
-    row.style.display = def && matchesFilter(def) ? "" : "none";
+  const sections = container.querySelectorAll<HTMLElement>(".deck-pool-section");
+  sections.forEach((section) => {
+    let anyVisible = false;
+    const rows = section.querySelectorAll<HTMLElement>(".deck-pool-row");
+    rows.forEach((row) => {
+      const id = row.dataset.cardId;
+      const def = id ? pool[id] : undefined;
+      const visible = !!(def && matchesFilter(def));
+      row.style.display = visible ? "" : "none";
+      if (visible) anyVisible = true;
+    });
+    const heading = section.querySelector<HTMLElement>(".deck-pool-section-heading");
+    if (heading) heading.style.display = anyVisible ? "" : "none";
   });
 }
 
@@ -535,6 +552,23 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
   ]);
 }
 
+/**
+ * Nutzer-Feedback (2026-07-21): bei ~300 Pool-Karten in einer einzigen
+ * flachen Liste musste man jede Zeile einzeln nach der winzigen
+ * Kopienzahl-Anzeige (`.deck-pool-row-count`) absuchen, um zu sehen, welche
+ * Karten schon im eigenen Deck stecken. Baut den Pool daher in zwei
+ * Abschnitte auf - beide bleiben Kinder desselben `.deckbuilder-pool`-
+ * Containers (hier: zwei `.deck-pool-section`-Wrapper darin), damit
+ * `applyFilterVisibility` weiterhin per `querySelectorAll(".deck-pool-row")`
+ * über beide hinweg funktioniert:
+ * - "Im Deck": alle Karten mit >0 Kopien in der aktuellen Deckliste, samt
+ *   laufender Gesamtkopienzahl in der Überschrift.
+ * - "Restlicher Kartenpool": alle übrigen (0 Kopien).
+ * Innerhalb jedes Abschnitts weiterhin alphabetisch sortiert. Eine Karte
+ * wandert automatisch zwischen den Abschnitten, sobald sich ihre Kopienzahl
+ * durch +/- ändert (jeder Klick löst ohnehin einen kompletten Rerender aus,
+ * s. Datei-Kommentar oben) - kein Sonderfall nötig.
+ */
 function buildRows(
   pool: CardPool,
   decklist: Record<string, number>,
@@ -544,7 +578,26 @@ function buildRows(
     .filter((def) => !def.isToken)
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return defs.map((def) => poolRow(def, decklist, onChange));
+  const owned = defs.filter((def) => (decklist[def.id] ?? 0) > 0);
+  const rest = defs.filter((def) => (decklist[def.id] ?? 0) <= 0);
+  const totalCopies = owned.reduce((sum, def) => sum + (decklist[def.id] ?? 0), 0);
+
+  const sections: HTMLElement[] = [];
+  if (owned.length > 0) {
+    sections.push(
+      h("div", { class: "deck-pool-section deck-pool-section-owned" }, [
+        h("h3", { class: "deck-pool-section-heading" }, [text(`Im Deck (${totalCopies} Karten)`)]),
+        ...owned.map((def) => poolRow(def, decklist, onChange)),
+      ]),
+    );
+  }
+  sections.push(
+    h("div", { class: "deck-pool-section deck-pool-section-rest" }, [
+      h("h3", { class: "deck-pool-section-heading" }, [text("Restlicher Kartenpool")]),
+      ...rest.map((def) => poolRow(def, decklist, onChange)),
+    ]),
+  );
+  return sections;
 }
 
 function poolRow(
@@ -586,7 +639,12 @@ function poolRow(
   return h(
     "div",
     {
-      class: ["deck-pool-row", dominantColorClass(cost ?? {})].join(" "),
+      // "deck-pool-row-owned" (zusätzlich zur Abschnittstrennung in
+      // buildRows oben) hebt die Karte auch am einzelnen Tile selbst optisch
+      // hervor (s. style.css) - nicht nur über die Abschnittsüberschrift.
+      class: ["deck-pool-row", dominantColorClass(cost ?? {}), count > 0 ? "deck-pool-row-owned" : ""]
+        .filter(Boolean)
+        .join(" "),
       "data-card-id": def.id,
     },
     [
