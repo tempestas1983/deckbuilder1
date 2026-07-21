@@ -140,49 +140,16 @@ function playerDisplayName(playerId: PlayerId): string {
 }
 
 // ---------------------------------------------------------------------------
-// Sichtbare Übergänge statt Hard-Cut (Auftrag "Bot-Züge sichtbar statt Snap"):
-// `render()` baut das DOM weiterhin komplett neu auf (s. Dateikommentar oben,
-// unverändert) - NEU ist nur, dass dieser Rebuild, wenn möglich, innerhalb
-// von `document.startViewTransition()` läuft. Die View Transitions API
-// snapshotet automatisch den alten/neuen DOM-Zustand und blendet dazwischen
-// über, ganz ohne eigene Diffing-/Bewegungslogik - passt damit ungewöhnlich
-// gut zum bestehenden "State rein, DOM raus"-Rebuild-Muster dieser Datei.
-// Einzelne Karten-Kacheln tragen zusätzlich ein `view-transition-name`
-// (s. cardTile.ts/handCard.ts, Schema `card-<instanceId>`) - dieselbe
-// Karten-Instanz "morpht" dadurch automatisch zwischen Hand/Battlefield/
-// Friedhof statt nur weg- und neu eingeblendet zu werden (Auftrag Punkt 2+4).
-//
-// Bewusst NUR für Rebuilds INNERHALB der laufenden Partie aktiv (beide,
-// vorheriger UND neuer AppPhase-Wert, müssen "playing" sein) - der Deckbau-
-// Screen (bis zu 300 Pool-Karten gleichzeitig, s. deckBuilder.ts) bekäme bei
-// jedem +/--Klick eine potenziell teure Voll-Screenshot-Transition ohne
-// erkennbaren Nutzen (dort ändert sich nur ein Zähler, keine Karte bewegt
-// sich zwischen Zonen) - hier bewusst NICHT aktiviert. Der Phasenwechsel
-// selbst (Deckbau -> Spielbrett) bleibt ebenfalls ein Hard-Cut (komplett
-// andere Ansicht, kein Bedarf an einer Crossfade-Animation).
-//
-// Defensiv wie im gesamten Projekt üblich (s. cardArt.ts/sceneArt.ts-
-// Kommentare zu fehlenden Bild-Dateien): fehlt die API (Browser ohne
-// Unterstützung, z.B. aktuell Firefox/Safari) oder wünscht der Nutzer
-// reduzierte Bewegung (`prefers-reduced-motion: reduce`), bleibt es beim
-// bisherigen direkten Rebuild ohne Transition - keine Regression, keine
-// Fehlerbehandlung nötig.
+// Sichtbare Übergänge statt Hard-Cut: `render()` baut das DOM weiterhin
+// komplett neu auf (s. Dateikommentar oben, unverändert). Frühere Version
+// packte diesen Rebuild zusätzlich in `document.startViewTransition()`, um
+// Bot-Züge statt eines harten Schnitts sichtbar zu machen - das wurde per
+// Nutzer-Feedback wieder entfernt (s. `render()`-Kommentar unten: flackerte
+// bei jedem Zwischenschritt, nicht nur bei echten Kartenbewegungen). Einzelne
+// Karten-Kacheln tragen weiterhin ein `view-transition-name` (s. cardTile.ts/
+// handCard.ts, Schema `card-<instanceId>`) - das ist ohne eine laufende View
+// Transition ein wirkungsloses, aber harmloses Attribut.
 // ---------------------------------------------------------------------------
-
-function supportsViewTransitions(): boolean {
-  return typeof document !== "undefined" && typeof document.startViewTransition === "function";
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-let hasRenderedOnce = false;
-let previousAppPhaseKind: AppPhase["kind"] | undefined;
 
 /**
  * Lebenspunkte-"Ticken" (Auftrag Punkt 3): reiner Anzeige-Zustand außerhalb
@@ -373,30 +340,20 @@ function autoEnterForcedModes(state: GameState): void {
  */
 export function render(root: HTMLElement): void {
   const phase = getAppPhase();
-  const wasPlayingBefore = previousAppPhaseKind === "playing";
-  const animate =
-    hasRenderedOnce && wasPlayingBefore && phase.kind === "playing" && supportsViewTransitions() && !prefersReducedMotion();
-  hasRenderedOnce = true;
-  previousAppPhaseKind = phase.kind;
   if (phase.kind !== "playing") {
     // Partie verlassen/noch nicht gestartet - nächste Partie soll ohne
     // "Pulsen" gegen die Lebenswerte der vorherigen Partie starten (s.o.).
     lifePulseTracking = {};
   }
-
-  const paint = () => renderRoot(root);
-  if (!animate) {
-    paint();
-    return;
-  }
-  const transition = document.startViewTransition(paint);
-  // Defensiv (s.o.): das DOM ist durch `paint()` bereits synchron
-  // aktualisiert, sobald die Browser-Engine den Callback aufruft - eine
-  // abgelehnte ready/finished-Promise (z.B. der seltene Grenzfall
-  // "doppelter view-transition-name") darf dennoch nie als unhandled
-  // rejection auffallen; es entfällt in dem Fall nur die Animation selbst.
-  transition.ready.catch(() => undefined);
-  transition.finished.catch(() => undefined);
+  // Nutzer-Feedback: das Einpacken JEDES Rebuilds in `document.startViewTransition()`
+  // (s. Kommentarblock oben) blendete bei JEDEM Render - auch reinen Zwischen-
+  // schritten wie einem Priority-Wechsel ohne sichtbare Aktion - die komplette
+  // Seite kurz über (jedes Element ohne eigenes `view-transition-name`, z.B.
+  // der Avatar, fällt in die Standard-Root-Transition). Bei den vielen Renders
+  // innerhalb eines automatischen Bot-Zugs wirkte das wie Flackern/Stroboskop
+  // statt der beabsichtigten sanften Karten-Übergänge - daher komplett
+  // deaktiviert, kein Hard-Cut-vs-Transition-Unterschied mehr.
+  renderRoot(root);
 }
 
 function renderRoot(root: HTMLElement): void {
