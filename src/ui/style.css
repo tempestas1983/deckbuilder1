@@ -1807,7 +1807,8 @@ body {
 }
 
 .music-toggle-btn,
-.sfx-toggle-btn {
+.sfx-toggle-btn,
+.bot-speed-toggle-btn {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -1919,6 +1920,22 @@ body {
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 700;
+}
+
+/* Bot-Tempo-Panel --------------------------------------------------------
+   Presets "Schnell"/"Normal"/"Langsam" (s. components/botSpeedPanel.ts) -
+   nutzt wie das Musik-Panel oben dieselben `.tutorial-help-*`-Klassen für
+   Rahmen/Kopfzeile, nur die Preset-Buttons bekommen eigene Klassen. */
+.bot-speed-panel-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bot-speed-panel-btn-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
 /* Benannte, dauerhaft gespeicherte Decks (Speichern/Laden) --------------

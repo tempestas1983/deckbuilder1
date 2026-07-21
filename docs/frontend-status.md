@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.23 (frontend-engineer) — 2026-07-21
+Status: v0.1.25 (frontend-engineer) — 2026-07-21
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -3452,6 +3452,78 @@ reduziert, neue `.player-zone-block`/`.player-area-touch-bottom`/
 `boardSection`/`PLAYER_IDS`, an der rechten Turn-Flow-Spalte oder an
 `src/engine/*`/`src/model/*`/`src/ai/*` — reines Layout, keine neue
 Spiellogik, kein Kartenbalancing.
+
+## Ereignis-Log aus der UI entfernt + Bot-Zuggeschwindigkeit einstellbar (v0.1.25, 2026-07-21)
+
+Zwei unabhängige, kleine Aufträge in einem Rutsch (beide berühren
+`render.ts`/`store.ts`), reines Frontend, keine Engine-/Model-Änderung.
+
+### Teil A: Ereignis-Log-Panel entfernt
+
+Nutzer-Feedback: „das ereignislog kann eigentlich raus". `logPanel(getLog())`
+in `render.ts` sowie `src/ui/components/logPanel.ts` gelöscht (einziger
+Aufrufort/einzige Komponente), zugehörige tote CSS-Regeln
+(`.log-panel`/`.log-panel-title`/`.log-list`/`.log-entry`) aus `style.css`
+entfernt (`.log-panel-title` war Teil eines kombinierten Selektors mit
+`.stack-panel-title` — nur der `.log-panel-title`-Teil raus, `.stack-panel-
+title` bleibt). **Bewusst unangetastet:** `store.ts#getLog()`/`log`-Array/
+`describeEvent()` — das ist reine Datenerfassung, kein totes Backend, wird
+weiterhin von `src/ui/__tests__/concede.test.ts` (`store.getLog()`) genutzt,
+um Engine-Events zu verifizieren.
+
+### Teil B: Bot-Zuggeschwindigkeit einstellbar
+
+Nutzer-Feedback: „die spielzüge des computers sind zu schnell ... ein mensch
+hat kaum chancen, das zu sehen und nachzuvollziehen". Neues, in
+`localStorage` persistiertes Preset `BotSpeedPreset` (`"fast" | "normal" |
+"slow"`, Key `deckbuilder1.botSpeed`, Default `"normal"` — bewusst NEUER,
+langsamerer Standard) mit drei ms-Werten (`BOT_SPEED_DELAYS_MS`): **schnell
+350ms** (nah am bisherigen Fixwert 320ms), **normal 900ms** (neuer Standard),
+**langsam 1800ms**. `setBotSpeedPreset()` ruft intern ausschließlich den
+bestehenden `setBotMoveDelayMs()` auf und persistiert das Preset —
+`botMoveDelayMs` bleibt die einzige „scharfe" interne Variable, der
+bestehende Test-Override-Pfad (`setBotMoveDelayMs(0)` direkt nach dem
+Store-Import in `tutorial.test.ts`/`vs-bot.test.ts`/
+`vs-bot-difficulty.test.ts`) ist unverändert und gewinnt weiterhin, weil er
+NACH dem Modul-Init-Aufruf (`setBotMoveDelayMs(BOT_SPEED_DELAYS_MS[preset])`
+beim Laden von `store.ts`, für Punkt 4 „persistierter Wert wird beim
+App-Start angewendet") läuft.
+
+Neue Komponente `src/ui/components/botSpeedPanel.ts` (`botSpeedPanelButton`/
+`botSpeedPanel`) strukturell 1:1 an `musicPanel.ts` angelehnt (gleiche
+`.tutorial-help-*`-Rahmen-Klassen, eigener Backdrop, `stopPropagation` auf dem
+Panel-Inhalt) mit drei Preset-Buttons, aktive Auswahl visuell hervorgehoben
+(`.bot-speed-panel-btn-active`, gleiches Muster wie `.music-panel-repeat-btn-
+active`). Neuer „Bot-Tempo"-Button in `render.ts#statusBar` (analog
+`musicPanelButton`) — **immer sichtbar, auch während einer laufenden
+Partie** (keine Tutorial-Einschränkung), da der Nutzer das Problem beim
+Zusehen im laufenden Spiel hat. Panel-Sichtbarkeit (`isBotSpeedPanelOpen`)
++ Rendering im Root-Kinderarray analog zum Musik-Panel verdrahtet.
+
+### Verifikation
+
+`npm test`: 167/167 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test) — identisch zur Baseline, insbesondere `tutorial.test.ts`/
+`vs-bot.test.ts`/`vs-bot-difficulty.test.ts` (alle nutzen
+`setBotMoveDelayMs(0)`) unverändert grün. `npm run build` (`tsc --noEmit`)
+fehlerfrei. Kein Browser-/Computer-Use-Werkzeug in dieser Session verfügbar
+(nur Code-Lektüre + `tsc`/`vitest`) — ein Dev-Server lief zwar auf Port 5173,
+aber ohne Browser-Werkzeug keine echte Screenshot-Verifikation der neuen
+Buttons/Panels möglich.
+
+**Ergebnis:** Geändert: `src/ui/render.ts` (Import-/Aufruf-Entfernung
+`logPanel`/`getLog`, neue Imports/Verdrahtung `botSpeedPanel`/
+`botSpeedPanelButton`/`BOT_SPEED_LABELS`, neuer Button in `statusBar`, neues
+Panel im Root-Kinderarray), `src/ui/store.ts` (neuer Abschnitt
+`BotSpeedPreset`/`BOT_SPEED_DELAYS_MS`/`BOT_SPEED_LABELS`/
+`getBotSpeedPreset`/`setBotSpeedPreset`/`isBotSpeedPanelOpen`/
+`toggleBotSpeedPanel`/`closeBotSpeedPanel`, Modul-Init ruft
+`setBotMoveDelayMs()` mit dem persistierten Preset), `src/ui/style.css`
+(Log-Panel-Regeln entfernt, neue `.bot-speed-toggle-btn`/`.bot-speed-panel-
+row`/`.bot-speed-panel-btn-active`-Regeln). Gelöscht:
+`src/ui/components/logPanel.ts`. Neu: `src/ui/components/botSpeedPanel.ts`.
+Keine Änderung an `src/engine/*`/`src/model/*`/`src/ai/*`, kein
+Kartenbalancing.
 
 ## Nächste Schritte (Vorschläge)
 

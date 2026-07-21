@@ -79,7 +79,6 @@ import { keywordGlossaryButton, keywordGlossaryPanel, keywordPopoverBubble } fro
 import { decisionSpotlightBanner } from "./components/decisionSpotlight";
 import { musicPanel, musicPanelButton } from "./components/musicPanel";
 import { botSpeedPanel, botSpeedPanelButton } from "./components/botSpeedPanel";
-import { BOT_SPEED_LABELS } from "./store";
 import { sfxToggleButton } from "./components/sfxToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
@@ -555,6 +554,18 @@ function renderGameBoard(root: HTMLElement): void {
     // Wiederholungsmodus, analog zum Keyword-Nachschlagewerk oben jederzeit
     // erreichbar, unabhängig vom Tutorial-Modus.
     isMusicPanelOpen() ? musicPanel(musicPanelOptions()) : undefined,
+    // Bot-Zuggeschwindigkeit (Nutzer-Feedback: "spielzüge des computers sind
+    // zu schnell ... ein mensch hat kaum chancen, das zu sehen") - analog zum
+    // Musik-Panel oben jederzeit erreichbar (auch während einer laufenden
+    // Partie), unabhängig vom Tutorial-Modus, s. store.ts#setBotSpeedPreset.
+    isBotSpeedPanelOpen()
+      ? botSpeedPanel({
+          current: getBotSpeedPreset(),
+          labels: BOT_SPEED_LABELS,
+          onSelect: (preset) => setBotSpeedPreset(preset),
+          onClose: () => closeBotSpeedPanel(),
+        })
+      : undefined,
   ];
 
   root.append(...children.filter((c): c is HTMLElement => !!c));
@@ -644,6 +655,10 @@ function statusBar(state: GameState, mode: UiMode): HTMLElement {
     // Soundeffekte (s. sfxPlayer.ts): eigenständiger Mute-Zustand neben dem
     // Musik-Toggle, s. store.ts#isSfxEnabled-Dateikommentar.
     sfxToggleButton(isSfxEnabled(), () => toggleSfxEnabled()),
+    // Bot-Zuggeschwindigkeit (s. store.ts#setBotSpeedPreset-Dateikommentar):
+    // MUSS während einer laufenden Partie erreichbar sein, nicht nur im
+    // Deckbau-Screen - analog zum Musik-Button jederzeit sichtbar.
+    botSpeedPanelButton(() => toggleBotSpeedPanel()),
     h(
       "button",
       { class: "btn btn-cancel", onclick: () => backToMainMenu() },

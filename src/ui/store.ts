@@ -1215,22 +1215,111 @@ function otherPlayerId(p: PlayerId): PlayerId {
  * eines einzigen JS-Ticks laufen und im Browser nie sichtbar zwischengerendert
  * werden. `setBotMoveDelayMs` ist für Tests gedacht (dort auf 0 gesetzt, s.
  * src/ui/__tests__), damit Testläufe nicht auf echte Wartezeiten angewiesen
- * sind.
+ * sind - genau DIESE Test-Aufrufstelle/Signatur bleibt unverändert, Tests
+ * rufen sie direkt nach dem Store-Import auf und müssen unabhängig vom
+ * Preset-Mechanismus unten weiter gewinnen (s. `botMoveDelayMs` als einzige
+ * "scharfe" interne Variable).
  *
- * Wert (v0.1.17, "Bot-Züge sichtbar statt Snap"): bewusst etwas über der
- * View-Transition-Standarddauer (s. render.ts#render/style.css, ~250-260ms)
- * gehalten, statt exakt gleichauf - jeder Bot-Schritt löst über `notify()`
- * einen eigenen `render()`-Aufruf (und damit ggf. eine eigene View
- * Transition) aus; würde der nächste Schritt VOR Abschluss der vorherigen
- * Animation starten, würde deren Übergang mitten in der Bewegung "geskippt"
- * (der Browser bricht eine laufende View Transition beim nächsten
- * `startViewTransition()`-Aufruf sofort ab). Bleibt trotzdem im vom Auftrag
- * vorgegebenen Richtwert (150-400ms) - kein spürbares "Trödeln".
+ * Nutzer-Feedback (v0.1.19, "Spielzüge des Computers sind zu schnell ... ein
+ * Mensch hat kaum Chancen, das zu sehen und nachzuvollziehen"): der bisherige
+ * Fixwert (320ms) ist jetzt einer von drei über `botSpeedPreset`
+ * (s.u.) wählbaren Presets statt eines hartkodierten Werts - "normal" ist der
+ * NEUE Standard (900ms, deutlich langsamer als bisher), "schnell" bleibt nah
+ * am bisherigen Verhalten. Untergrenze bleibt in jedem Preset bewusst etwas
+ * über der View-Transition-Standarddauer (s. render.ts#render/style.css,
+ * ~250-260ms) - jeder Bot-Schritt löst über `notify()` einen eigenen
+ * `render()`-Aufruf (und damit ggf. eine eigene View Transition) aus; würde
+ * der nächste Schritt VOR Abschluss der vorherigen Animation starten, würde
+ * deren Übergang mitten in der Bewegung "geskippt" (der Browser bricht eine
+ * laufende View Transition beim nächsten `startViewTransition()`-Aufruf
+ * sofort ab). Nach oben gibt es keine harte Grenze.
  */
 let botMoveDelayMs = 320;
 
 export function setBotMoveDelayMs(ms: number): void {
   botMoveDelayMs = Math.max(0, ms);
+}
+
+// ---------------------------------------------------------------------------
+// Bot-Geschwindigkeits-Preset (persistiert, analog zu `musicEnabled` weiter
+// oben): reine Nutzer-Präferenz, WIE die interne `botMoveDelayMs`-Variable
+// oben befüllt wird - der Setter unten ruft intern immer nur
+// `setBotMoveDelayMs()` auf, sodass der bestehende Test-Override-Pfad
+// (`setBotMoveDelayMs(0)` NACH dem Store-Import) unverändert weiter
+// funktioniert und gewinnt, egal welches Preset zuvor/danach aktiv war.
+// ---------------------------------------------------------------------------
+
+export type BotSpeedPreset = "fast" | "normal" | "slow";
+
+const BOT_SPEED_DELAYS_MS: Record<BotSpeedPreset, number> = {
+  fast: 350,
+  normal: 900,
+  slow: 1800,
+};
+
+export const BOT_SPEED_LABELS: Record<BotSpeedPreset, string> = {
+  fast: "Schnell",
+  normal: "Normal",
+  slow: "Langsam",
+};
+
+const BOT_SPEED_STORAGE_KEY = "deckbuilder1.botSpeed";
+
+/** Defensiv wie loadMusicEnabledFromLocalStorage: fehlt/ist ungültig der gespeicherte Wert, startet die Bot-Geschwindigkeit standardmäßig bei "normal" (s.o., neuer langsamerer Standard). */
+function loadBotSpeedPresetFromLocalStorage(): BotSpeedPreset {
+  try {
+    const raw = window.localStorage.getItem(BOT_SPEED_STORAGE_KEY);
+    return raw === "fast" || raw === "normal" || raw === "slow" ? raw : "normal";
+  } catch {
+    return "normal";
+  }
+}
+
+function saveBotSpeedPresetToLocalStorage(preset: BotSpeedPreset): void {
+  try {
+    window.localStorage.setItem(BOT_SPEED_STORAGE_KEY, preset);
+  } catch {
+    // localStorage nicht verfügbar/voll/deaktiviert - einfach ignorieren (s.o.).
+  }
+}
+
+let botSpeedPreset: BotSpeedPreset = loadBotSpeedPresetFromLocalStorage();
+// Init (Auftrag Punkt 4): der persistierte Wert muss auch tatsächlich als
+// scharfe Verzögerung angewendet werden, nicht nur beim späteren Umschalten
+// im Panel - direkter Aufruf des bestehenden Setters beim Modul-Load. Tests
+// rufen `setBotMoveDelayMs(0)` explizit NACH diesem Import auf (s.
+// tutorial.test.ts/vs-bot.test.ts/vs-bot-difficulty.test.ts) und überschreiben
+// diesen Init-Wert damit zuverlässig wieder.
+setBotMoveDelayMs(BOT_SPEED_DELAYS_MS[botSpeedPreset]);
+
+let botSpeedPanelOpen = false;
+
+/** Aktuell gewähltes Bot-Geschwindigkeits-Preset (persistiert über Sessions hinweg, s.o.). */
+export function getBotSpeedPreset(): BotSpeedPreset {
+  return botSpeedPreset;
+}
+
+/** Auswahl im Bot-Geschwindigkeits-Panel (s. components/botSpeedPanel.ts) - wirkt sofort auf den NÄCHSTEN geplanten Bot-Schritt (setTimeout mit dem neuen Wert, s. scheduleBotStepIfNeeded unten). */
+export function setBotSpeedPreset(preset: BotSpeedPreset): void {
+  botSpeedPreset = preset;
+  saveBotSpeedPresetToLocalStorage(preset);
+  setBotMoveDelayMs(BOT_SPEED_DELAYS_MS[preset]);
+  notify();
+}
+
+/** Bot-Geschwindigkeits-Panel (analog zu isMusicPanelOpen oben) - während einer laufenden Partie jederzeit erreichbar, s. render.ts#statusBar. */
+export function isBotSpeedPanelOpen(): boolean {
+  return botSpeedPanelOpen;
+}
+
+export function toggleBotSpeedPanel(): void {
+  botSpeedPanelOpen = !botSpeedPanelOpen;
+  notify();
+}
+
+export function closeBotSpeedPanel(): void {
+  botSpeedPanelOpen = false;
+  notify();
 }
 
 let botTimer: ReturnType<typeof setTimeout> | undefined;
