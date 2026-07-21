@@ -11,7 +11,7 @@ import { createRulesEngine } from "../engine";
 import { starterSet } from "../cards/starter-set";
 import { chooseActionForDifficulty, DEFAULT_BOT_DIFFICULTY, type BotDifficulty } from "../ai";
 import { playSfx } from "./sfxPlayer";
-import type { CardPool, GameEvent, GameState, InstanceId, Keyword, PlayerAction, PlayerId, RulesEngine } from "../model";
+import type { Ability, CardPool, GameEvent, GameState, InstanceId, Keyword, ManaPool, PlayerAction, PlayerId, RulesEngine } from "../model";
 import type { AppPhase, UiMode } from "./types";
 import {
   TUTORIAL_STEPS,
@@ -1886,6 +1886,24 @@ export function legalActions(player: import("../model").PlayerId): PlayerAction[
 }
 
 /**
+ * Liefert die `activated`-Ability-Definition hinter einem `activateAbility`-
+ * Kandidaten (oder `undefined`, falls die Aktion keine ist / die Ability aus
+ * irgendeinem Grund nicht mehr auffindbar ist). Kleiner Shared-Helper für
+ * `isManaAbilityAction`/`hypotheticalManaYield` unten.
+ */
+function activatedAbilityFor(action: PlayerAction): Extract<Ability, { kind: "activated" }> | undefined {
+  if (action.kind !== "activateAbility") return undefined;
+  const def = cardDef(getPool(), state, action.sourceInstanceId);
+  const ability = "abilities" in def ? def.abilities?.[action.abilityIndex] : undefined;
+  return ability?.kind === "activated" ? ability : undefined;
+}
+
+/** true, wenn `action` ein `activateAbility`-Kandidat auf einer reinen Mana-Fähigkeit ist. */
+function isManaAbilityAction(action: PlayerAction): boolean {
+  return activatedAbilityFor(action)?.isManaAbility === true;
+}
+
+/**
  * true, wenn ein `legalActions`-Kandidat als "echte Wahl" bei Priority zählt.
  * Schließt `passPriority`/`concede` aus (das ist keine Wahl, sondern die
  * Standardoption) UND - Bugfix v0.1.19 - reine Mana-Fähigkeiten
@@ -1902,15 +1920,57 @@ export function legalActions(player: import("../model").PlayerId): PlayerAction[
  * "hier gibt's was zu entscheiden". Hat der Spieler zusätzlich etwas ANDERES
  * Sinnvolles (bezahlbarer Zauber, Nicht-Mana-Fähigkeit, ausspielbares
  * Terrain), zählt das weiterhin ganz normal als echte Wahl.
+ *
+ * WICHTIG (Bugfix, s. docs/frontend-status.md): dieser Ausschluss allein
+ * ist zu grob, wenn der Mana-Pool gerade LEER ist (z.B. direkt nach dem
+ * Legen eines Terrains) - `getLegalActions` liefert `castSpell`-Kandidaten
+ * erst NACHDEM genug Mana im Pool liegt (rules-engine.md 9.5: erst tappen,
+ * dann casten), niemals vorher. Ein Ausschluss ALLER Mana-Fähigkeiten hätte
+ * in genau diesem Fall dazu geführt, dass `hasRealPriorityChoice` fälschlich
+ * `false` liefert, obwohl der Spieler durch Tappen eine Handkarte bezahlbar
+ * machen könnte - Auto-Pass übersprang ihn komplett, bevor er auch nur tappen
+ * konnte. `hasRealPriorityChoice` (unten) fängt das ab, indem es bei "nur noch
+ * Mana-Fähigkeiten übrig" zusätzlich hypothetisch prüft, ob das dadurch
+ * maximal erreichbare Mana etwas anderes bezahlbar machen WÜRDE.
  */
 function isRealPriorityCandidate(action: PlayerAction): boolean {
   if (action.kind === "passPriority" || action.kind === "concede") return false;
-  if (action.kind === "activateAbility") {
-    const def = cardDef(getPool(), state, action.sourceInstanceId);
-    const ability = "abilities" in def ? def.abilities?.[action.abilityIndex] : undefined;
-    if (ability?.kind === "activated" && ability.isManaAbility) return false;
-  }
+  if (isManaAbilityAction(action)) return false;
   return true;
+}
+
+/**
+ * Schätzt das MAXIMAL zusätzlich erreichbare Mana, wenn `manaAbilityActions`
+ * (bereits als `legalActions`-Kandidaten bestätigte, also gerade wirklich
+ * aktivierbare Mana-Fähigkeiten) alle nacheinander aktiviert würden - rein additiv,
+ * jede Quelle liefert ihr `addMana`-Effekt-`amount` einmal (Mana-Fähigkeiten
+ * sind i.d.R. durch eine `tap`-Zusatzkosten auf einmal pro Quelle begrenzt,
+ * und `legalActions` enumeriert ohnehin nur JETZT aktivierbare Quellen -
+ * keine rekursive "was, wenn danach noch etwas anderes tappbar würde"-
+ * Betrachtung nötig). Nicht-numerische `amount` (aktuell im Kartenpool nicht
+ * vorhanden, aber laut Modell theoretisch möglich, z.B. `{ kind: "x" }`) wird
+ * konservativ mit 0 gewertet - lieber eine Wahl fälschlich als "keine echte
+ * Wahl" behandeln (seltener kosmetischer Fall) als eine Mana-Schätzung zu
+ * riskieren, die zu HOCH ausfällt und dadurch einen tatsächlich unbezahlbaren
+ * Kandidaten als bezahlbar vorgaukelt.
+ */
+function hypotheticalManaYield(manaAbilityActions: PlayerAction[]): Partial<Record<keyof ManaPool, number>> {
+  const yieldByColor: Partial<Record<keyof ManaPool, number>> = {};
+  for (const action of manaAbilityActions) {
+    const ability = activatedAbilityFor(action);
+    if (!ability) continue;
+    for (const effect of ability.effects) {
+      if (effect.kind !== "addMana") continue;
+      if (typeof effect.amount !== "number") continue; // s. Funktionskommentar: konservativ ignoriert
+      // "any" (aktuell kein Kartenpool-Eintrag) wird konservativ als
+      // farbloses Mana gewertet - kann nur generische Kosten decken, nicht
+      // farbgebundene. Untertreibt die tatsächliche Flexibilität, bleibt
+      // damit aber auf der sicheren (nie zu optimistischen) Seite.
+      const color: keyof ManaPool = effect.color === "any" ? "colorless" : effect.color;
+      yieldByColor[color] = (yieldByColor[color] ?? 0) + effect.amount;
+    }
+  }
+  return yieldByColor;
 }
 
 /**
@@ -1922,9 +1982,41 @@ function isRealPriorityCandidate(action: PlayerAction): boolean {
  * exportiert statt in beiden Modulen dupliziert - zwei unabhängige Kopien
  * derselben Erkennung liefen zuvor genau deshalb auseinander (s. Bugfix-
  * Kommentar an isRealPriorityCandidate oben).
+ *
+ * Bugfix (s. docs/frontend-status.md): bleiben nach Abzug der reinen
+ * Mana-Fähigkeiten NUR NOCH diese übrig (kein anderer echter Kandidat), wird
+ * NICHT sofort `false` zurückgegeben - stattdessen wird hypothetisch geprüft,
+ * ob das durch diese Mana-Fähigkeiten maximal erreichbare Zusatz-Mana
+ * (`hypotheticalManaYield`) irgendeinen ANDEREN Kandidaten (Zauber, Nicht-
+ * Mana-Fähigkeit) bezahlbar machen WÜRDE. Dafür wird `getLegalActions` (die
+ * kanonische, hier NICHT duplizierte Engine-Funktion) ein zweites Mal mit
+ * einem rein lokalen, nie persistierten State-Klon aufgerufen, dessen
+ * ManaPool testweise um die Schätzung erhöht ist - keine eigene Kosten-/
+ * Ziel-Logik im Frontend, nur eine hypothetische Wiederverwendung der
+ * ohnehin öffentlichen `RulesEngine`-Schnittstelle.
  */
 export function hasRealPriorityChoice(player: PlayerId): boolean {
-  return legalActions(player).some(isRealPriorityCandidate);
+  const actions = legalActions(player);
+  if (actions.some(isRealPriorityCandidate)) return true;
+  const manaAbilityActions = actions.filter(isManaAbilityAction);
+  if (manaAbilityActions.length === 0) return false;
+
+  const extraMana = hypotheticalManaYield(manaAbilityActions);
+  if (Object.keys(extraMana).length === 0) return false;
+
+  const currentPool = state.players[player].manaPool;
+  const hypotheticalPool: typeof currentPool = { ...currentPool };
+  for (const color of Object.keys(extraMana) as (keyof ManaPool)[]) {
+    hypotheticalPool[color] = currentPool[color] + (extraMana[color] ?? 0);
+  }
+  const hypotheticalState: GameState = {
+    ...state,
+    players: {
+      ...state.players,
+      [player]: { ...state.players[player], manaPool: hypotheticalPool },
+    },
+  };
+  return engine.getLegalActions(hypotheticalState, player).some(isRealPriorityCandidate);
 }
 
 /**

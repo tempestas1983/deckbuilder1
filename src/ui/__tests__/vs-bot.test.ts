@@ -173,6 +173,21 @@ describe("Gegen die KI spielen (v0.1.7, Spieler 2 = Bot)", () => {
           continue;
         }
 
+        // 6) Bugfix (s. docs/frontend-status.md, hasRealPriorityChoice):
+        // sobald der Mana-Pool leer ist, aber ein ungetapptes Terrain
+        // zusammen mit einer teureren Handkarte theoretisch etwas bezahlbar
+        // machen WÜRDE, zeigt render.ts#statusBar jetzt korrekt das auffällige
+        // Spotlight-Banner statt des kleinen ".btn-pass" (s. dortiger
+        // Kommentar "spotlightAlreadyShown") - Spieler 1 spielt in diesem Test
+        // bewusst passiv (s. Modul-Kommentar), der Banner-"Überspringen"-Button
+        // löst exakt dieselbe passPriority-Aktion aus wie ".btn-pass" oben.
+        const spotlightSkipBtn = root.querySelector<HTMLButtonElement>(".decision-spotlight-skip-btn");
+        if (spotlightSkipBtn) {
+          click(spotlightSkipBtn);
+          await waitForBot();
+          continue;
+        }
+
         throw new Error(
           `Unerwarteter Zustand ohne bekannten Spieler-1-Aktionsknopf: step=${state.step}, ` +
             `pendingDecision=${state.pendingDecision?.kind}, priorityPlayer=${state.priorityPlayer}`,

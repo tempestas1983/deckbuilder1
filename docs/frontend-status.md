@@ -3940,6 +3940,100 @@ Live-Browser-Test (`MutationObserver` + Netzwerk-Log) verifizierten Diagnose.
 `src/ui/components/sceneArt.ts` (`botAvatarImg`). Keine Engine-/Modell-
 Änderung, kein Kartenbalancing, keine neuen Abhängigkeiten.
 
+## Bugfix: Spieler wurde nach Terrain-Legen automatisch übersprungen, ohne je Mana tappen zu können (v0.1.31, 2026-07-21)
+
+Nutzer-Report: „ich kann terrain legen, aber danach werde ich immer
+übersprungen. egal, ob ich genug terrain hätte für mana für karten, ich darf
+nichts machen. ich komme nichtmal dazu, meine länder für mana zu tappen, ich
+werde direkt übersprungen." Vom Orchestrator bereits live im Browser
+reproduziert und exakt lokalisiert, bevor diese Session begann. Reines
+Frontend (`store.ts`), keine Engine-/Modell-Änderung — die Engine selbst
+verhält sich regelkonform (`getLegalActions` liefert `castSpell`-Kandidaten
+erst, NACHDEM genug Mana im Pool liegt, nie vorher, rules-engine.md 9.5).
+
+### Ursache
+
+Der v0.1.19-Fix oben (`isRealPriorityCandidate` schließt
+`activateAbility`-Kandidaten mit `isManaAbility: true` von der „echte
+Wahl"-Zählung aus) war zu grob: er ging fälschlich davon aus, dass ein
+bezahlbarer Zauber immer UNABHÄNGIG vom aktuellen Mana-Pool als
+`castSpell`-Kandidat erscheinen würde, falls der Spieler einen hat. Tatsächlich
+enumeriert `legal-actions.ts` `castSpell` nur gegen den JETZIGEN, bereits
+getappten `manaPool` (`canPayCost(state.players[player].manaPool, ...)`) — bei
+leerem Pool (z. B. direkt nach dem Legen eines frischen, noch ungetappten
+Terrains) ist der EINZIGE Kandidat neben `passPriority` das Mana-Tappen selbst.
+Da dieses laut v0.1.19-Ausschluss nicht als „echte Wahl" zählte, lieferte
+`hasRealPriorityChoice` fälschlich `false` — `autoResolvableActionFor` passte
+automatisch, der Spieler wurde übersprungen, BEVOR er sein Terrain überhaupt
+antippen konnte (betraf sowohl den Auto-Pass in `store.ts` als auch das
+Spotlight-Banner/`decidingPlayer`-Highlighting in `render.ts`, beide nutzen
+dieselbe `hasRealPriorityChoice`-Funktion).
+
+### Fix
+
+`hasRealPriorityChoice` (`store.ts`) prüft jetzt, falls nach Abzug reiner
+Mana-Fähigkeiten NUR NOCH diese übrig sind (kein anderer echter Kandidat),
+zusätzlich HYPOTHETISCH nach: das durch genau diese (bereits als jetzt wirklich
+aktivierbar bestätigten) Mana-Fähigkeiten maximal erreichbare Zusatz-Mana wird
+addiert (`hypotheticalManaYield`, additiv pro Farbe, `addMana`-Effekte mit
+nicht-numerischem `amount` — aktuell im Kartenpool nicht vorhanden — werden
+konservativ mit 0 gewertet, „any"-Farbe konservativ als farblos), und
+`engine.getLegalActions(...)` wird ein ZWEITES Mal mit einem rein lokalen,
+nie persistierten State-Klon aufgerufen, dessen `manaPool` testweise um diese
+Schätzung erhöht ist. Liefert dieser hypothetische Aufruf einen echten
+Kandidaten (Zauber, Nicht-Mana-Fähigkeit), zählt die Situation als „echte
+Wahl" — sonst bleibt der v0.1.19-Ausschluss (kein sinnloses Banner am
+Zugende ohne jede Verwendung fürs Mana) unverändert bestehen. Bewusst KEINE
+eigene Kosten-/Ziel-Logik im Frontend dupliziert: die Hypothese wird
+ausschließlich über die kanonische, ohnehin öffentliche
+`RulesEngine#getLegalActions`-Schnittstelle ausgewertet (gleiches Muster wie
+`cardInfo.ts`s Re-Use von `computeEffectiveStats`/`computeEffectiveKeywords`).
+
+### Regressionstest
+
+Neue Datei `src/ui/__tests__/priority-mana-tap.test.ts` (Vorbild:
+`golden-path.test.ts`/`x-cost-ability.test.ts`, ausschließlich echte
+`element.dispatchEvent(new Event("click"))`-Aufrufe, kein direkter
+`hasRealPriorityChoice`-Aufruf): Deck aus 4× „Hohldämmerungs-Schrein"
+({2}{void}) + 36× „Leerenspalte" (Terrain, Leere-Mana). Autopilot bereitet 2
+ungetappte Terrains vor, der Test löst den DRITTEN, entscheidenden
+Terrain-Klick selbst aus (Landdrop damit für den Zug verbraucht, Mana-Pool
+weiterhin leer) und prüft direkt danach: `priorityPlayer` bleibt beim
+menschlichen Spieler (nicht übersprungen), Stack leer, kein weiterer
+„Terrain legen"-Button. Anschließend werden alle 3 Terrains manuell getappt
+und der Schrein tatsächlich gecastet — bestätigt den kompletten, vorher
+blockierten Ablauf. Gegenprobe (Fix testweise zurückgesetzt,
+`git stash`/`git stash pop`): derselbe Test schlägt exakt an der
+`priorityPlayer`-Prüfung fehl (`expected 'player2' to be 'player1'`) — der Test
+hätte den Bug vor dem Fix tatsächlich gefangen.
+
+Zwei bestehende Bot-Tests (`vs-bot.test.ts`, `vs-bot-difficulty.test.ts`)
+mussten um denselben `.decision-spotlight-skip-btn`-Fallback ergänzt werden,
+den `testHelpers.ts#autoAdvanceToReadyMain1` schon vorher kannte: mit dem Fix
+zeigt `render.ts#statusBar` in genau dieser Situation jetzt KORREKT das
+auffällige Spotlight-Banner statt des kleinen „Priorität passen"-Buttons
+(`spotlightAlreadyShown`-Logik, unverändert) — beide Test-Autopiloten kannten
+diesen (schon vorher möglichen, nur vorher durch den Bug seltener erreichten)
+Zustand noch nicht. Keine Verhaltensänderung an den Autopiloten selbst, nur
+ein zusätzlicher, bereits an anderer Stelle etablierter Fallback-Klick.
+
+### Verifikation
+
+`npm test`: 176/176 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test) — 175 Bestandstests + 1 neuer Regressionstest, keine Regression.
+`npm run build` (`tsc --noEmit`) fehlerfrei. Kein Browser-/Computer-Use-
+Werkzeug in dieser Session verfügbar, um die Live-Reproduktion selbst
+nachzustellen — Fix beruht auf der vom Orchestrator bereits per Live-Browser-
+Test verifizierten Diagnose, zusätzlich durch die oben beschriebene
+Vorher/Nachher-Gegenprobe des neuen Tests bestätigt.
+
+**Ergebnis:** Geändert: `src/ui/store.ts` (`isRealPriorityCandidate`/
+`hasRealPriorityChoice` + neue Helfer `activatedAbilityFor`/
+`isManaAbilityAction`/`hypotheticalManaYield`), `src/ui/__tests__/vs-bot.test.ts`,
+`src/ui/__tests__/vs-bot-difficulty.test.ts` (Spotlight-Skip-Fallback
+ergänzt). Neu: `src/ui/__tests__/priority-mana-tap.test.ts`. Keine
+Engine-/Modell-Änderung, kein Kartenbalancing, keine neuen Abhängigkeiten.
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
