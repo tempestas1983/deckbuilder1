@@ -439,6 +439,12 @@ function renderDeckBuilder(player: PlayerId, mode: "newGame" | "standalone"): HT
     offerCopyFromPlayer1: mode === "newGame" && player === "player2",
     onChange: (next) => setDecklist(player, next),
     onRandomFill: () => setDecklist(player, buildDemoDeck(pool)),
+    // Zusätzliche, klar benannte Alternative zu "Zufällig füllen": lädt eines
+    // der 7 kuratierten AI_DECKS-Decks (Name + Beschreibung sichtbar im
+    // Deckbau-Screen, s. components/deckBuilder.ts#archetypeSelect) direkt
+    // als eigene Deckliste - anders als `pickRandomAiDeck()` weiter unten
+    // (nur für die Bot-Befüllung, Name bleibt dort bewusst verborgen).
+    onLoadArchetypeDeck: (archetypeDecklist) => setDecklist(player, archetypeDecklist),
     onClearDeck: () => setDecklist(player, {}),
     onCopyFromPlayer1: () => copyDeckFromPlayer1(),
     onConfirm: () => {

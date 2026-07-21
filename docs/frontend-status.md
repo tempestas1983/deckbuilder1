@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.26 (frontend-engineer) — 2026-07-21
+Status: v0.1.27 (frontend-engineer) — 2026-07-21
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -18,6 +18,20 @@ Stufen `easy`/`medium`/`hard`; `chooseAction` (`src/ai/simpleBot.ts`, v1 =
 Stufe "medium") bleibt weiterhin exportiert; **seit v0.1.17** liefert
 `src/ai/difficulty.ts` zusätzlich `BOT_DISPLAY_NAMES` — erfundene
 Tavernen-Namen der drei Bot-Stufen fürs UI, s. dortiger Abschnitt).
+
+**v0.1.27 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Auftrag „die sollten auch für den Menschen auswählbar sein" (Anlass:
+Nachfrage, ob es die 7 kuratierten `AI_DECKS`-Archetypen auch für den
+menschlichen Deckbau gibt). Neues `<select>` `.deckbuilder-archetype-select`
++ Button `.deckbuilder-archetype-load-btn` im Deckbau-Screen (beide Spieler,
+`newGame`- UND `standalone`-Modus): listet alle 7 Archetyp-Namen aus
+`aiDecks.ts#AI_DECKS` auf (Kurzbeschreibung als `title`-Tooltip auf Select
+und Options) und übernimmt beim Klick die komplette Decklist des gewählten
+Archetyps 1:1 als eigene Deckliste — zusätzlich zum bestehenden „Zufällig
+füllen" (`buildDemoDeck`), nicht als Ersatz. `pickRandomAiDeck()`/dessen
+bewusste Geheimhaltung des Archetyp-Namens für den Bot-Gegner bleibt
+unverändert; `AI_DECKS` wird für diesen neuen, rein menschlichen Anwendungsfall
+zusätzlich direkt importiert.
 
 **v0.1.23 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Auftrag „mehr Nachvollziehbarkeit von KI-Spielzügen — auch visuell,
@@ -3593,6 +3607,76 @@ angepasst). Keine Änderung an `src/ui/components/stackPanel.ts`
 `playerArea`/Battlefield-Reihenfolge oder an
 `src/engine/*`/`src/model/*`/`src/ai/*` — reines Layout, keine neue
 Spiellogik, kein Kartenbalancing.
+
+## Archetyp-Deck-Auswahl für den menschlichen Spieler (v0.1.27, 2026-07-21)
+
+Nutzer fragte, ob es die 7 kuratierten Archetyp-Decks für die KI gibt (Antwort:
+ja, `src/ui/aiDecks.ts#AI_DECKS`, seit v0.1.21). Daraufhin: „die sollten auch
+für den Menschen auswählbar sein" — bisher konnte der Mensch beim eigenen
+Deckbau nur „Zufällig füllen" (`buildDemoDeck`, reine 5-Farben-Zufallsmischung)
+nutzen, nicht eines der thematisch stimmigen 7 Archetyp-Decks direkt laden.
+
+### `components/deckBuilder.ts`: neues Select + Lade-Button
+
+`AI_DECKS` (Name + Beschreibung + Decklist pro Eintrag, bereits vollständig
+öffentlich exportiert, keine neue Datenstruktur nötig) wird zusätzlich direkt
+importiert. Neues modul-scoped `selectedArchetypeIndex` (analog zu
+`searchText`/`typeFilter`/`colorFilter` — reiner UI-Auswahlzustand, überlebt
+Rerenders durch +/- Klicks, wird aber nicht selbst in die Deckliste
+übernommen). Im `deckbuilder-controls`-Zeile, direkt neben „Zufällig füllen":
+ein `<select class="deckbuilder-archetype-select">` mit den 7 Archetyp-Namen
+als Optionen (Kurzbeschreibung als `title`-Tooltip auf Select UND jeder
+einzelnen Option) plus ein Button `.deckbuilder-archetype-load-btn`
+(„Archetyp-Deck laden"), der beim Klick `opts.onLoadArchetypeDeck(AI_DECKS[i]
+.decklist)` aufruft. Dropdown+Button statt eigenem Panel gewählt, weil
+`typeSelect`/`colorSelect` in derselben Controls-Zeile bereits genau dieses
+Muster (Select + sofort wirksame Auswahl) etablieren — keine neue
+UI-Sprache nötig. Neues `DeckBuilderOptions.onLoadArchetypeDeck: (decklist)
+=> void`, analog zum bestehenden `onRandomFill`-Verdrahtungsstil.
+
+### `render.ts`: Verdrahtung
+
+`onLoadArchetypeDeck: (archetypeDecklist) => setDecklist(player, archetypeDecklist)`
+— exakt derselbe `setDecklist`-Aufruf wie bei `onRandomFill`, nur mit der
+gewählten Archetyp-Decklist statt `buildDemoDeck(pool)`. Gilt unverändert für
+beide Spieler (player1 UND player2, Hotseat) sowie beide `mode`-Werte
+(`newGame`/`standalone`) — keine Bot-spezifische Einschränkung, da die
+Bot-Geheimhaltung ausschließlich `pickRandomAiDeck()` betrifft (unverändert,
+weiterhin ohne Namen/Beschreibung im Rückgabewert — s. v0.1.21-Abschnitt und
+Dateikommentar in `aiDecks.ts`).
+
+### `style.css`
+
+`.deckbuilder-archetype-select` teilt sich die bestehende Basis-Optik mit
+`.deckbuilder-type-filter`/`.deckbuilder-color-filter` (Padding, Radius,
+Rahmen, Farben aus CSS-Variablen), zusätzlich `max-width: 220px` gegen zu
+lange Archetyp-Namen im Layout.
+
+### Verifikation
+
+Neuer dauerhafter Test `src/ui/__tests__/archetype-deck-select.test.ts` (3
+Tests): (1) Dropdown listet alle 7 `AI_DECKS`-Namen in der richtigen
+Reihenfolge, (2) „Archetyp-Deck laden" übernimmt exakt die Decklist des
+ausgewählten Archetyps (`store.getDecklist("player1")` deep-equal zu
+`AI_DECKS[i].decklist`) und das übernommene Deck ist sofort gültig
+(„Deck gültig", Confirm-Button aktiv), (3) „Zufällig füllen" bleibt als
+eigenständige, unveränderte Alternative funktionsfähig. `npm test`: 171/171
+Tests grün (1 weiterhin bewusst übersprungener Analyse-Test) — Baseline
+168/168 plus die 3 neuen Tests, keine Regression. `npm run build`
+(`tsc --noEmit`) fehlerfrei. Kein Browser-/Computer-Use-Werkzeug in dieser
+Session verfügbar — nur Code-Lektüre + `tsc`/`vitest`, keine echte
+Screenshot-Verifikation des neuen Dropdowns/Buttons möglich.
+
+**Ergebnis:** Geändert: `src/ui/components/deckBuilder.ts` (Import
+`AI_DECKS`, neues modul-scoped `selectedArchetypeIndex`, neues
+`archetypeSelect` + Lade-Button in der Controls-Zeile, neues
+`DeckBuilderOptions.onLoadArchetypeDeck`), `src/ui/render.ts` (neue
+`onLoadArchetypeDeck`-Verdrahtung), `src/ui/style.css`
+(`.deckbuilder-archetype-select`-Regel). Neu: `src/ui/__tests__/archetype-
+deck-select.test.ts`. Keine Änderung an `src/ui/aiDecks.ts` (Inhalte der 7
+Decklisten unverändert, nur zusätzlicher Import), an `pickRandomAiDeck()`/
+dessen Bot-Geheimhaltungsverhalten oder an `src/engine/*`/`src/model/*`/
+`src/ai/*` — reine Frontend-Ergänzung, kein Kartenbalancing.
 
 ## Nächste Schritte (Vorschläge)
 

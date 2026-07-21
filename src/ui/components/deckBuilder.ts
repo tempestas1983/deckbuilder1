@@ -24,6 +24,7 @@
 
 import type { CardDefinition, CardPool, CardType, ManaColor, PlayerId } from "../../model";
 import { BOT_DIFFICULTIES, BOT_DIFFICULTY_LABELS, type BotDifficulty } from "../../ai";
+import { AI_DECKS } from "../aiDecks";
 import { COLOR_LABEL, dominantColorClass, dominantColorKey, effectiveRulesText, subtypeLine } from "../cardInfo";
 import { h, text } from "../h";
 import { cardFrameArt } from "./cardArt";
@@ -92,6 +93,12 @@ const COLOR_OPTIONS: Array<{ value: ManaColor | "colorless" | "all"; label: stri
 let searchText = "";
 let typeFilter: CardType | "all" = "all";
 let colorFilter: ManaColor | "colorless" | "all" = "all";
+// Aktuell im Archetyp-Auswahl-Dropdown markierter AI_DECKS-Index (s.
+// archetypeSelect/onLoadArchetypeDeck unten) - rein UI-seitiger Auswahlzustand
+// analog zu searchText/typeFilter/colorFilter oben, überlebt also Rerenders
+// durch +/- Klicks, wird aber NICHT selbst in die Deckliste übernommen, bis
+// der Nutzer explizit auf "Archetyp-Deck laden" klickt.
+let selectedArchetypeIndex = 0;
 
 function matchesFilter(def: CardDefinition): boolean {
   const search = searchText.trim().toLowerCase();
@@ -129,6 +136,18 @@ export interface DeckBuilderOptions {
   offerCopyFromPlayer1: boolean;
   onChange: (next: Record<string, number>) => void;
   onRandomFill: () => void;
+  /**
+   * Lädt eines der 7 kuratierten Archetyp-Decks aus `aiDecks.ts#AI_DECKS`
+   * direkt als eigene Deckliste (s. archetypeSelect/-loadButton unten) -
+   * zusätzliche, klar benannte Alternative neben "Zufällig füllen"
+   * (`onRandomFill`, reine 5-Farben-Zufallsmischung über `buildDemoDeck`).
+   * Anders als `pickRandomAiDeck()` (das NUR für die Bot-Gegner-Befüllung
+   * gedacht ist und bewusst Name/Beschreibung verschweigt, s. aiDecks.ts-
+   * Kommentar) zeigt dieser Weg den Archetyp-Namen UND die Kurzbeschreibung
+   * ganz bewusst offen an - der Mensch wählt hier sein eigenes Deck bewusst
+   * nach Thema aus, keine Geheimhaltung nötig/gewollt.
+   */
+  onLoadArchetypeDeck: (decklist: Record<string, number>) => void;
   /** Nutzer-Feedback: ohne Reset-Möglichkeit war schwer erkennbar, welche Karten schon im Deck stecken - setzt die Deckliste komplett auf leer. */
   onClearDeck: () => void;
   onCopyFromPlayer1: () => void;
@@ -203,6 +222,32 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
       },
     },
     COLOR_OPTIONS.map((o) => h("option", { value: o.value, selected: colorFilter === o.value }, [text(o.label)])),
+  );
+
+  // Archetyp-Deck-Auswahl: lässt den Menschen eines der 7 kuratierten
+  // AI_DECKS-Decks (s. aiDecks.ts) direkt namentlich für sich selbst
+  // auswählen und laden - eine zusätzliche, klar benannte Alternative neben
+  // "Zufällig füllen" (nicht als Ersatz dafür). `title` auf dem Select selbst
+  // zeigt die Kurzbeschreibung des aktuell markierten Archetyps als Tooltip;
+  // jede einzelne <option> trägt zusätzlich ihre eigene Beschreibung als
+  // `title`, damit auch beim Durchklicken im geöffneten Dropdown (je nach
+  // Browser) die Beschreibung sichtbar ist.
+  const archetypeSelect = h(
+    "select",
+    {
+      class: "deckbuilder-archetype-select",
+      title: AI_DECKS[selectedArchetypeIndex]?.description ?? "",
+      onchange: (ev: Event) => {
+        selectedArchetypeIndex = Number((ev.target as HTMLSelectElement).value);
+      },
+    },
+    AI_DECKS.map((deck, index) =>
+      h(
+        "option",
+        { value: String(index), selected: selectedArchetypeIndex === index, title: deck.description },
+        [text(deck.name)],
+      ),
+    ),
   );
 
   // Initiale Sichtbarkeit direkt nach dem Bauen anwenden - deckt sowohl den
@@ -300,6 +345,16 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
       typeSelect,
       colorSelect,
       h("button", { class: "btn deckbuilder-random-fill-btn", onclick: opts.onRandomFill }, [text("Zufällig füllen")]),
+      archetypeSelect,
+      h(
+        "button",
+        {
+          class: "btn deckbuilder-archetype-load-btn",
+          title: AI_DECKS[selectedArchetypeIndex]?.description ?? "",
+          onclick: () => opts.onLoadArchetypeDeck(AI_DECKS[selectedArchetypeIndex]!.decklist),
+        },
+        [text("Archetyp-Deck laden")],
+      ),
       h("button", { class: "btn btn-cancel deckbuilder-clear-btn", onclick: opts.onClearDeck }, [text("Deck leeren")]),
       opts.offerCopyFromPlayer1
         ? h(
