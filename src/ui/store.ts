@@ -912,6 +912,38 @@ export function setBotDifficulty(player: PlayerId, difficulty: BotDifficulty): v
 }
 
 // ---------------------------------------------------------------------------
+// Bot-Deck-Archetyp-Wahl (Auftrag "welches Deck spielt die KI", 2026-07-21):
+// welchen der 7 kuratierten `AI_DECKS`-Archetypen (s. aiDecks.ts) soll der
+// bot-gesteuerte Spieler tatsächlich ziehen, wenn eine neue Partie startet?
+// `undefined` (Default) bedeutet "Zufällig" - reproduziert exakt das bisherige
+// Verhalten (aiDecks.ts#pickRandomAiDeck, weiterhin über #resolveAiDeck
+// aufgerufen), solange niemand explizit einen Namen auswählt. Ein gesetzter
+// Index wählt stattdessen GENAU diesen Archetyp. Analog zu `botDifficulty`
+// oben generisch pro PlayerId gespeichert, auch wenn der Deckbau-Screen die
+// Auswahl aktuell nur für player2 anzeigt (s. components/deckBuilder.ts).
+//
+// Bewusst OHNE localStorage-Persistenz (anders als `botControlledPlayers`/
+// `botDifficulty` oben, die über "Zurück zum Hauptmenü" hinweg erhalten
+// bleiben): der Bot-Gegner wird ohnehin pro neuer Partie neu gezogen, ein
+// reiner In-Memory-Zustand für die aktuelle Sitzung reicht (s. Auftrag).
+// ---------------------------------------------------------------------------
+
+let chosenAiDeckArchetype: Record<PlayerId, number | undefined> = {
+  player1: undefined,
+  player2: undefined,
+};
+
+/** `undefined` = "Zufällig" (Default), sonst ein gültiger Index in `aiDecks.ts#AI_DECKS`. */
+export function getChosenAiDeckArchetype(player: PlayerId): number | undefined {
+  return chosenAiDeckArchetype[player];
+}
+
+export function setChosenAiDeckArchetype(player: PlayerId, index: number | undefined): void {
+  chosenAiDeckArchetype = { ...chosenAiDeckArchetype, [player]: index };
+  notify();
+}
+
+// ---------------------------------------------------------------------------
 // Tutorial-Modus (v0.1.11): alternativer Startpfad mit festen, kuratierten
 // Decklisten (tutorialDeck.ts) + festem Seed statt des normalen Deckbau-
 // Screens, Spieler 2 automatisch bot-gesteuert auf einer ruhigen Stufe

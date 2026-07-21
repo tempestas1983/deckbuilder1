@@ -100,6 +100,31 @@ let colorFilter: ManaColor | "colorless" | "all" = "all";
 // der Nutzer explizit auf "Archetyp-Deck laden" klickt.
 let selectedArchetypeIndex = 0;
 
+// Sentinel-Wert für die "Zufällig"-<option> im "welches Deck spielt die
+// KI"-Select unten (s. botDeckSelect) - kein AI_DECKS-Index ist jemals ein
+// String, daher als eigener, klar erkennbarer Wert statt z.B. einer leeren
+// Zeichenkette.
+const RANDOM_AI_DECK_VALUE = "random";
+
+/**
+ * Baut die gemeinsame <option>-Liste über alle 7 `AI_DECKS`-Archetypen -
+ * geteilt zwischen `archetypeSelect` (eigenes Deck des Menschen laden) und
+ * dem "welches Deck spielt die KI"-Select im `aiToggle`-Block (Bot-Deck vorab
+ * festlegen), damit Namen/Beschreibungen/Tooltip-Verhalten nicht zweimal
+ * gepflegt werden müssen. `selectedIndex` markiert die aktuell ausgewählte
+ * <option> (-1, falls z.B. beim Bot-Select stattdessen "Zufällig" markiert
+ * sein soll - kein AI_DECKS-Index ist jemals negativ).
+ */
+function archetypeOptionNodes(selectedIndex: number): HTMLElement[] {
+  return AI_DECKS.map((deck, index) =>
+    h(
+      "option",
+      { value: String(index), selected: selectedIndex === index, title: deck.description },
+      [text(deck.name)],
+    ),
+  );
+}
+
 function matchesFilter(def: CardDefinition): boolean {
   const search = searchText.trim().toLowerCase();
   if (search && !def.name.toLowerCase().includes(search)) return false;
@@ -173,6 +198,19 @@ export interface DeckBuilderOptions {
   botDifficulty: BotDifficulty;
   onChangeBotDifficulty: (next: BotDifficulty) => void;
   /**
+   * Auftrag "welches Deck spielt die KI" (2026-07-21): welchen der 7
+   * kuratierten `AI_DECKS`-Archetypen (s. aiDecks.ts) der Bot-Gegner beim
+   * Partiestart tatsächlich zieht - `undefined` bedeutet "Zufällig" (Default,
+   * unverändertes Verhalten über `aiDecks.ts#pickRandomAiDeck`/`resolveAiDeck`).
+   * Nur relevant/angezeigt, wenn `botControlled` true ist (s. `aiToggle`
+   * unten, gleiches Sichtbarkeits-Muster wie `botDifficulty` oben). Anders als
+   * `onLoadArchetypeDeck` oben (lädt SOFORT als eigene Deckliste) ist dies nur
+   * eine VORAB-Festlegung, die erst beim tatsächlichen Partiestart
+   * (render.ts#onConfirm/onAiQuickstart) über `resolveAiDeck` ausgewertet wird.
+   */
+  chosenAiDeckArchetype: number | undefined;
+  onChangeAiDeckArchetype: (next: number | undefined) => void;
+  /**
    * NUR relevant/genutzt, wenn `mode === "standalone"` (s.o.) - "Zurück zum
    * Hauptmenü"-Footer-Button statt des Confirm-Buttons. Das Tutorial ist seit
    * dem "echtes Hauptmenü"-Umbau ausschließlich über das Hauptmenü selbst
@@ -232,6 +270,11 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
   // jede einzelne <option> trägt zusätzlich ihre eigene Beschreibung als
   // `title`, damit auch beim Durchklicken im geöffneten Dropdown (je nach
   // Browser) die Beschreibung sichtbar ist.
+  //
+  // `archetypeOptionNodes` (unten) baut diese <option>-Liste - geteilt mit
+  // dem "welches Deck spielt die KI"-Select im aiToggle-Block weiter unten
+  // (gleiche 7 Namen+Beschreibungen, unterschiedlicher Anwendungsfall: eigenes
+  // Deck laden vs. Bot-Deck vorab festlegen), statt sie zweimal aufzubauen.
   const archetypeSelect = h(
     "select",
     {
@@ -241,13 +284,7 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
         selectedArchetypeIndex = Number((ev.target as HTMLSelectElement).value);
       },
     },
-    AI_DECKS.map((deck, index) =>
-      h(
-        "option",
-        { value: String(index), selected: selectedArchetypeIndex === index, title: deck.description },
-        [text(deck.name)],
-      ),
-    ),
+    archetypeOptionNodes(selectedArchetypeIndex),
   );
 
   // Initiale Sichtbarkeit direkt nach dem Bauen anwenden - deckt sowohl den
@@ -289,6 +326,46 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
       )
     : undefined;
 
+  // Auftrag "welches Deck spielt die KI" (2026-07-21): Dropdown mit
+  // "Zufällig" (Default/Sentinel-Wert RANDOM_AI_DECK_VALUE, s.o.) + den 7
+  // AI_DECKS-Namen - sichtbar/aktiv nach demselben "nur solange botControlled"-
+  // Muster wie difficultySelect oben. Nutzt dieselbe archetypeOptionNodes()-
+  // Liste wie archetypeSelect weiter oben (s. dortiger Kommentar), ergänzt um
+  // die zusätzliche "Zufällig"-Option davor. Wählt der Mensch hier bewusst
+  // einen Namen aus, kennt er ihn ohnehin schon - das widerspricht dem
+  // Geheimhaltungs-Prinzip von `pickRandomAiDeck()` NICHT (s. aiDecks.ts).
+  const botDeckSelect = opts.botControlled
+    ? h(
+        "label",
+        { class: "deckbuilder-ai-deck-label" },
+        [
+          text("KI-Deck: "),
+          h(
+            "select",
+            {
+              class: "deckbuilder-ai-deck-select",
+              title:
+                opts.chosenAiDeckArchetype !== undefined
+                  ? AI_DECKS[opts.chosenAiDeckArchetype]?.description ?? ""
+                  : "Zieht beim Partiestart eines der 7 kuratierten Archetyp-Decks per Zufall - der Name bleibt verborgen, bis er sich im Spiel zeigt.",
+              onchange: (ev: Event) => {
+                const value = (ev.target as HTMLSelectElement).value;
+                opts.onChangeAiDeckArchetype(value === RANDOM_AI_DECK_VALUE ? undefined : Number(value));
+              },
+            },
+            [
+              h(
+                "option",
+                { value: RANDOM_AI_DECK_VALUE, selected: opts.chosenAiDeckArchetype === undefined },
+                [text("Zufällig")],
+              ),
+              ...archetypeOptionNodes(opts.chosenAiDeckArchetype ?? -1),
+            ],
+          ),
+        ],
+      )
+    : undefined;
+
   // v0.1.11: deutlich prominentere Darstellung (eigene Überschrift +
   // Hinweistext, größere Schrift) statt eines unauffälligen Text-Checkbox-
   // Labels ganz oben - Nutzer-Feedback: der Umschalter war bisher schwer zu
@@ -311,11 +388,18 @@ export function deckBuilderScreen(opts: DeckBuilderOptions): HTMLElement {
             text(" Spieler 2 von KI steuern lassen"),
           ]),
           difficultySelect,
+          botDeckSelect,
           opts.botControlled
             ? h(
                 "button",
                 { class: "btn deckbuilder-ai-quickstart-btn", onclick: opts.onAiQuickstart },
-                [text("Zufälliges KI-Deck + weiter")],
+                [
+                  text(
+                    opts.chosenAiDeckArchetype !== undefined
+                      ? `"${AI_DECKS[opts.chosenAiDeckArchetype]?.name}" laden + weiter`
+                      : "Zufälliges KI-Deck + weiter",
+                  ),
+                ],
               )
             : undefined,
         ])

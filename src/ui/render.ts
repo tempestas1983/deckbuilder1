@@ -29,6 +29,7 @@ import {
   getAppPhase,
   getBotDifficulty,
   getBotSpeedPreset,
+  getChosenAiDeckArchetype,
   getDecklist,
   getLastError,
   getMusicCurrentTrack,
@@ -59,6 +60,7 @@ import {
   setBotControlled,
   setBotDifficulty,
   setBotSpeedPreset,
+  setChosenAiDeckArchetype,
   setDecklist,
   setMusicRepeatMode,
   setUiMode,
@@ -86,7 +88,7 @@ import { deckBuilderScreen } from "./components/deckBuilder";
 import { mainMenuScreen } from "./components/mainMenu";
 import { opponentSelectScreen } from "./components/opponentSelect";
 import { buildDemoDeck } from "./deck";
-import { pickRandomAiDeck } from "./aiDecks";
+import { resolveAiDeck } from "./aiDecks";
 import { handCard, handCardDiscardToggle, handCardHidden } from "./components/handCard";
 import { playerPanel } from "./components/playerPanel";
 import { botAvatarImg, humanAvatarPlaceholder } from "./components/sceneArt";
@@ -464,9 +466,12 @@ function renderDeckBuilder(player: PlayerId, mode: "newGame" | "standalone"): HT
       // Seit dem Wechsel auf `pickRandomAiDeck` (s. aiDecks.ts) zieht die KI
       // ein thematisch stimmiges, 1-3-farbiges Deck statt der alten
       // 5-Farben-Zufallsmischung aus `buildDemoDeck` - welcher Archetyp es
-      // ist, wird dem menschlichen Spieler bewusst nirgends angezeigt.
+      // ist, wird dem menschlichen Spieler bewusst nirgends angezeigt, ES SEI
+      // DENN er hat selbst gezielt einen Namen ausgewählt (s.
+      // `resolveAiDeck`/store.ts#getChosenAiDeckArchetype, Auftrag "welches
+      // Deck spielt die KI", 2026-07-21).
       if (player === "player1" && isBotControlled("player2")) {
-        const aiDeck = pickRandomAiDeck();
+        const aiDeck = resolveAiDeck(getChosenAiDeckArchetype("player2"));
         setDecklist("player2", aiDeck);
         confirmDeck("player2");
       }
@@ -487,12 +492,19 @@ function renderDeckBuilder(player: PlayerId, mode: "newGame" | "standalone"): HT
     // reicht nur getBotDifficulty/setBotDifficulty durch, keine eigene Logik.
     botDifficulty: getBotDifficulty(player),
     onChangeBotDifficulty: (next) => setBotDifficulty(player, next),
+    // Auftrag "welches Deck spielt die KI" (2026-07-21): welchen AI_DECKS-
+    // Archetyp der Bot-Gegner ziehen soll (`undefined` = "Zufällig", s.
+    // store.ts#getChosenAiDeckArchetype) - reicht nur durch, keine eigene
+    // Logik (s. aiDecks.ts#resolveAiDeck für die eigentliche Auflösung).
+    chosenAiDeckArchetype: getChosenAiDeckArchetype(player),
+    onChangeAiDeckArchetype: (next) => setChosenAiDeckArchetype(player, next),
     onAiQuickstart: () => {
       // s. Kommentar bei onConfirm oben: zieht seit `pickRandomAiDeck` (statt
       // `buildDemoDeck`) ein kuratiertes, thematisches Archetyp-Deck aus
       // aiDecks.ts statt einer reinen 5-Farben-Zufallsmischung. Der
-      // Archetyp-Name bleibt bewusst verborgen.
-      const aiDeck = pickRandomAiDeck();
+      // Archetyp-Name bleibt bewusst verborgen - ES SEI DENN der Mensch hat
+      // selbst gezielt einen Namen ausgewählt (s. `resolveAiDeck` oben).
+      const aiDeck = resolveAiDeck(getChosenAiDeckArchetype(player));
       setBotControlled(player, true);
       setDecklist(player, aiDeck);
       if (validateDecklist(pool, aiDeck).valid) {

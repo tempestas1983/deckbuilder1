@@ -1439,19 +1439,29 @@ body {
 
 /* Bot-Schwierigkeitsstufe (v0.1.9) ---------------------------------------- */
 
-.deckbuilder-ai-difficulty-label {
+.deckbuilder-ai-difficulty-label,
+.deckbuilder-ai-deck-label {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
 }
 
-.deckbuilder-ai-difficulty-select {
+.deckbuilder-ai-difficulty-select,
+.deckbuilder-ai-deck-select {
   padding: 3px 6px;
   border-radius: 4px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: inherit;
+}
+
+/* "Welches Deck spielt die KI" (Auftrag 2026-07-21): teilt sich die
+   Basis-Optik oben mit dem Schwierigkeits-Select (gleiches Label/Select-Paar-
+   Muster), etwas breiter als jenes, da die Archetyp-Namen länger sind als
+   "Leicht"/"Mittel"/"Schwer". */
+.deckbuilder-ai-deck-select {
+  max-width: 220px;
 }
 
 .deckbuilder-search-input {

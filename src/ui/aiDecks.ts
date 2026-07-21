@@ -402,3 +402,25 @@ export function pickRandomAiDeck(): Record<string, number> {
   const entry = AI_DECKS[Math.floor(Math.random() * AI_DECKS.length)]!;
   return entry.decklist;
 }
+
+/**
+ * Löst die tatsächlich für den Bot-Gegner zu verwendende Decklist auf (Auftrag
+ * "welches Deck spielt die KI", 2026-07-21, s. store.ts#getChosenAiDeckArchetype/
+ * components/deckBuilder.ts#aiToggle): der Mensch kann statt der bisherigen
+ * reinen Zufallsziehung gezielt einen der 7 `AI_DECKS`-Archetypen für den Bot
+ * festlegen.
+ *
+ * `chosenIndex === undefined` (Default/"Zufällig" im UI) verhält sich exakt
+ * wie `pickRandomAiDeck()` oben, INKLUSIVE dessen Geheimhaltungs-Prinzip - der
+ * Archetyp-Name wird auch hier nirgends zurückgegeben, nur die Decklist. Ein
+ * gültiger Index gibt stattdessen GENAU die Decklist dieses Eintrags zurück -
+ * das widerspricht dem Geheimhaltungs-Prinzip NICHT, da der Mensch diesen
+ * Namen in diesem Fall ohnehin selbst im Dropdown ausgewählt hat.
+ */
+export function resolveAiDeck(chosenIndex: number | undefined): Record<string, number> {
+  if (chosenIndex === undefined) return pickRandomAiDeck();
+  const entry = AI_DECKS[chosenIndex];
+  // Defensiv: ein ungültiger Index (sollte über das UI-Dropdown nie
+  // vorkommen) fällt auf dasselbe Zufallsverhalten zurück statt zu crashen.
+  return entry ? entry.decklist : pickRandomAiDeck();
+}

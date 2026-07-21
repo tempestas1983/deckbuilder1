@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.27 (frontend-engineer) — 2026-07-21
+Status: v0.1.28 (frontend-engineer) — 2026-07-21
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -18,6 +18,26 @@ Stufen `easy`/`medium`/`hard`; `chooseAction` (`src/ai/simpleBot.ts`, v1 =
 Stufe "medium") bleibt weiterhin exportiert; **seit v0.1.17** liefert
 `src/ai/difficulty.ts` zusätzlich `BOT_DISPLAY_NAMES` — erfundene
 Tavernen-Namen der drei Bot-Stufen fürs UI, s. dortiger Abschnitt).
+
+**v0.1.28 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Auftrag „man sollte auswählen können, welches Deck die KI spielt, oder
+ob es zufällig gewählt wird" — anders als v0.1.27 (eigenes Deck des Menschen)
+geht es hier um das Deck des BOT-GEGNERS (player2, wenn bot-gesteuert). Neues
+Select `.deckbuilder-ai-deck-select` im `aiToggle`-Block des player2-Deckbau-
+Screens (sichtbar/aktiv wie das bestehende Schwierigkeits-Select nur solange
+die KI-Steuerung aktiv ist): „Zufällig" (Default, Sentinel-Wert `"random"`) +
+die 7 `AI_DECKS`-Namen. Neuer In-Memory-Store-Zustand `store.ts#
+getChosenAiDeckArchetype`/`setChosenAiDeckArchetype` (pro `PlayerId`,
+`undefined` = Zufällig, KEINE localStorage-Persistenz — der Bot-Gegner wird
+ohnehin pro Partie neu gewählt). Neue Funktion `aiDecks.ts#resolveAiDeck
+(chosenIndex)`: `undefined` → unverändertes `pickRandomAiDeck()`-Verhalten
+(inkl. Geheimhaltung), sonst exakt die Decklist des gewählten Eintrags. Löst
+`pickRandomAiDeck()` an beiden bisherigen Aufrufstellen in `render.ts` ab
+(automatischer player2-Auto-Fill nach player1s Confirm UND der „...+
+weiter"-Quickstart-Button, dessen Label bei expliziter Auswahl jetzt den
+Archetyp-Namen nennt statt „Zufälliges KI-Deck + weiter"). Geheimhaltung im
+Zufalls-Fall bleibt unverändert — wählt der Mensch selbst einen Namen, kennt
+er ihn ohnehin bereits.
 
 **v0.1.27 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Auftrag „die sollten auch für den Menschen auswählbar sein" (Anlass:
@@ -3677,6 +3697,111 @@ deck-select.test.ts`. Keine Änderung an `src/ui/aiDecks.ts` (Inhalte der 7
 Decklisten unverändert, nur zusätzlicher Import), an `pickRandomAiDeck()`/
 dessen Bot-Geheimhaltungsverhalten oder an `src/engine/*`/`src/model/*`/
 `src/ai/*` — reine Frontend-Ergänzung, kein Kartenbalancing.
+
+## Bot-Deck-Archetyp-Auswahl (v0.1.28, 2026-07-21)
+
+Direkter Folgeauftrag zu v0.1.27: „und man sollte auswählen können, welches
+Deck die KI spielt, oder ob es zufällig gewählt wird" — bezieht sich NICHT
+auf das eigene Deck des Menschen (bereits mit v0.1.27 erledigt), sondern auf
+das Deck des bot-gesteuerten Gegners (player2, wenn `isBotControlled` true
+ist). Bisher zog `render.ts` an beiden Aufrufstellen immer über
+`pickRandomAiDeck()` zufällig einen der 7 Archetypen.
+
+### `store.ts`: neuer In-Memory-Auswahlzustand
+
+`chosenAiDeckArchetype: Record<PlayerId, number | undefined>` (Default:
+`undefined` für beide Spieler) + `getChosenAiDeckArchetype`/
+`setChosenAiDeckArchetype`, direkt neben `botDifficulty` platziert, analoges
+Muster (generisch pro `PlayerId`, auch wenn nur player2 im UI eine Auswahl
+anbietet). Bewusst OHNE localStorage-Persistenz (anders als
+`botControlledPlayers`/`botDifficulty`, die über „Zurück zum Hauptmenü"
+hinweg erhalten bleiben) — der Auftrag verlangt das ausdrücklich nicht
+(„MUSS NICHT über Sessions hinweg persistiert werden"). Bleibt aber innerhalb
+derselben Sitzung ein reiner Modul-Zustand: ein einmal gewählter Archetyp
+übersteht ein „Zurück zum Hauptmenü" + eine neue Partie (per echtem
+Klick-Test in `ai-deck-choice.test.ts` belegt, s.u.), erst ein kompletter
+App-Neustart (Modul-Neuladen) setzt ihn zurück auf „Zufällig".
+
+### `aiDecks.ts`: `resolveAiDeck(chosenIndex)`
+
+Neue Funktion, `pickRandomAiDeck()` selbst bleibt unverändert (wird von
+`resolveAiDeck` intern weiterhin für den Zufalls-Fall aufgerufen, außerdem
+laut Dateikommentar potenziell noch anderweitig genutzt). `chosenIndex ===
+undefined` → identisches Verhalten wie bisher (`pickRandomAiDeck()`, inkl.
+Geheimhaltung des Namens). Ein gültiger Index gibt exakt
+`AI_DECKS[chosenIndex].decklist` zurück; ein defensiv abgefangener
+ungültiger Index fällt auf den Zufalls-Fall zurück statt zu crashen (sollte
+über das UI-Dropdown nie vorkommen).
+
+### `render.ts`: beide Aufrufstellen umgestellt
+
+`onConfirm` (player1 bestätigt, player2 bereits vorab als Bot markiert über
+`store.ts#chooseOpponentBot` → player2-Screen wird komplett übersprungen) und
+`onAiQuickstart` (Button direkt auf dem player2-Screen) rufen jetzt beide
+`resolveAiDeck(getChosenAiDeckArchetype(player))` statt `pickRandomAiDeck()`
+auf. Neue `DeckBuilderOptions`-Felder `chosenAiDeckArchetype`/
+`onChangeAiDeckArchetype` reichen nur `getChosenAiDeckArchetype`/
+`setChosenAiDeckArchetype` durch (kein eigener Logikanteil in `render.ts`).
+Der Quickstart-Button-Text wechselt bei expliziter Auswahl von „Zufälliges
+KI-Deck + weiter" zu `"<Archetyp-Name>" laden + weiter`.
+
+### `components/deckBuilder.ts`: neues Select im `aiToggle`-Block
+
+Neues `<select class="deckbuilder-ai-deck-select">` (Label „KI-Deck: ",
+analog zum bestehenden Schwierigkeits-Select-Label direkt darüber), nur
+gerendert, solange `opts.botControlled` true ist — identisches Sichtbarkeits-
+Muster wie `difficultySelect`. Optionen: eine `"Zufällig"`-Option mit dem
+Sentinel-Wert `RANDOM_AI_DECK_VALUE = "random"` (selektiert, solange
+`chosenAiDeckArchetype === undefined`) gefolgt von den 7 Archetyp-Optionen.
+Diese 7 Optionen werden über eine neue geteilte Hilfsfunktion
+`archetypeOptionNodes(selectedIndex)` gebaut — dieselbe Funktion erzeugt jetzt
+auch die Optionsliste des bereits bestehenden `archetypeSelect` (menschliches
+eigenes Deck, v0.1.27), um Namen/Beschreibungen/Tooltip-Verhalten nicht
+zweimal zu pflegen (per Auftrag ausdrücklich als Option vorgeschlagen). Der
+`onchange`-Handler übersetzt den Sentinel-Wert zurück auf `undefined`, bevor
+er `opts.onChangeAiDeckArchetype` aufruft.
+
+### `style.css`
+
+`.deckbuilder-ai-deck-label`/`.deckbuilder-ai-deck-select` teilen sich die
+Basis-Optik (Flex-Layout, Padding, Rahmen, Farben) mit den bestehenden
+`.deckbuilder-ai-difficulty-label`/`-select`-Regeln (eine gemeinsame
+Selektor-Liste statt Duplizierung), zusätzlich eigenes `max-width: 220px`
+(Archetyp-Namen sind länger als die drei Schwierigkeitsstufen-Labels).
+
+### Verifikation
+
+Neuer dauerhafter Test `src/ui/__tests__/ai-deck-choice.test.ts` (4 Tests):
+(1) Select zeigt „Zufällig" + alle 7 Namen, aber nur solange die KI-Steuerung
+aktiv ist, Default ist „Zufällig"; (2) explizite Auswahl + Quickstart lädt
+exakt die Decklist dieses Archetyps für player2 (`store.getDecklist
+("player2")` deep-equal `AI_DECKS[i].decklist`), Button-Label nennt den
+Namen; (3) Zurückstellen auf „Zufällig" entfernt eine vorherige Auswahl
+wieder (kein versehentlicher Fallback auf Index 0); (4) eine einmal
+getroffene Auswahl übersteht „Zurück zum Hauptmenü" + eine komplett neue
+Partie über die Gegner-Auswahl (`chooseOpponentBot`, player2-Screen dabei
+übersprungen) — der automatische Auto-Fill-Pfad zieht denselben Archetyp,
+nicht erneut zufällig. `npm test`: 175/175 Tests grün (1 weiterhin bewusst
+übersprungener Analyse-Test) — Baseline 171/171 plus die 4 neuen Tests, keine
+Regression (inkl. `vs-bot.test.ts`/`vs-bot-difficulty.test.ts`/
+`archetype-deck-select.test.ts`, die alle unverändert grün bleiben, da der
+Default-Zufalls-Fall unangetastet blieb). `npm run build` (`tsc --noEmit`)
+fehlerfrei.
+
+**Ergebnis:** Geändert: `src/ui/store.ts` (neuer `chosenAiDeckArchetype`-
+Zustand + Getter/Setter), `src/ui/aiDecks.ts` (neue `resolveAiDeck`-Funktion,
+`pickRandomAiDeck` unverändert), `src/ui/render.ts` (Import `resolveAiDeck`
+statt `pickRandomAiDeck`, beide Aufrufstellen umgestellt, zwei neue
+`DeckBuilderOptions`-Felder verdrahtet), `src/ui/components/deckBuilder.ts`
+(neue `archetypeOptionNodes`-Hilfsfunktion, geteilt mit dem bestehenden
+`archetypeSelect`, neues `botDeckSelect` im `aiToggle`-Block, angepasstes
+Quickstart-Button-Label, zwei neue `DeckBuilderOptions`-Felder), `src/ui/
+style.css` (`.deckbuilder-ai-deck-label`/`-select`-Regeln). Neu: `src/ui/
+__tests__/ai-deck-choice.test.ts`. Keine Änderung an den 7 Decklisten selbst,
+an `src/engine/*`/`src/model/*`/`src/ai/*` oder an der Geheimhaltungslogik im
+Zufalls-Fall — reine Frontend-Ergänzung, kein Kartenbalancing. Kein Browser-/
+Computer-Use-Werkzeug in dieser Session verfügbar — nur Code-Lektüre +
+`tsc`/`vitest`, keine echte Screenshot-Verifikation des neuen Dropdowns.
 
 ## Nächste Schritte (Vorschläge)
 
