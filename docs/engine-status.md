@@ -38,6 +38,19 @@ v0.1.10 → v0.1.16 — Artwork-Einbindung, Tutorial-Neubau, Keyword-Glossar),
 keine Engine-/Model-Änderung, Engine-Testzahl weiterhin **130**. Zwei neue
 UI-Tests (`keyword-glossary.test.ts`) heben den Gesamtstand auf **163 Tests
 grün + 1 bewusst übersprungener Analyse-Test** — Details `docs/status.md`.
+**documenter-Sweep 2026-07-22:** Der `v0.3.6`-Bugfix-Abschnitt unten (`isLegalBlock`,
+2026-07-21) war bereits vom engine-engineer selbst vollständig dokumentiert —
+per Grep gegen `src/engine/__tests__/*.test.ts` gegengezählt: Engine-Testzahl
+jetzt **131** (130 + der eine neue `legal-actions.test.ts`-Regressionstest aus
+v0.3.6, exakt konsistent mit der in diesem Abschnitt behaupteten Zahl 168
+Gesamt = 167 Bestand + 1). Zwischenzeitlich lief eine mehrteilige Frontend-Session
+(`docs/frontend-status.md` v0.1.22 → v0.1.33, u. a. Zug-Flow-Spalte, Action-Glow,
+Layout-Umbau Battlefields/Stack, Bot-Tempo-Einstellung, Deck-Archetyp-Auswahl,
+zwei weitere UI-seitige Bugfixes, Battlefield-Typ-Gruppierung/Auren-Overlay,
+Phasen-Hervorhebung) — keine davon hat Engine-/Model-Code geändert. Gesamtstand
+über Engine+UI+KI laut `docs/frontend-status.md` v0.1.33 (letzter dort dokumentierter
+`npm test`-Lauf): **177 Tests grün + 1 bewusst übersprungener Analyse-Test**,
+Details `docs/status.md`.
 
 Dieses Dokument richtet sich an frontend-engineer (worauf aufbauen?), card-designer
 (welche DSL-Primitive funktionieren zuverlässig?) und game-architect (offene
@@ -1212,10 +1225,12 @@ Kopfzeilen-Gesamtzahl dieses Abschnitts war stehengeblieben):
   mehreren, ungültiger `modeIndex`, seit v0.3.1 die volle Kette `chooseMode`
   -> `chooseTriggerTargets` mit persistiertem `chosenMode`).
 - `legal-actions.test.ts` (v0.3.2, 3 Tests, ergänzt beim documenter-Sweep
-  2026-07-10) - Regressionstests für den `activateAbility`-Zusatzkosten-Bug
-  (`removeCounters`/`payLife`/`discardCards`): Kandidat erscheint NICHT bei
-  unbezahlbaren Kosten, `applyAction` lehnt konsistent ab, Kandidat
-  erscheint UND ist ausführbar, sobald die Kosten erfüllbar sind.
+  2026-07-10; v0.3.6 +1 Test) - Regressionstests für den `activateAbility`-
+  Zusatzkosten-Bug (`removeCounters`/`payLife`/`discardCards`): Kandidat
+  erscheint NICHT bei unbezahlbaren Kosten, `applyAction` lehnt konsistent ab,
+  Kandidat erscheint UND ist ausführbar, sobald die Kosten erfüllbar sind;
+  seit v0.3.6 zusätzliche Describe-Gruppe "declareBlockers-Kandidaten bei
+  Nicht-Unit-Permanents (Bugfix-Regression)" (1 Test, s. Abschnitt v0.3.6 oben).
 
 `src/engine/__tests__/fixtures.ts` und `test-helpers.ts` sind NUR für Tests
 gedacht (Mini-Kartenpool, Direkt-Manipulationshilfen wie `putOnBattlefield`) -

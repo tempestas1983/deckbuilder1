@@ -7,7 +7,7 @@ MTG-artiger Deckbuilder als Hobby-/Lernprojekt. Fünf Agent-Rollen:
 aktuellen Stand). Ein `documenter`-Subagent hält diese Übersicht sowie
 `docs/status.md`/`docs/rules-engine.md` aktuell.
 
-## Aktueller Stand (2026-07-20, Regelwerk v0.3.3 / Modell v0.2.1 mit v0.3-Erweiterungen / Engine v0.3.5 / Kartenpool 300 Karten + 3 Token-Definitionen / Frontend v0.1.21 / KI-Gegner v2.1)
+## Aktueller Stand (2026-07-22, Regelwerk v0.3.3 / Modell v0.2.1 mit v0.3-Erweiterungen / Engine v0.3.6 / Kartenpool 300 Karten + 3 Token-Definitionen / Frontend v0.1.33 / KI-Gegner v2.1)
 
 | Artefakt | Pfad | Status |
 |---|---|---|
@@ -16,9 +16,9 @@ aktuellen Stand). Ein `documenter`-Subagent hält diese Übersicht sowie
 | Kartendefinitionen (6 Kartentypen, Kosten, Decks) | `src/model/cards.ts` | Typen fertig (v0.2: Aura-attachedTo geklärt; v0.3: `SpellCard.modes` für Modal-Effekte) |
 | Spielzustand, Stack, Aktionen, Events, Engine-Interface | `src/model/game-state.ts` | Typen fertig (v0.2: PendingDecision/resolveDecision, CreateGameConfig ohne pool, Factory-Vertrag; v0.2.1: resumePriorityTo; v0.2.3: `PendingDecision`/`DecisionChoice` um `orderBlockers` erweitert, `PermanentState.deathtouchDamage`; v0.3: `PendingDecision`/`DecisionChoice` +`mulligan`/`chooseMode`, `chosenX`/`chosenMode` an Aktionen/Stack-Objekten, `PlayerState.mulligans`, `CreateGameConfig.skipMulligans`, Event `mulliganTaken`; v0.3.1: additives `chosenMode?: number` an `chooseTriggerTargets`) — unverändert seit v0.3.1, die v0.3.2/v0.3.3-Regelwerksänderungen brauchten keinen Modell-Umbau |
 | Zentrale Exports | `src/model/index.ts` | fertig |
-| Engine-Implementierung (Kern: Phasen/Priority/Stack/SBA/Trigger/Decisions/Combat inkl. guardian, X, Kampf-Keyword-Paket, costChange, Mulligan, Modal-Effekte) | `src/engine/*`, Status: `docs/engine-status.md` | **v0.3.5 fertig** — auf v0.3.2 (s. vorige Sweep-Fassung) folgten drei weitere, jeweils von anderen Rollen beim Testen/Kartenbau gefundene und vom engine-engineer behobene Bugfixes: **v0.3.3** `combat.ts` crashte, wenn ein TOKEN-Kampfteilnehmer in der firstStrike-Zwischenrunde starb (Fund: ai-opponent-engineer beim Stärkevergleichs-Testen); **v0.3.4** `destroyPermanent`/`returnToHand`/`exilePermanent` fehlte der Battlefield-Existenz-Guard, den die übrigen sieben permanent-bezogenen Effekte schon hatten (Fund: game-architect, latent, Entscheidung 9.14); **v0.3.5** `onDeath`/`onUnitDied` feuerten nur auf dem SBA-Todespfad, nicht bei `destroyPermanent`/`sacrificeSelf` — jetzt zentraler Tod-Hook in `zones.ts#leaveBattlefield` (Fund: card-designer in Kartenpool-Batch 6, Entscheidung 9.15). Engine-Testzahl (nur `src/engine/__tests__/*`) 119 → **130** (per Grep nachgezählt: v0.3.3 +2, v0.3.4 +2, v0.3.5 +7). Offene Rückfrage an den game-architect (unverändert): ob `StaticAbility.scope` bei `costChange` künftig eine Bedeutung bekommen soll — nicht blockierend |
+| Engine-Implementierung (Kern: Phasen/Priority/Stack/SBA/Trigger/Decisions/Combat inkl. guardian, X, Kampf-Keyword-Paket, costChange, Mulligan, Modal-Effekte) | `src/engine/*`, Status: `docs/engine-status.md` | **v0.3.6 fertig** — auf v0.3.2 (s. vorige Sweep-Fassung) folgten vier weitere, jeweils von anderen Rollen bzw. dem Nutzer gefundene und vom engine-engineer behobene Bugfixes: **v0.3.3** `combat.ts` crashte, wenn ein TOKEN-Kampfteilnehmer in der firstStrike-Zwischenrunde starb (Fund: ai-opponent-engineer beim Stärkevergleichs-Testen); **v0.3.4** `destroyPermanent`/`returnToHand`/`exilePermanent` fehlte der Battlefield-Existenz-Guard, den die übrigen sieben permanent-bezogenen Effekte schon hatten (Fund: game-architect, latent, Entscheidung 9.14); **v0.3.5** `onDeath`/`onUnitDied` feuerten nur auf dem SBA-Todespfad, nicht bei `destroyPermanent`/`sacrificeSelf` — jetzt zentraler Tod-Hook in `zones.ts#leaveBattlefield` (Fund: card-designer in Kartenpool-Batch 6, Entscheidung 9.15); **v0.3.6** (2026-07-21, Fund: Nutzer über den Orchestrator) `isLegalBlock` prüfte nicht, ob ein potenzieller Blocker-Kandidat überhaupt eine Einheit ist — ein ungetapptes Nicht-Unit-Permanent (z. B. ein Terrain) konnte dadurch fälschlich als Blocker-Kandidat erscheinen und ein leeres, aber als „echte Wahl" wirkendes Blocker-Panel im UI erzwingen, obwohl der Verteidiger gar keine Kreatur besaß; Fix bekommt denselben Typ-Guard wie das bereits korrekte `guardianUnitsRequiringBlock`. Engine-Testzahl (nur `src/engine/__tests__/*`) 119 → **131** (per Grep nachgezählt: v0.3.3 +2, v0.3.4 +2, v0.3.5 +7, v0.3.6 +1). Offene Rückfrage an den game-architect (unverändert): ob `StaticAbility.scope` bei `costChange` künftig eine Bedeutung bekommen soll — nicht blockierend |
 | Kartenpool / Starter-Set (300 Karten + 3 Token-Definitionen) | `src/cards/starter-set.ts`, `docs/cards/starter-set.md` | **v0.15 fertig** — Kartenzahl per Grep gegen den Code verifiziert (303 `id: "core.…"`-Einträge insgesamt, davon 3 mit `isToken:true`, macht 300 reguläre Karten). Der Pool wurde in 9 Batches von 113 auf **300 Karten** ausgebaut (terrain 5, unit 110, spell 72, relic 56, enchantment 57; Farbverteilung 49/49/49/49/48 über flame/tide/wild/light/void, nahezu perfekt gleichmäßig). Danach drei empirische Bot-Simulations-Balancerunden (v0.13/v0.14/v0.15): `wild` war klar zu stark (73–75 % Siegquote in Mono-Farb-Simulationen), über drei Runden mit gezielten Statlinien-/Kosten-/Zusatzkosten-Korrekturen auf **64,7 %** gesenkt (reale, aber laut card-designer nicht perfekte Verbesserung — Runde 3 hat den strukturellen Grund identifiziert und behoben, weiteres Nachschärfen brächte laut Analyse keinen Zusatznutzen mehr); `void`s Vorsprung (~62 % gegenüber `tide`/`light`) wurde geprüft, aber bewusst NICHT korrigiert, da keine einzelne Karte im Preisvergleich fehlbepreist ist (nur eine kumulative strukturelle Dichte an Tod-Triggern/Entfernungszaubern) |
-| UI (Spielbrett, Vite + TypeScript) | `src/ui/*`, Status: `docs/frontend-status.md` | **v0.1.21 fertig** — auf v0.1.16 (13-Schritte-Tutorial-Sequenz, s. vorige Sweep-Fassung) folgten fünf weitere Schritte: **v0.1.17** die mit Abstand umfangreichste Einzelsession bisher — echtes **Hauptmenü** als neuer App-Einstiegspunkt (`AppPhase`: `mainMenu` → `opponentSelect` → `deckbuild` → `playing`, löst den bisherigen Direkteinstieg in den Deckbau ab) mit vier Optionen inkl. neuer Gegner-Auswahl (KI-Schwierigkeit mit benannten Bot-Personas „Ollo Wackelhand"/„Guntram Eichenfaust"/„Silas Kaltblick" ODER 2-Spieler-Hotseat) und neuem „Anleitung"-Nachschlage-Panel; dazu Taverne-Atmosphäre + Szenen-Artwork (viewport-breiter Board-Hintergrund, großformatige Gegner-Avatare in einer eigenen Spalte), sichtbare View-Transitions-Animationen (Karten morphen zwischen Zonen, Bot-Züge sichtbar statt Snap, Lebenspunkte-Puls), eine verdeckt dargestellte Gegner-Hand (nur Kartenrückseiten + Anzahl), zwölf Soundeffekte, sowie ein Tutorial-Bugfix (Hauptphase-Sperre gegen versehentliches Überspringen des Terrain-Schritts). **v0.1.18** Auto-Pass (automatisches Passen/„keine Angreifer"/„keine Blocker", wenn `getLegalActions` keine echte Wahl mehr bietet), ein auffälliges Entscheidungs-Spotlight-Banner für echte Entscheidungen, sowie eine von einer festen Datei auf Auto-Discovery umgestellte Musik-Playlist (`docs/music/` → `/music/index.json`, Titelauswahl + Wiederholungsmodus). **v0.1.19** Bugfix: reine Mana-Fähigkeiten (Terrain fürs Mana antippen) zählten fälschlich als „echte Entscheidung" und verhinderten Auto-Pass/lösten das Spotlight-Banner ständig unnötig aus. **v0.1.20** (Commit `9b81338`, beim vorigen Sweep noch uncommitted, jetzt bestätigt) benannte Deck-Speicherfunktion (mehrere Slots mit Name + Beschreibung), ein Deck-Analyse-Panel (Mana-Kurve, Farb-/Typverteilung) sowie ein „Deck leeren"-Button im Deckbau-Screen. **v0.1.21** (Commit `5654ec1`) neue Datei `aiDecks.ts`: 7 vom card-designer kuratierte Archetyp-Decklisten (je 60 Karten, echte Kopienzahlen/Kurve statt der bisherigen reinen 5-Farben-Zufallsmischung) — der Bot-Gegner zieht jetzt bei beiden automatischen Deckbau-Stellen (`render.ts`) über `pickRandomAiDeck()` eines dieser sieben Decks, `buildDemoDeck` bleibt unverändert für den „Zufällig füllen"-Button des menschlichen Deckbaus; der gewählte Archetyp wird dem Spieler bewusst nirgends angezeigt. Keiner dieser fünf Schritte hat Engine/Model/Kartenpool angefasst (v0.1.17 ergänzte nur die rein kosmetischen `BOT_DISPLAY_NAMES` in `src/ai/difficulty.ts`). Engine-Testzahl unverändert bei **130**; UI-Testdateien liefern laut Grep-Auszählung **19** einzeln benannte Fälle über 12 Dateien (neu seit v0.1.16: `golden-path.test.ts`, `main-menu.test.ts`, `rules-guide.test.ts`) — ein echter `npm test`/`npm run build`-Lauf konnte auch in dieser documenter-Session mangels Shell-Werkzeug NICHT durchgeführt werden, s. `docs/frontend-status.md` für Details |
+| UI (Spielbrett, Vite + TypeScript) | `src/ui/*`, Status: `docs/frontend-status.md` | **v0.1.33 fertig** — auf v0.1.21 (s. vorige Sweep-Fassung) folgten zwölf weitere Schritte (v0.1.22–v0.1.33, alle 2026-07-20/21/22, Details im „Seit dem letzten Sweep"-Absatz unten sowie `docs/frontend-status.md`): u. a. eine vertikale Zug-Flow-Spalte mit aktiver-Spieler-Avatar (v0.1.22), angereichertes Ereignis-Log + visuelles Action-Glow (v0.1.23, das Log-Panel selbst dann in v0.1.25 wieder entfernt, die Datenerfassung bleibt für Tests), direkt aneinanderstoßende Battlefields mit nach unten verschobener KI-Hand (v0.1.24), einstellbare Bot-Zuggeschwindigkeit (v0.1.25), Stack-Anzeige zwischen die Battlefields verschoben (v0.1.26), Archetyp-Deck-Auswahl für Mensch UND KI-Gegner (v0.1.27/v0.1.28), „Im Deck"-Abschnitt im Deckbau-Kartenpool (v0.1.29), ein Bugfix gegen wiederkehrendes Bild-Blinken bei Karten-/Avatar-Artwork (v0.1.30), ein kritischer Bugfix gegen automatisches Überspringen des Spielers direkt nach dem Terrain-Legen (v0.1.31), Battlefield-Typ-Gruppierung mit überlappenden Auren-Kacheln (v0.1.32) sowie eine deutlichere Hervorhebung der aktuellen Spielphase (v0.1.33). Keiner dieser zwölf Schritte hat Engine/Model/Kartenpool angefasst — unabhängig davon lieferte der engine-engineer zwischenzeitlich den oben in der Engine-Zeile beschriebenen v0.3.6-Bugfix. UI-Testdateien liefern laut `docs/frontend-status.md` (dort per echtem `npm test`-Lauf verifiziert, nicht nur Grep) **177 Tests grün + 1 bewusst übersprungener Analyse-Test** über Engine+UI+KI zusammen (Engine allein: 131). Frühere Schritte (bis v0.1.21) zur Referenz: **v0.1.17** die bis dahin mit Abstand umfangreichste Einzelsession — echtes **Hauptmenü** als neuer App-Einstiegspunkt (`AppPhase`: `mainMenu` → `opponentSelect` → `deckbuild` → `playing`, löst den bisherigen Direkteinstieg in den Deckbau ab) mit vier Optionen inkl. neuer Gegner-Auswahl (KI-Schwierigkeit mit benannten Bot-Personas „Ollo Wackelhand"/„Guntram Eichenfaust"/„Silas Kaltblick" ODER 2-Spieler-Hotseat) und neuem „Anleitung"-Nachschlage-Panel; dazu Taverne-Atmosphäre + Szenen-Artwork (viewport-breiter Board-Hintergrund, großformatige Gegner-Avatare in einer eigenen Spalte), sichtbare View-Transitions-Animationen (Karten morphen zwischen Zonen, Bot-Züge sichtbar statt Snap, Lebenspunkte-Puls), eine verdeckt dargestellte Gegner-Hand (nur Kartenrückseiten + Anzahl), zwölf Soundeffekte, sowie ein Tutorial-Bugfix (Hauptphase-Sperre gegen versehentliches Überspringen des Terrain-Schritts). **v0.1.18** Auto-Pass (automatisches Passen/„keine Angreifer"/„keine Blocker", wenn `getLegalActions` keine echte Wahl mehr bietet), ein auffälliges Entscheidungs-Spotlight-Banner für echte Entscheidungen, sowie eine von einer festen Datei auf Auto-Discovery umgestellte Musik-Playlist (`docs/music/` → `/music/index.json`, Titelauswahl + Wiederholungsmodus). **v0.1.19** Bugfix: reine Mana-Fähigkeiten (Terrain fürs Mana antippen) zählten fälschlich als „echte Entscheidung" und verhinderten Auto-Pass/lösten das Spotlight-Banner ständig unnötig aus. **v0.1.20** (Commit `9b81338`, beim vorigen Sweep noch uncommitted, jetzt bestätigt) benannte Deck-Speicherfunktion (mehrere Slots mit Name + Beschreibung), ein Deck-Analyse-Panel (Mana-Kurve, Farb-/Typverteilung) sowie ein „Deck leeren"-Button im Deckbau-Screen. **v0.1.21** (Commit `5654ec1`) neue Datei `aiDecks.ts`: 7 vom card-designer kuratierte Archetyp-Decklisten (je 60 Karten, echte Kopienzahlen/Kurve statt der bisherigen reinen 5-Farben-Zufallsmischung) — der Bot-Gegner zieht jetzt bei beiden automatischen Deckbau-Stellen (`render.ts`) über `pickRandomAiDeck()` eines dieser sieben Decks, `buildDemoDeck` bleibt unverändert für den „Zufällig füllen"-Button des menschlichen Deckbaus; der gewählte Archetyp wird dem Spieler bewusst nirgends angezeigt. Keiner dieser fünf Schritte (bis v0.1.21) hat Engine/Model/Kartenpool angefasst (v0.1.17 ergänzte nur die rein kosmetischen `BOT_DISPLAY_NAMES` in `src/ai/difficulty.ts`) — Stand zum damaligen v0.1.21-Sweep: Engine-Testzahl **130**, UI-Testdateien **19** einzeln benannte Fälle über 12 Dateien (neu seit v0.1.16: `golden-path.test.ts`, `main-menu.test.ts`, `rules-guide.test.ts`), per Grep plausibilisiert statt echtem Testlauf; **überholt durch die aktuellen Zahlen am Anfang dieser Zeile** (v0.1.22–v0.1.33: 131 Engine-Tests, 177 Gesamt+1 übersprungen, per echtem `npm test` je Session verifiziert) |
 | KI-Gegner (drei Schwierigkeitsstufen, spielt ausschließlich über die öffentliche `RulesEngine`-Schnittstelle) | `src/ai/*`, Status: `docs/ai-status.md` | **v2.1 fertig** — der in v1 (`simpleBot.ts`) als Fundament angelegte Bot wurde vom neuen `ai-opponent-engineer`-Subagenten zu drei echten Stufen ausgebaut: **easy** (`easyBot.ts`, absichtlich fehlerhaft/zufällig, aber immer regelkonform), **medium** (unverändert `simpleBot.ts`, die bisherige v1-Heuristik), **hard** (`hardBot.ts`/`boardEval.ts`, budgetiertes 1-Ply-Lookahead über echte `applyAction`-Simulation, effektive Stats/Keywords inkl. fremder Statics, echte Kampf-Mathematik/-Simulation). Deterministischer Stärkevergleich bestätigt strikte Stärkeordnung (medium schlägt easy, hard schlägt medium/easy, je >= 60 % der entschiedenen Partien). **v2.1:** zwei vom 300-Karten-Set aufgedeckte Legalitätsfehler behoben (Blocklegalität mit effektiven Keywords bei statisch gewährtem guardian; modale Kandidaten werden jetzt konsumentenseitig zu Modus×Ziel vervollständigt statt roh und ungültig eingereicht zu werden), plus ein neues, bewusst aus der CI ausgeschlossenes Analyse-Tool für Farb-Balance-Messungen (`color-balance.analysis.test.ts`, `describe.skip`, manuell mit `BALANCE_ANALYSIS=1` ausführbar) — dessen Befund hat die Balance-Korrekturrunden am Kartenpool ausgelöst (s. Zeile oben). Ein Engine-Bug (firstStrike-Token-Crash) wurde dabei gefunden und gemeldet, nicht selbst behoben — s. Engine-Zeile (v0.3.3) |
 | Karten-Artwork (Nutzer-Vorhaben, kein Teil der 5-Agent-Pipeline) | `docs/cards/card-art-brief.md`, `docs/cards/artworks/` | **Bildgenerierung abgeschlossen, ins UI integriert** — alle 300 Artworks sind mittlerweile vom Nutzer fertig generiert und liegen lokal in `docs/cards/artworks/` (per Glob nachgezählt: exakt 300 `.png`-Dateien, deckungsgleich mit der Brief-Tabelle). Bewusst NICHT im Git-Repo (`.gitignore`: `docs/cards/artworks/`, Begründung im Kommentar dort: „~500 MB, lokal beim Nutzer vorhanden statt versioniert"). Seit `docs/frontend-status.md` v0.1.12/v0.1.13 vollständig ins UI eingebunden (s. Frontend-Zeile oben). **Zuvor gefundene Inkonsistenz jetzt aufgelöst:** die Datei zu `core.bastion-forgeworks` hieß beim letzten Sweep noch fälschlich `core-bastion-forgework.png` (fehlendes „s") — der Nutzer hat sie inzwischen korrekt zu `core-bastion-forgeworks.png` umbenannt (per Glob verifiziert, deckt sich jetzt 1:1 mit der Brief-Tabelle) |
 | Projekt-Setup (package.json, tsconfig, Vitest, Vite) | `package.json`, `tsconfig.json`, `vite.config.ts` | fertig |
@@ -86,11 +86,16 @@ const tidalRebuke: SpellCard = {
 
 ## Nächste Schritte
 
-Regelwerk (v0.3.3), Engine (v0.3.5, 163 Tests grün + 1 bewusst
-übersprungener Analyse-Test über Engine+UI+KI), Starter-Kartenset (v0.15,
-300 Karten + 3 Token-Definitionen), Spielbrett-UI (v0.1.16) und ein
-KI-Gegner mit drei echten Schwierigkeitsstufen (v2.1) sind alle fertig und
-end-to-end verifiziert. **Der zuvor hier als „nächster geplanter
+Regelwerk (v0.3.3), Engine (v0.3.6, 131 Engine-Tests, **177 Tests grün + 1
+bewusst übersprungener Analyse-Test über Engine+UI+KI** —
+**documenter-Korrektur 2026-07-22:** diese Zeile trug seit dem 2026-07-19-Sweep
+noch die damalige Zahl 163/v0.3.5/v0.1.16, obwohl seither v0.1.17–v0.1.33 UND
+der v0.3.6-Engine-Bugfix dazukamen, s. „Seit dem letzten Sweep"-Absätze unten),
+Starter-Kartenset (v0.15, 300 Karten + 3 Token-Definitionen), Spielbrett-UI
+(**v0.1.33**) und ein KI-Gegner mit drei echten Schwierigkeitsstufen (v2.1)
+sind alle fertig und end-to-end (Engine-seitig per echtem `npm test`,
+Frontend-seitig überwiegend per Code-/Test-Lektüre mangels Browser-Werkzeug in
+den jüngeren Sessions) verifiziert. **Der zuvor hier als „nächster geplanter
 Meilenstein" angekündigte KI-Ausbau ist seither abgeschlossen; seit dem
 Sweep vom 2026-07-10:**
 
@@ -103,7 +108,10 @@ Sweep vom 2026-07-10:**
   Bugfixes geliefert (v0.3.3 firstStrike-Token-Crash, v0.3.4
   Battlefield-Guard für `destroyPermanent`/`returnToHand`/`exilePermanent`,
   v0.3.5 zentraler Tod-Hook in `zones.ts#leaveBattlefield`) — Engine-Testzahl
-  119 → 130.
+  119 → 130. **Nachtrag (2026-07-21):** ein vierter, vom Nutzer gemeldeter
+  Bugfix v0.3.6 (`isLegalBlock` fehlte der Unit-Typ-Guard bei Nicht-Unit-
+  Blocker-Kandidaten) hob die Zahl weiter auf **131** — s. „Seit dem letzten
+  Sweep (2026-07-20)" unten.
 - **Kartenpool** wurde in 9 Batches von 113 auf **300 Karten** ausgebaut
   (v0.7–v0.12) und danach in drei empirischen Bot-Simulations-Runden
   balanciert (v0.13–v0.15): `wild` von 73–75 % auf 64,7 % Siegquote gesenkt,
@@ -226,6 +234,97 @@ v0.1.20):**
   (Taverne-Hintergrund, Avatar-Spalte, Animationen, Spotlight-Banner) stehen
   noch aus.
 
+**Seit dem letzten Sweep (2026-07-20) zusätzlich — zwölf weitere
+Frontend-Schritte (v0.1.22 → v0.1.33, `docs/frontend-status.md`) plus ein
+unabhängiger Engine-Bugfix (v0.3.6), keine Kartenpool-/KI-/Modell-Änderung:**
+
+- **Zug-Flow-Spalte statt Status-Text + aktiver-Spieler-Avatar** (v0.1.22):
+  neue Komponente `components/turnFlowPanel.ts` zeigt die 12 rohen
+  `TurnStep`-Werte als 6-Phasen-Kette vertikal rechts neben dem Spielfeld; die
+  Avatar-Spalte wird jetzt immer gerendert und folgt dem aktiven Spieler
+  (Bot-Porträt vs. neuer Menschen-Platzhalter).
+- **Nachvollziehbarkeit von Bot-Zügen** (v0.1.23): Ereignis-Log nennt jetzt
+  konkrete Kartennamen/Controller statt nur der Event-Art, plus ein
+  visuelles „Action-Glow"-Aufleuchten kürzlich bespielter/getappter Karten
+  auf Battlefield und Stack.
+- **Layout-Umbau: Battlefields aneinander, KI-Hand nach unten** (v0.1.24):
+  gespiegelte Zonenreihenfolge je Spieler, sodass beide Battlefields direkt
+  an der Nahtstelle zwischen den Spielerbereichen liegen; Graveyards an die
+  äußeren Ränder.
+- **Ereignis-Log-Panel entfernt + Bot-Tempo einstellbar** (v0.1.25): das in
+  v0.1.23 erweiterte Log-Panel wurde auf Nutzerwunsch wieder aus der UI
+  entfernt (Datenerfassung in `store.ts` bleibt für Tests bestehen); neues
+  Preset schnell/normal/langsam für die Bot-Zuggeschwindigkeit, neuer
+  Standard 900ms statt der bisherigen 320ms.
+- **Stack-Anzeige verschoben** (v0.1.26): von unterhalb des gesamten
+  Spielfelds an die Nahtstelle zwischen den beiden Battlefields (reines
+  Layout, der Stack ist geteilter Zustand).
+- **Archetyp-Deck-Auswahl für Mensch und KI-Gegner** (v0.1.27/v0.1.28): der
+  Mensch kann jetzt eines der 7 kuratierten `AI_DECKS`-Archetypen für sich
+  selbst laden; zusätzlich lässt sich festlegen, welches der 7 Decks der
+  Bot-Gegner spielt (oder weiterhin zufällig, mit unveränderter
+  Geheimhaltung im Zufalls-Fall).
+- **Deckbau-Kartenpool: „Im Deck" optisch getrennt** (v0.1.29): Karten mit
+  Kopien in der aktuellen Deckliste erscheinen jetzt in einem eigenen,
+  optisch hervorgehobenen Abschnitt oben statt zwischen ~300 Pool-Karten
+  gesucht werden zu müssen.
+- **Engine-Bugfix v0.3.6** (2026-07-21, vom Nutzer über den Orchestrator
+  gemeldet, s. Engine-Zeile oben): `isLegalBlock` prüfte nicht, ob ein
+  potenzieller Blocker überhaupt eine Einheit ist — ungetappte
+  Nicht-Einheit-Permanents (z. B. Terrains) konnten fälschlich als
+  Blocker-Kandidat erscheinen und ein leeres, aber als „echte Wahl"
+  wirkendes Blocker-Panel erzwingen. Einziger Engine-Eingriff in diesem
+  gesamten Zeitraum, keine der Frontend-Schritte hat Engine-/Model-Code
+  geändert.
+- **Zwei UI-Bugfixes**: wiederkehrendes Bild-Blinken bei Karten-/
+  Avatar-Artwork bei jedem Voll-Rebuild behoben (v0.1.30, synchrone
+  `img.complete`-Prüfung statt ausschließlich auf `onload` zu warten); ein
+  kritischer Bug behoben, bei dem Spieler nach dem Legen eines Terrains
+  automatisch übersprungen wurden, OHNE je die Möglichkeit zu bekommen, ihr
+  Mana zu tappen oder Karten zu casten (v0.1.31, `hasRealPriorityChoice`
+  prüft jetzt hypothetisch das durch Mana-Fähigkeiten erreichbare Mana über
+  die echte `getLegalActions`-Funktion).
+- **Battlefield-Layout: Typ-Gruppierung + überlappende Auren** (v0.1.32):
+  Kacheln werden jetzt nach Kartentyp gruppiert (Terrains/Einheiten/
+  Relikte/Verzauberungen jeweils nebeneinander) statt in roher
+  Spielreihenfolge; angelegte Auren erscheinen nicht mehr als eigene
+  Kachel, sondern visuell überlappend über der Kreatur, an der sie hängen.
+- **Aktuelle Spielphase stärker hervorgehoben** (v0.1.33): rein optische
+  Überarbeitung des Zug-Flow-Panels (Hintergrund-„Pill", größere Schrift,
+  ruhiger Puls mit `prefers-reduced-motion`-Rücksicht).
+- **Testzahlen** (jeweils per echtem `npm test`-Lauf verifiziert, laut
+  `docs/frontend-status.md`): Engine-Tests 130 → **131** (der eine v0.3.6-
+  Regressionstest); Gesamtstand über Engine+UI+KI 167 → **177 Tests grün +
+  1 bewusst übersprungener Analyse-Test** (schrittweise über die zwölf
+  Versionen: 167/167/167/167/168/171/175/175/175/176/177/177). `npm run
+  build` (`tsc --noEmit`) laut allen Verifikationsabschnitten durchgehend
+  sauber. Weiterhin **kein** echter Browser-/Screenshot-Test der neuen
+  Optik in dieser Versionsreihe — alle Frontend-Sessions hatten laut
+  eigenen Angaben kein Browser-/Computer-Use-Werkzeug zur Verfügung, nur
+  Code-Lektüre + `tsc`/`vitest`/`vite build`.
+- **documenter (dieser Sweep, 2026-07-22):** `docs/frontend-status.md` auf
+  Konsistenz geprüft — die einzeln entwickelten v0.1.22-v0.1.33-Abschnitte
+  waren inhaltlich bereits vollständig und korrekt, aber die „auf einen
+  Blick"-Kurzfassung ganz oben im Dokument übersprang sieben Versionen
+  (v0.1.22, v0.1.24, v0.1.25, v0.1.26, v0.1.30, v0.1.31, v0.1.32 hatten
+  keinen Kurzüberblick-Absatz, nur den vollen Detail-Abschnitt weiter
+  unten) — alle sieben nachgetragen, ohne die bestehenden Abschnitte
+  umzuschreiben. Die Kopfzeilen-Referenz auf `docs/engine-status.md`
+  („v0.3.5, 130 Engine-Tests, unverändert") war ebenfalls veraltet (der
+  v0.3.6-Bugfix kam zeitlich zwischen zwei Frontend-Sessions) — korrigiert.
+  `docs/engine-status.md`: der v0.3.6-Abschnitt war vom engine-engineer
+  bereits vollständig und korrekt dokumentiert (keine inhaltliche Lücke),
+  nur ein Testzahl-Bullet (`legal-actions.test.ts`) und eine zusammenfassende
+  documenter-Notiz ergänzt. `docs/README.md`/`docs/status.md` auf den
+  Gesamtstand (300 Karten, 131 Engine-/177 Gesamt-Tests, Frontend v0.1.33,
+  Engine v0.3.6) gehoben. Kein Code-/Test-Change — reine Dokumentationsarbeit,
+  kein eigener `npm test`/`npm run build`-Lauf in dieser Sweep-Session (kein
+  Shell-Werkzeug verfügbar); alle Zahlen stammen aus den bereits in
+  `docs/frontend-status.md`/`docs/engine-status.md` von den jeweiligen
+  Sessions dokumentierten echten Testläufen, per Grep gegen die tatsächlichen
+  `src/engine/__tests__/*`-Dateien stichprobenartig gegengeprüft (Engine-
+  Testzahl 131 exakt bestätigt).
+
 Details je Bereich in `docs/rules-engine.md`, `docs/engine-status.md`,
 `docs/cards/starter-set.md`, `docs/frontend-status.md`, `docs/ai-status.md`;
 Kurzfassung des Gesamtstands (inkl. dieses Sweeps) in `docs/status.md`.
@@ -273,8 +372,10 @@ weiterhin offene Punkte):
 4. Migration von `chooseManaColor`/`chooseDiscard`/`orderScry` (s.o.) zieht
    jeweils eigene Auswahl-UI (Farbwahl-Buttons, Karten-Mehrfachauswahl,
    Scry-Sortierung) nach sich, sobald die Engine migriert.
-5. `botMoveDelayMs` weiterhin nicht über die UI einstellbar (nur Code/Tests)
-   — bewusst kein Nutzer-Setting für ein Hobbyprojekt.
+5. ~~`botMoveDelayMs` weiterhin nicht über die UI einstellbar~~ **erledigt in
+   v0.1.25** (`docs/frontend-status.md`) — neues, `localStorage`-persistiertes
+   Preset schnell/normal/langsam (`BotSpeedPreset`), neuer „Bot-Tempo"-Button
+   im Statusbereich, immer sichtbar auch während einer laufenden Partie.
 6. Deckbau-Screen-Performance bei sehr großem Kartenpool ist ungeprüft: die
    in v0.1.4 dokumentierte Sorge „bei einem künftig deutlich größeren
    Kartenpool (weit über 109) könnte das UI träge werden" ist mit dem
@@ -293,18 +394,25 @@ weiterhin offene Punkte):
    Deck-Analyse-Panel, „Deck leeren") war noch NICHT committet~~ **erledigt**
    — beim v0.1.21-Sweep (2026-07-20) per `git log`/`git status` bestätigt:
    Commit `9b81338`.
-10. **Neu (documenter-Notiz 2026-07-20):** `npm test`/`npm run build` wurden
-    seit v0.1.17 weiterhin nicht durch einen echten Testlauf verifiziert (dem
-    documenter stand auch in der v0.1.21-Session kein Shell-Werkzeug zur
-    Verfügung, alle Zahlen sind Grep-/Code-Lektüre-basiert plausibilisiert).
-    Ebenso steht eine echte Browser-/Screenshot-Verifikation der
-    v0.1.17-Optik (Taverne-Hintergrund, Avatar-Spalte, View-Transitions-
-    Animationen, Spotlight-Banner) weiterhin aus.
-11. **Neu (documenter-Notiz 2026-07-20, v0.1.21):** `src/ui/aiDecks.ts` (7
-    kuratierte KI-Archetyp-Decks, s. `docs/frontend-status.md`) hat noch
-    keinen dauerhaften automatisierten Test (z. B. „alle sieben Decks
-    bestehen `validateDecklist`") — bisher nur per manueller Code-Lektüre/
-    Nachrechnen durch den documenter verifiziert, kein Regressionsschutz.
+10. **Aktualisiert (documenter-Notiz 2026-07-22):** `npm test` selbst wird
+    inzwischen laut `docs/frontend-status.md` bei jeder v0.1.22–v0.1.33-Session
+    real ausgeführt (177/177 grün + 1 übersprungen zuletzt bestätigt) — nur der
+    documenter selbst hatte in keiner Sweep-Session seit 2026-07-18 ein
+    Shell-Werkzeug zur Verfügung und verifiziert Zahlen per Grep-Gegenprobe.
+    Weiterhin offen: eine echte Browser-/Screenshot-Verifikation der Optik
+    (Taverne-Hintergrund, Avatar-Spalte, View-Transitions-Animationen,
+    Spotlight-Banner, UND aller seither ergänzten visuellen Änderungen
+    v0.1.22–v0.1.33 — Zug-Flow-Spalte, Action-Glow, Layout-Umbau, Battlefield-
+    Gruppierung/Auren-Overlay, Phasen-Hervorhebung) steht nach wie vor aus, da
+    keine der jüngeren Frontend-Sessions Browser-/Computer-Use-Werkzeuge zur
+    Verfügung hatte.
+11. **Teilweise erledigt (documenter-Notiz 2026-07-22):** `src/ui/aiDecks.ts`
+    hat inzwischen indirekten Regressionsschutz über
+    `archetype-deck-select.test.ts` (v0.1.27) und `ai-deck-choice.test.ts`
+    (v0.1.28) — beide bestätigen u. a., dass ein geladener Archetyp sofort
+    eine gültige Deckliste ergibt. Ein expliziter Test „alle sieben Decks
+    bestehen `validateDecklist`" (jedes Deck einzeln, nicht nur die im UI
+    ausgewählten) fehlt weiterhin.
 
 **game-architect (Folgearbeit):**
 - Offene Rückfrage vom engine-engineer zu `StaticAbility.scope` bei

@@ -5,8 +5,13 @@ Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
 9.14/9.15 hatten keinen Frontend-Bezug, kein Nacharbeitsbedarf), `docs/engine-status.md`
-(v0.3.5, 130 Engine-Tests, unverändert seit dem letzten Sweep — diese Session
-war reine Frontend-Arbeit, keine Engine-/Model-Änderung), `src/model/*`
+(**documenter-Korrektur 2026-07-22:** hier stand zuvor veraltet „v0.3.5, 130
+Engine-Tests" — zwischen den hier dokumentierten Frontend-Sessions hat der
+engine-engineer unabhängig einen eigenständigen Bugfix geliefert (v0.3.6,
+`isLegalBlock` prüfte nicht, ob ein Blocker-Kandidat überhaupt eine Einheit
+ist, s. `docs/engine-status.md`), der die Engine-Testzahl auf **131** hob;
+keine der hier beschriebenen Frontend-Sessions selbst hat Engine-/Model-Code
+geändert), `src/model/*`
 (Datenmodell, unverändert konsumiert), `src/engine/*` (`createRulesEngine`),
 `src/cards/starter-set.ts` (300 Karten + 3 Token-Definitionen, s.
 `docs/cards/starter-set.md` — der Rest dieses Dokuments spricht an mehreren
@@ -33,6 +38,53 @@ der `prefers-reduced-motion` respektiert (Vorbild `.player-area-deciding`,
 bewusst deutlich ruhiger als das hektischere `.tutorial-glow-pulse`). Der
 Rohschritt-Tag (`.turn-flow-node-step`, z.B. „main1") ist jetzt ein
 eigenständiger abgerundeter Chip statt einer unauffälligen Monospace-Zeile.
+
+**v0.1.32 auf einen Blick** (Details im gleichnamigen Abschnitt unten,
+**documenter-Ergänzung 2026-07-22:** dieser Kurzüberblick fehlte bisher,
+nachgetragen):
+Nutzer-Auftrag „das battlefield sollte sortiert sein oder sortierbar gemacht
+werden ... terrain nebeneinander und nach art sortiert ... eine verzauberung
+AUF einer kreatur muss leicht darüber liegen". `render.ts#battlefieldZone`
+gruppiert Battlefield-Kacheln jetzt nach Kartentyp (Terrain → Einheit →
+Relikt → Verzauberung, stabile Sortierung, Reihenfolge innerhalb einer
+Gruppe bleibt erhalten) statt roher Spielreihenfolge. Angelegte Auren
+erscheinen nicht mehr als eigene Kachel in dieser Liste, sondern als
+verkleinerte, leicht nach oben versetzte zweite Kachel direkt über ihrer
+Zielkreatur (`.battlefield-slot`/`.battlefield-aura-badge`, volle
+`cardTile`-Wiederverwendung). Die Action-Glow-Zuordnung (v0.1.23) wurde dafür
+von index- auf instanceId-basiert (`tileById`-Map) umgestellt, da
+Anzeigereihenfolge und rohe `battlefield`-Reihenfolge jetzt auseinanderfallen
+können. Neuer Regressionstest `battlefield-grouping.test.ts` inkl.
+dokumentierter Vorher/Nachher-Gegenprobe.
+
+**v0.1.31 auf einen Blick** (Details im gleichnamigen Abschnitt unten,
+**documenter-Ergänzung 2026-07-22:** nachgetragen):
+Kritischer Bugfix (Nutzer-Report, vom Orchestrator vorab live reproduziert):
+Spieler wurden nach dem Legen eines Terrains automatisch übersprungen, OHNE
+je die Möglichkeit zu bekommen, ihr frisches Mana zu tappen oder Karten zu
+casten. Ursache: der v0.1.19-Ausschluss reiner Mana-Fähigkeiten aus der
+„echte Wahl"-Zählung (`hasRealPriorityChoice`) prüfte nicht, ob das dadurch
+erreichbare Mana eine Handkarte bezahlbar gemacht hätte. Fix:
+`hasRealPriorityChoice` berechnet jetzt hypothetisch das über die verfügbaren
+Mana-Fähigkeiten maximal erreichbare Mana und ruft `getLegalActions` ein
+zweites Mal gegen einen lokalen State-Klon mit diesem hochgerechneten
+Manapool auf — nur wenn das weiterhin keinen echten Kandidaten liefert,
+bleibt der bisherige Auto-Pass-Ausschluss bestehen. Neuer Regressionstest
+`priority-mana-tap.test.ts` inkl. dokumentierter Vorher/Nachher-Gegenprobe.
+
+**v0.1.30 auf einen Blick** (Details im gleichnamigen Abschnitt unten,
+**documenter-Ergänzung 2026-07-22:** nachgetragen):
+Bugfix, Nutzer-Report nach dem View-Transition-Wrapper-Fix: Karten-/Avatar-
+Artwork blinkte weiterhin bei jedem Voll-Rebuild des DOM (`render()` baut
+`#app` bei jeder Zustandsänderung per `innerHTML` komplett neu, u. a. ~alle
+900ms während automatischer Bot-Züge). Ursache: `cardFrameArt`/`botAvatarImg`
+starteten das `<img>`-Element bei jedem Neuaufbau erneut unsichtbar
+(`opacity: 0`) und warteten auf das asynchrone `onload`-Event, obwohl das
+Bild oft bereits im Browser-Cache lag. Fix: synchrone Prüfung
+`img.complete && img.naturalWidth > 0` direkt nach dem Erzeugen — trifft das
+zu, wird die „geladen"-Klasse sofort gesetzt statt auf `onload` zu warten
+(der `onload`-Handler bleibt als Fallback für den echten Erstladefall
+bestehen).
 
 **v0.1.29 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Auftrag „bereits im Deck befindliche Karten sollen sich optisch vom
@@ -87,6 +139,43 @@ bewusste Geheimhaltung des Archetyp-Namens für den Bot-Gegner bleibt
 unverändert; `AI_DECKS` wird für diesen neuen, rein menschlichen Anwendungsfall
 zusätzlich direkt importiert.
 
+**v0.1.26 auf einen Blick** (Details im gleichnamigen Abschnitt unten,
+**documenter-Ergänzung 2026-07-22:** nachgetragen):
+Nutzer-Nachfrage zur Bedeutung von „Stack ist leer" führte zur Folgefrage, ob
+die Stack-Anzeige nicht besser zwischen die beiden Battlefields statt ganz
+unters Spielfeld gehört (der Stack ist gemeinsamer, keinem Spieler gehörender
+Zustand). `stackPanel(...)` wandert von ganz unten im `render()`-Wurzelbaum
+an die Nahtstelle zwischen den beiden `playerArea(...)`-Aufrufen in
+`boardSection` (drittes `.board`-Kind), exakt dort, wo seit v0.1.24 auch die
+beiden Battlefields direkt aneinanderstoßen. Reines Layout, `stackPanel.ts`/
+`stackPanelOptions` selbst unverändert.
+
+**v0.1.25 auf einen Blick** (Details im gleichnamigen Abschnitt unten,
+**documenter-Ergänzung 2026-07-22:** nachgetragen): zwei unabhängige
+Nutzer-Aufträge. (1) Das Ereignis-Log-Panel wurde komplett aus der UI
+entfernt (`logPanel(...)`-Aufruf + Komponente gelöscht, tote CSS-Regeln
+raus) — die zugrundeliegende Datenerfassung (`store.ts#getLog()`/`log`-Array/
+`describeEvent`) bleibt bestehen, wird weiterhin von `concede.test.ts` zur
+Event-Verifikation genutzt. (2) Die Bot-Zuggeschwindigkeit ist jetzt über ein
+neues, `localStorage`-persistiertes Preset (`BotSpeedPreset`: schnell 350ms/
+normal 900ms/langsam 1800ms, neuer Standard 900ms statt der bisherigen
+Fixgröße 320ms) einstellbar, neuer „Bot-Tempo"-Button + Panel
+(`botSpeedPanel.ts`, strukturell an `musicPanel.ts` angelehnt), immer
+sichtbar auch während einer laufenden Partie.
+
+**v0.1.24 auf einen Blick** (Details im gleichnamigen Abschnitt unten,
+**documenter-Ergänzung 2026-07-22:** nachgetragen):
+Nutzer-Auftrag „die battlefields sollten aneinander stoßen ... die hand der
+KI muss ich nicht sehen, kann nach unten". `render.ts#playerArea` spiegelt
+jetzt die Kindreihenfolge je Spieler (player1: Panel→Hand→Battlefield;
+player2: Battlefield→Panel→Hand), sodass beide Battlefields direkt an der
+gemeinsamen Nahtstelle liegen (`.board`-Gap 14px→5px, neue
+`.player-area-touch-*`-Modifier-Klassen verkleinern Padding/Rundung genau an
+dieser Kante) und player2s (ohnehin verdeckte) Hand ganz ans untere
+Seitenende wandert. Graveyards (im Auftrag offengelassen) wurden bewusst an
+die jeweils äußeren Ränder gebunden, damit sie nie zwischen die Battlefields
+geraten können, und zusätzlich kompakter gestaltet.
+
 **v0.1.23 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Auftrag „mehr Nachvollziehbarkeit von KI-Spielzügen — auch visuell,
 eine Karte wird gelegt, es wird getappt usw". `store.ts#describeEvent` nennt
@@ -102,6 +191,20 @@ Animation, bewusst NICHT `.tutorial-glow` wiederverwendet) ein — einheitlich
 für Bot- UND Menschzüge. `cardDrawn` bleibt bewusst informationsarm (keine
 Kartennamen — verdeckte Gegner-Hand), `permanentTapped`/`countersChanged`
 bleiben ohne eigene Log-Zeile (Spam-Vermeidung), nur visuell.
+
+**v0.1.22 auf einen Blick** (Details im gleichnamigen Abschnitt unten,
+**documenter-Ergänzung 2026-07-22:** nachgetragen):
+Auftrag, die Zug-/Step-Info aus der `.status-bar` als eigene, klar lesbare
+vertikale Anzeige rechts neben dem Spielfeld darzustellen statt als reinen
+Fließtext. Neue Komponente `components/turnFlowPanel.ts`: fasst die 12 rohen
+`TurnStep`-Werte zu 6 Phasen zusammen und rendert sie als vertikale
+Schritt-Kette (abgeschlossen/aktuell/kommend), darunter Zugnummer/aktiver
+Spieler/Priority (aus der bisherigen `statusBar` hierher verschoben). Die
+bisher nur bei bot-gesteuertem player2 sichtbare rechte Avatar-Spalte
+(`opponentAvatarColumn` → `turnFlowColumn`) wird jetzt immer gerendert und
+folgt `state.activePlayer`: ist ein Mensch aktiv, zeigt ein neuer
+CSS-Platzhalter (`humanAvatarPlaceholder`, Initiale + Anzeigename) statt des
+Bot-Porträts. Tests pollen über fünf neue `data-testid`s statt CSS-Klassen.
 
 **v0.1.21 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Auftrag „KI zieht aus kuratierten Archetyp-Decks statt aus einer reinen
