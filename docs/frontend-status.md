@@ -4034,6 +4034,109 @@ Vorher/Nachher-Gegenprobe des neuen Tests bestätigt.
 ergänzt). Neu: `src/ui/__tests__/priority-mana-tap.test.ts`. Keine
 Engine-/Modell-Änderung, kein Kartenbalancing, keine neuen Abhängigkeiten.
 
+## Battlefield: Typ-Gruppierung + Auren überlappend an ihrem Ziel (v0.1.32, 2026-07-22)
+
+Nutzer-Auftrag: „das battlefield sollte sortiert sein oder sortierbar gemacht
+werden. sprich terrain nebeneinander und nach art sortiert, gleiches für die
+anderen karten. eine verzauberung AUF einer kreatur muss leicht darüber
+liegen". Reines Frontend (`render.ts#battlefieldZone` + `style.css`), keine
+Engine-/Modell-Änderung — `PermanentState.attachedTo`/`.attachments` sowie
+`EnchantmentCard.enchantKind` existierten bereits.
+
+### Ursache/Ausgangslage
+
+`battlefieldZone` rendert bisher `state.players[playerId].battlefield` als
+flache `.map(...)`-Liste in roher Spielreihenfolge (Terrain/Einheit/Relikt/
+Verzauberung/Aura beliebig gemischt, je nachdem wann etwas ins Spiel kam).
+Eine angelegte Aura erschien als vollkommen eigenständige Kachel irgendwo in
+dieser Reihe, mit nur einem Text-Badge „angelegt" (`cardTile.ts`) als Hinweis
+auf ihr Ziel — keinerlei visuelle Nähe zur Zielkreatur.
+
+### Fix
+
+- **Typ-Gruppierung**: neue Konstante `BATTLEFIELD_TYPE_ORDER` (Terrain 0,
+  Einheit 1, Relikt 2, Verzauberung 3) direkt vor `battlefieldZone`. Die
+  Anzeige-Liste wird aus `state.players[playerId].battlefield` per stabilem
+  `Array.prototype.sort` (seit ES2019 spezifiziert stabil) nach dieser
+  Rangfolge sortiert — innerhalb einer Gruppe bleibt die ursprüngliche
+  Einfüge-/Spielreihenfolge erhalten (keine zusätzliche alphabetische
+  Sekundärsortierung nötig, reicht für „konsistent, nicht zufällig").
+- **Auren überlappend am Ziel**: eine Aura (`def.type === "enchantment" &&
+  def.enchantKind === "aura"` mit gesetztem `permanentState.attachedTo`) wird
+  aus der Typ-Gruppen-Liste herausgefiltert und taucht dort NIE als eigener
+  Eintrag auf. Stattdessen wird beim Bauen der Kachel für ihr Ziel-Objekt
+  (`permanentState.attachments`, filtert auf Auren) je Aura eine ZWEITE
+  Kachel gebaut — über exakt dieselbe interne `buildTile(id)`-Funktion wie
+  jedes andere Permanent (keine Kopie/Parallel-Logik, Aura bleibt damit z.B.
+  weiterhin normal als Ziel anklickbar) —, in einen `.battlefield-aura-badge`-
+  Wrapper gepackt und zusammen mit der Ziel-Kachel in einen gemeinsamen
+  `.battlefield-slot`-Container gehängt (das Paar bildet zusammen EIN
+  Flex-Item der `.battlefield-zone`). Optik: volle `cardTile()`-Kartenrahmen-
+  Optik (Manafarbe, Regeltext, Status-Badges) wiederverwendet statt neu
+  gebaut, nur per CSS `transform: scale(0.55)` verkleinert und `position:
+  absolute; top: -34px` leicht nach oben versetzt über die Zielkachel gelegt
+  (`filter: drop-shadow(...)` statt Box-Shadow, damit der Schatten der
+  abgerundeten Kartenform folgt); `.battlefield-slot-has-aura` schiebt die
+  Zielkachel per `margin-top` etwas nach unten, damit die Mini-Kachel nicht in
+  die Zeile darüber hineinragt. Mehrere Auren am selben Ziel werden nebeneinander
+  versetzt (`left: 6px + i*22px`).
+- **Action-Glow ID- statt indexbasiert (Voraussetzung für beides)**: die
+  bestehende „zuletzt betroffene Karte kurz grün aufleuchten"-Logik (v0.1.23)
+  ging bisher von `tiles[idx]` mit `idx` aus `battlefield.forEach((id, idx) =>
+  ...)` aus — setzte also 1:1-Positionsgleichheit zwischen roher
+  `battlefield`-Reihenfolge und Anzeige-Reihenfolge voraus, die durch die
+  Gruppierung/Aura-Auslagerung jetzt zwangsläufig nicht mehr gilt. Umgestellt
+  auf eine `Map<InstanceId, HTMLElement>` (`tileById`, befüllt sowohl für
+  Haupt- als auch Aura-Mini-Kacheln beim Bauen), Zuordnung jetzt per
+  `tileById.get(id)?.classList.add("action-glow")` — unabhängig von jeder
+  Positions-/Index-Übereinstimmung.
+
+### Regressionstest
+
+Neue Datei `src/ui/__tests__/battlefield-grouping.test.ts` (Vorbild:
+`modal-effects.test.ts`/`x-cost-ability.test.ts`, ausschließlich echte
+`element.dispatchEvent(new Event("click"))`-Aufrufe über Deckbau + mehrere
+echte Züge, Testkarten: `core.light-altar` als Terrain, `core.sun-acolyte`
+als Einheit, `core.blessing-of-steadfastness` als Ziel-Aura). Baut absichtlich
+genau die Konstellation, in der die alte indexbasierte Zuordnung versagt
+hätte: mindestens ein Terrain wird im ROHEN `battlefield`-Array NACH der
+zwischenzeitlich gecasteten Einheit angehängt, erscheint in der neuen
+Typ-Gruppierung aber trotzdem VOR ihr (Index ≠ Anzeigeposition). Prüft: (1)
+alle Terrain-Kacheln stehen als Top-Level-Kinder der `.battlefield-zone` vor
+der einzigen Einheiten-Kachel, (2) die Aura taucht NIRGENDS als eigener
+Top-Level-Eintrag auf, sondern genau einmal als `.battlefield-aura-badge`
+innerhalb des `.battlefield-slot` der Einheit, (3) nach Warten auf das
+Abklingen residualer Glow-Zustände (`RECENT_ACTION_GLOW_MS`, store.ts) landet
+ein gezielter Tap auf genau dem zuletzt gelegten (index-verschobenen) Terrain
+auch tatsächlich als `.action-glow` GENAU auf dessen eigener Kachel, nicht auf
+der Einheit oder einem anderen Terrain. Gegenprobe (alte indexbasierte
+Zuordnung testweise wiederhergestellt, danach zurückgebaut): derselbe Test
+schlägt exakt an der Glow-Prüfung fehl (`expected 0 to be 1` — die alte
+Fassung indiziert mit dem rohen Array-Index in die neue, kürzere/umsortierte
+Kachel-Liste hinein und trifft dadurch gar keine oder die falsche Kachel) —
+der Test hätte diese Regression vor dem Fix tatsächlich gefangen.
+
+### Verifikation
+
+`npm test`: 177/177 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test) — 176 Bestandstests + 1 neuer Regressionstest, keine Regression
+(insbesondere die bestehenden Ziel-Klick-Tests auf Battlefield-Permanents,
+z.B. `x-cost-ability.test.ts`/`modal-effects.test.ts`, bleiben unverändert
+grün — bestätigt, dass die Ziel-/Klick-Interaktionslogik für alle Kartentypen
+inkl. Auren erhalten blieb). `npm run build` (`tsc --noEmit`) fehlerfrei. Kein
+Browser-/Computer-Use-Werkzeug in dieser Session verfügbar für eine echte
+Screenshot-Verifikation der neuen Anordnung/Überlappung — stattdessen ein
+dedizierter neuer jsdom-Regressionstest inkl. Vorher/Nachher-Gegenprobe (s.o.)
+als Ersatznachweis, zusätzlich manueller Code-Review der CSS-Positionierung.
+
+**Ergebnis:** Geändert: `src/ui/render.ts` (`battlefieldZone` umgebaut: neue
+Konstante `BATTLEFIELD_TYPE_ORDER`, interne `buildTile`-Hilfsfunktion,
+`tileById`-Map, Auren-Filterung/-Overlay), `src/ui/style.css` (neu:
+`.battlefield-slot`, `.battlefield-slot-has-aura`, `.battlefield-aura-badge`).
+Neu: `src/ui/__tests__/battlefield-grouping.test.ts`. `cardTile.ts` selbst
+unverändert (volle Wiederverwendung ohne neue Optionen). Keine Engine-/
+Modell-Änderung, kein Kartenbalancing, keine neuen Abhängigkeiten.
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt

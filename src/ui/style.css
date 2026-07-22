@@ -1016,6 +1016,33 @@ body {
   padding: 6px;
 }
 
+/* Nutzer-Auftrag ("eine Verzauberung AUF einer Kreatur muss leicht darüber
+   liegen"): eine an ein Battlefield-Objekt angelegte Aura wird NICHT als
+   eigene Kachel in der Reihe geführt (s. render.ts#battlefieldZone), sondern
+   als verkleinerte, überlappende Mini-Kachel direkt über ihrem Ziel - volle
+   .card-tile-Optik (Manafarbe, Regeltext, Status) per Skalierung
+   wiederverwendet statt neu gebaut. `.battlefield-slot` ist der
+   Positionierungsanker (das Ziel + seine Aura(n) bilden zusammen EIN
+   Flex-Item der .battlefield-zone), `.battlefield-slot-has-aura` schiebt das
+   Ziel etwas nach unten, damit die darüberliegende(n) Mini-Kachel(n) nicht in
+   die Zeile darüber hineinragen. */
+.battlefield-slot {
+  position: relative;
+}
+
+.battlefield-slot-has-aura {
+  margin-top: 34px;
+}
+
+.battlefield-aura-badge {
+  position: absolute;
+  top: -34px;
+  z-index: 4;
+  transform: scale(0.55);
+  transform-origin: top left;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.65));
+}
+
 /* Klassisches Kartenrahmen-Layout (v0.1.10) -----------------------------
    Gemeinsame Optik für Handkarten (.hand-card), Battlefield-/Graveyard-/
    Stack-Kacheln (.card-tile) und den Kartenpool im Deckbau (.deck-pool-row):

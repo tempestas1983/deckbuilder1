@@ -11,7 +11,7 @@
  * `error` der Engine anzeigt.
  */
 
-import type { ActivatedAbility, GameState, InstanceId, PlayerAction, PlayerId } from "../model";
+import type { ActivatedAbility, CardType, GameState, InstanceId, PlayerAction, PlayerId } from "../model";
 import {
   BOT_SPEED_LABELS,
   backToMainMenu,
@@ -1146,6 +1146,26 @@ function hiddenHandZone(hand: readonly InstanceId[]): HTMLElement {
   ]);
 }
 
+/**
+ * Nutzer-Auftrag ("battlefield sollte sortiert sein ... terrain nebeneinander
+ * und nach art sortiert"): feste Gruppierungsreihenfolge für die
+ * Battlefield-Anzeige. Innerhalb einer Gruppe bleibt die ursprüngliche
+ * Reihenfolge des `battlefield`-Arrays (Einfüge-/Spielreihenfolge) erhalten
+ * - `Array.prototype.sort` ist seit ES2019 spezifiziert stabil, ein simples
+ * Sortieren nach Rang allein reicht daher für eine stabile Gruppierung, ohne
+ * zusätzliches Sekundärkriterium. "spell" liegt nie auf dem Battlefield,
+ * ist hier nur der Vollständigkeit halber (erschöpfende CardType-Union)
+ * mitgeführt. Auren tauchen hier nie auf - sie werden separat behandelt,
+ * s. battlefieldZone unten.
+ */
+const BATTLEFIELD_TYPE_ORDER: Record<CardType, number> = {
+  terrain: 0,
+  unit: 1,
+  relic: 2,
+  enchantment: 3,
+  spell: 4,
+};
+
 function battlefieldZone(
   state: GameState,
   pool: ReturnType<typeof getPool>,
@@ -1161,7 +1181,13 @@ function battlefieldZone(
   // nur für dessen Bereich berechnen.
   const tutorialHighlight = playerId === "player1" && isTutorialActive() ? getTutorialHighlight() : undefined;
 
-  const tiles = state.players[playerId].battlefield.map((id) => {
+  // Baut die eigentliche Kachel für EINE Battlefield-Instanz (Terrain,
+  // Einheit, Relikt, freistehende Verzauberung, oder auch eine Aura - Auren
+  // durchlaufen exakt dieselbe Ziel-/Klick-Interaktionslogik wie jedes andere
+  // Permanent, s. Auftrag "Ziel-/Klick-Interaktions-Logik ... muss ...
+  // weiterhin korrekt funktionieren"; nur ihre Platzierung im DOM
+  // unterscheidet sich, s. u.
+  const buildTile = (id: InstanceId): HTMLElement => {
     const def = cardDef(pool, state, id);
     const tutorialHighlighted =
       !!tutorialHighlight &&
@@ -1300,24 +1326,74 @@ function battlefieldZone(
     }
 
     return cardTile(state, pool, id, { tutorialHighlighted });
+  };
+
+  // Zuordnung InstanceId -> tatsächlich gerendertes Kachel-Element, für den
+  // Action-Glow-Abgleich unten (ID- statt indexbasiert, s. Kommentar dort)
+  // UND für die Aura-Mini-Kacheln (s. u.), die NICHT an derselben Position
+  // wie ihre eigene battlefield-Array-Position landen.
+  const tileById = new Map<InstanceId, HTMLElement>();
+
+  const rawIds = state.players[playerId].battlefield;
+
+  // Auren, die tatsächlich an einem Ziel angelegt sind, erscheinen NICHT als
+  // eigene Kachel in der Typ-Gruppen-Reihenfolge (Nutzer-Auftrag "eine
+  // Verzauberung AUF einer Kreatur muss leicht darüber liegen") - stattdessen
+  // unten als überlappende Mini-Kachel direkt bei ihrem `attachedTo`-Ziel.
+  // Eine Aura ohne (noch) gesetztes attachedTo (z.B. sehr kurzzeitig während
+  // der Resolution) fällt zurück in die normale Gruppierung, damit sie nicht
+  // spurlos verschwindet.
+  const auraIds = new Set<InstanceId>();
+  for (const id of rawIds) {
+    const def = cardDef(pool, state, id);
+    if (def.type === "enchantment" && def.enchantKind === "aura" && state.cards[id]?.permanentState?.attachedTo) {
+      auraIds.add(id);
+    }
+  }
+
+  // Nutzer-Auftrag ("terrain nebeneinander und nach art sortiert"): stabile
+  // Gruppierung nach BATTLEFIELD_TYPE_ORDER, s. dort.
+  const sortedIds = rawIds
+    .filter((id) => !auraIds.has(id))
+    .sort((a, b) => BATTLEFIELD_TYPE_ORDER[cardDef(pool, state, a).type] - BATTLEFIELD_TYPE_ORDER[cardDef(pool, state, b).type]);
+
+  const slots = sortedIds.map((id) => {
+    const tile = buildTile(id);
+    tileById.set(id, tile);
+
+    const attachedAuraIds = (state.cards[id]?.permanentState?.attachments ?? []).filter((auraId) => auraIds.has(auraId));
+    if (attachedAuraIds.length === 0) return tile;
+
+    // Mini-Kachel(n) für angelegte Auren: volle cardTile()-Optik/-Interaktion
+    // wiederverwendet (buildTile durchläuft dieselbe Ziel-/Klick-Logik wie
+    // jedes andere Permanent), nur per CSS verkleinert + absolut über der
+    // Zielkachel positioniert (s. style.css .battlefield-aura-badge).
+    const badges = attachedAuraIds.map((auraId, i) => {
+      const auraTile = buildTile(auraId);
+      tileById.set(auraId, auraTile);
+      return h("div", { class: "battlefield-aura-badge", style: `left: ${6 + i * 22}px` }, [auraTile]);
+    });
+    return h("div", { class: "battlefield-slot battlefield-slot-has-aura" }, [tile, ...badges]);
   });
 
   // Nutzer-Auftrag ("Nachvollziehbarkeit von KI-Spielzügen ... visuell, eine
   // Karte wird gelegt, es wird getappt"): die zuletzt betroffene(n) Karte(n)
   // (s. store.ts#getRecentActionInstanceIds) kurz optisch hervorheben -
   // bewusst NACHTRÄGLICH per classList statt als weiterer cardTile()-Option
-  // an jeder der ~8 Rückgabestellen oben (jede davon müsste sonst einzeln
-  // gepflegt werden und könnte künftig leicht vergessen werden); die
-  // Reihenfolge von `tiles` entspricht 1:1 der von `battlefield`, daher reicht
-  // ein Index-Abgleich.
+  // an jeder der ~8 Rückgabestellen in buildTile (jede davon müsste sonst
+  // einzeln gepflegt werden und könnte künftig leicht vergessen werden).
+  // ID-basiert über `tileById` statt indexbasiert (seit der Typ-Gruppierung/
+  // Aura-Auslagerung entspricht die Anzeige-Reihenfolge NICHT mehr 1:1 der
+  // rohen `battlefield`-Array-Reihenfolge - ein Index-Abgleich würde damit
+  // die falsche Kachel treffen).
   const recentActionIds = getRecentActionInstanceIds();
   if (recentActionIds.size > 0) {
-    state.players[playerId].battlefield.forEach((id, idx) => {
-      if (recentActionIds.has(id)) tiles[idx]!.classList.add("action-glow");
-    });
+    for (const id of recentActionIds) {
+      tileById.get(id)?.classList.add("action-glow");
+    }
   }
 
-  return h("div", { class: "battlefield-zone" }, tiles);
+  return h("div", { class: "battlefield-zone" }, slots);
 }
 
 function graveyardZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: PlayerId): HTMLElement {
