@@ -1,6 +1,6 @@
 # Frontend-Status
 
-Status: v0.1.29 (frontend-engineer) — 2026-07-21
+Status: v0.1.33 (frontend-engineer) — 2026-07-22
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -18,6 +18,21 @@ Stufen `easy`/`medium`/`hard`; `chooseAction` (`src/ai/simpleBot.ts`, v1 =
 Stufe "medium") bleibt weiterhin exportiert; **seit v0.1.17** liefert
 `src/ai/difficulty.ts` zusätzlich `BOT_DISPLAY_NAMES` — erfundene
 Tavernen-Namen der drei Bot-Stufen fürs UI, s. dortiger Abschnitt).
+
+**v0.1.33 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+Nutzer-Auftrag „die aktuelle Spielphase soll deutlicher hervorgehoben werden"
+(ausgekoppelt aus einem größeren, vertagten Thema „Mana verfällt beim Passen
+ohne Aktion" — NUR die Phasen-Hervorhebung wurde umgesetzt). Rein optische
+Überarbeitung von `.turn-flow-node-current` in `src/ui/style.css`
+(`turnFlowPanel.ts` selbst unverändert, keine Logik-/Test-Selektor-Änderung):
+statt nur eines etwas größeren Punkts + blauer Textfarbe bekommt der aktuelle
+Phasenknoten jetzt einen eigenen Hintergrund-„Pill"-Block (Verlaufsfarbe +
+gerundete Ecken), größere/fett hervorgehobene Beschriftung (13px → 15px,
+Text-Glow) sowie einen ruhigen, pulsierenden Glow (Knoten-Hintergrund + Punkt),
+der `prefers-reduced-motion` respektiert (Vorbild `.player-area-deciding`,
+bewusst deutlich ruhiger als das hektischere `.tutorial-glow-pulse`). Der
+Rohschritt-Tag (`.turn-flow-node-step`, z.B. „main1") ist jetzt ein
+eigenständiger abgerundeter Chip statt einer unauffälligen Monospace-Zeile.
 
 **v0.1.29 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Auftrag „bereits im Deck befindliche Karten sollen sich optisch vom
@@ -4136,6 +4151,76 @@ Konstante `BATTLEFIELD_TYPE_ORDER`, interne `buildTile`-Hilfsfunktion,
 Neu: `src/ui/__tests__/battlefield-grouping.test.ts`. `cardTile.ts` selbst
 unverändert (volle Wiederverwendung ohne neue Optionen). Keine Engine-/
 Modell-Änderung, kein Kartenbalancing, keine neuen Abhängigkeiten.
+
+## Aktuelle Phase im Zug-Flow deutlich hervorgehoben (v0.1.33, 2026-07-22)
+
+Nutzer-Auftrag (ausgekoppelt aus einem größeren Thema „Mana verfällt beim
+Passen ohne Aktion" — auf Rückfrage bewusst NUR dieser Teil beauftragt, die
+Mana-Verfall-Regel selbst bleibt ein separates, vertagtes Thema): die aktuell
+laufende Spielphase im Zug-Flow-Panel (`components/turnFlowPanel.ts`) fiel dem
+Nutzer zu wenig auf — die bisherige Hervorhebung war nur ein etwas größerer,
+leicht leuchtender Punkt plus fette blaue Schrift. Reines Frontend
+(`src/ui/style.css`), keine Logik-/Layout-Struktur-Änderung:
+`PHASE_GROUPS`/`ORDERED_STEPS` sowie alle `data-testid`-Attribute in
+`turnFlowPanel.ts` blieben unverändert.
+
+### Ursache/Ausgangslage
+
+`.turn-flow-node-current` hob sich vor dem Fix nur über `::before`
+(Punkt-Farbe + statischer `box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.35)`)
+und `.turn-flow-node-label` (Farbe `--accent` + `font-weight: 700`, weiterhin
+13px wie alle anderen Knoten) vom Rest ab — kein eigener
+Hintergrund/Rahmen-Block, keine Bewegung/kein Puls, der Rohschritt-Tag
+(`.turn-flow-node-step`, z.B. „main1") blieb eine unauffällige kleine
+Monospace-Zeile in gedämpfter Farbe.
+
+### Fix
+
+- **Hintergrund-„Pill"-Block**: `.turn-flow-node-current` bekommt jetzt einen
+  eigenen abgerundeten Hintergrund (`linear-gradient` in Akzentblau) statt nur
+  Punkt+Textfarbe. Bewusst nur zusätzliches Innen-Padding rechts/oben/unten,
+  `padding-left` bleibt bei 22px wie beim Basis-`.turn-flow-node` — Punkt
+  (`::before`) und Verbindungslinie (`::after`) bleiben dadurch positionsgleich
+  mit den übrigen Knoten, die vertikale Kette „springt" beim Phasenwechsel
+  nicht.
+- **Größere/auffälligere Beschriftung**: `.turn-flow-node-current
+  .turn-flow-node-label` von 13px (implizit, Basis-`.turn-flow-node-label`)
+  auf 15px vergrößert, zusätzlich ein dezenter `text-shadow`-Glow.
+- **Ruhiger Puls statt Statik**: neue Keyframes `turn-flow-current-glow`
+  (Hintergrund-Block, `box-shadow` pulsiert zwischen `inset`-Rahmen und einem
+  weichen Außen-Glow) und `turn-flow-current-dot-glow` (der Punkt selbst,
+  gleiche 2.2s-Taktung) — Vorbild ist das bestehende, bereits als „ruhig"
+  etablierte `.player-area-deciding`-Muster, bewusst NICHT das hektischere
+  `.tutorial-glow-pulse` (1.4s, für eine einzelne hervorgehobene Karte
+  gedacht). Beide Animationen respektieren `prefers-reduced-motion: reduce`
+  (eigene `@media`-Blöcke schalten die Animation aus und ersetzen sie durch
+  einen statischen, weiterhin klar sichtbaren Glow-Zustand — exakt das
+  Muster von `.player-area-deciding`).
+- **Rohschritt-Tag als Chip**: `.turn-flow-node-step` (z.B. „main1") ist jetzt
+  ein eigenständiger abgerundeter Chip (Hintergrund-Tint, Rahmen, größere
+  Schriftstärke) statt einer unauffälligen kleinen Monospace-Zeile. Der Chip
+  erscheint laut `turnFlowPanel.ts` ohnehin ausschließlich am aktuellen
+  Knoten, keine Bedingung im TS-Code geändert.
+
+### Verifikation
+
+`npm test`: 177/177 Tests grün (1 weiterhin bewusst übersprungener
+Analyse-Test), keine Regression — insbesondere `golden-path.test.ts` (pollt
+`data-testid="turn-flow-current-step"` u.a.) bleibt unverändert grün, da keine
+`data-testid`s oder DOM-Struktur in `turnFlowPanel.ts` angefasst wurden, nur
+CSS. `npm run build` (`tsc --noEmit`) fehlerfrei. Kein Browser-/
+Computer-Use-Werkzeug in dieser Session verfügbar — reine CSS-Änderung, keine
+echte Screenshot-Verifikation der neuen Optik/Animation, nur Code-Review
+gegen die bestehenden, bereits visuell abgenommenen Vorbild-Muster
+(`.player-area-deciding`, `.tutorial-glow-pulse`).
+
+**Ergebnis:** Geändert: `src/ui/style.css` (`.turn-flow-node-current`,
+`.turn-flow-node-current::before`, `.turn-flow-node-current
+.turn-flow-node-label`, `.turn-flow-node-step` sowie zwei neue Keyframes
+`turn-flow-current-glow`/`turn-flow-current-dot-glow` inkl.
+`prefers-reduced-motion`-Overrides). `src/ui/components/turnFlowPanel.ts`
+unverändert (keine Logik-/Struktur-/Test-Selektor-Änderung). Keine Engine-/
+Modell-Änderung.
 
 ## Nächste Schritte (Vorschläge)
 

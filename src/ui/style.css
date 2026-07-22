@@ -790,14 +790,75 @@ body {
   opacity: 0.55;
 }
 
+/* Nutzer-Auftrag ("aktuelle Phase soll deutlich auffallen, bisherige
+   Hervorhebung war zu unauffällig"): die aktuelle Phase bekommt einen
+   eigenen Hintergrund-Highlight-Block ("Pill") statt nur eines größeren
+   Punkts + blauer Textfarbe - Punkt und Verbindungslinie (::before/::after)
+   bleiben positionsgleich mit den übrigen Knoten (nur zusätzliche
+   Innenabstände rechts/oben/unten, `padding-left` unverändert), damit die
+   vertikale Kette optisch nicht "springt". Dazu ein ruhiger, dezenter Glow-
+   Puls (Vorbild `.player-area-deciding`, NICHT das hektischere
+   `.tutorial-glow-pulse` - hier soll nichts "flackern", nur spürbar
+   auffallen), der `prefers-reduced-motion` respektiert. */
+.turn-flow-node-current {
+  padding: 8px 8px 20px 22px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(79, 140, 255, 0.22), rgba(79, 140, 255, 0.06));
+  animation: turn-flow-current-glow 2.2s ease-in-out infinite;
+}
+
+@keyframes turn-flow-current-glow {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(79, 140, 255, 0.4),
+      0 0 0 0 rgba(79, 140, 255, 0);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(79, 140, 255, 0.65),
+      0 0 16px 3px rgba(79, 140, 255, 0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-flow-node-current {
+    animation: none;
+    box-shadow:
+      inset 0 0 0 1px rgba(79, 140, 255, 0.55),
+      0 0 12px 2px rgba(79, 140, 255, 0.3);
+  }
+}
+
 .turn-flow-node-current::before {
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.35);
+  animation: turn-flow-current-dot-glow 2.2s ease-in-out infinite;
+}
+
+@keyframes turn-flow-current-dot-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(79, 140, 255, 0.55),
+      0 0 10px 2px rgba(79, 140, 255, 0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-flow-node-current::before {
+    animation: none;
+    box-shadow: 0 0 0 5px rgba(79, 140, 255, 0.5);
+  }
 }
 
 .turn-flow-node-current .turn-flow-node-label {
   color: var(--accent);
   font-weight: 700;
+  font-size: 15px;
+  text-shadow: 0 0 10px rgba(79, 140, 255, 0.5);
 }
 
 .turn-flow-node-upcoming .turn-flow-node-label {
@@ -807,14 +868,22 @@ body {
 
 /* Detail-Tag mit dem exakten technischen Rohschritt (z.B. "main1") unter dem
    aktuellen Phasennamen - zugleich stabiler Test-Haken
-   (`data-testid="turn-flow-current-step"`), s. turnFlowPanel.ts. */
+   (`data-testid="turn-flow-current-step"`), s. turnFlowPanel.ts. Als
+   eigenständiger "Chip" statt schlichter Monospace-Zeile, damit er die
+   optische Aufwertung der aktuellen Phase mitträgt statt unauffällig zu
+   wirken. */
 .turn-flow-node-step {
-  display: block;
-  margin-top: 2px;
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
   font-size: 11px;
+  font-weight: 600;
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  color: var(--parchment-muted);
-  opacity: 0.85;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  background: rgba(79, 140, 255, 0.2);
+  border: 1px solid rgba(79, 140, 255, 0.45);
 }
 
 .turn-flow-next {
