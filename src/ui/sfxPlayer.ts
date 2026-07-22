@@ -29,6 +29,7 @@
  */
 
 import { isSfxEnabled } from "./store";
+import { asset } from "./assetUrl";
 
 export type SfxName =
   | "card-play"
@@ -70,7 +71,7 @@ function buildTemplates(): Partial<Record<SfxName, HTMLAudioElement>> {
   const map: Partial<Record<SfxName, HTMLAudioElement>> = {};
   for (const name of Object.keys(SFX_SRC) as SfxName[]) {
     const el = document.createElement("audio");
-    el.src = SFX_SRC[name];
+    el.src = asset(SFX_SRC[name]);
     el.preload = "auto";
     // Nie ans DOM angehängt (anders als musicPlayer.ts' <audio>-Element) -
     // dient nur als Vorlage zum Klonen, wird selbst nie abgespielt.

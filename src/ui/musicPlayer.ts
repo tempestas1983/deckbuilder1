@@ -65,6 +65,7 @@ import {
   setMusicTracks,
   subscribe,
 } from "./store";
+import { asset } from "./assetUrl";
 
 let audioEl: HTMLAudioElement | undefined;
 
@@ -72,7 +73,7 @@ let audioEl: HTMLAudioElement | undefined;
 let currentAppliedTrack: string | undefined;
 
 function trackUrl(fileName: string): string {
-  return `/music/${encodeURIComponent(fileName)}`;
+  return asset(`music/${encodeURIComponent(fileName)}`);
 }
 
 function ensureAudioElement(): HTMLAudioElement {
@@ -177,7 +178,7 @@ function startOnFirstInteraction(): void {
  */
 async function loadTrackList(): Promise<void> {
   try {
-    const res = await fetch("/music/index.json");
+    const res = await fetch(asset("music/index.json"));
     if (!res.ok) return;
     const data: unknown = await res.json();
     const rawTracks =

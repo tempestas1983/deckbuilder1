@@ -210,8 +210,15 @@ function sfxPlugin(): Plugin {
   });
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   root: ".",
+  // Im Produktions-Build läuft die App unter dem Unterpfad `/deckbuilder/` des
+  // Kids-Games-Hubs (nginx, single origin) — `base` sorgt dafür, dass die von
+  // Vite gebündelten Assets UND die über `asset()` (s. src/ui/assetUrl.ts)
+  // aufgelösten SFX-/Musik-/Artwork-URLs dieses Präfix erhalten. Im Dev-Server
+  // (`vite`) bleibt es beim Root "/", damit die oben registrierten
+  // Asset-Middlewares (`/sfx/`, `/music/`, ...) unverändert greifen.
+  base: command === "build" ? "/deckbuilder/" : "/",
   plugins: [cardArtworkPlugin(), sceneArtPlugin(), musicPlugin(), musicIndexPlugin(), sfxPlugin()],
   server: {
     port: 5173,
@@ -220,4 +227,4 @@ export default defineConfig({
   build: {
     outDir: "dist-ui",
   },
-});
+}));

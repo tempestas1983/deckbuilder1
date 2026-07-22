@@ -2,6 +2,11 @@ node_modules/
 dist/
 dist-ui/
 
+# Lokale Node-20-Toolchain + Deploy-Skript für den Kids-Games-Hub-Server
+# (serverspezifisch, s. deploy-build.sh — nicht Teil des eigentlichen Projekts).
+.node20/
+deploy-build.sh
+
 # Kartenartworks: extern generiert (Gemini, s. tools/image-generation), zu groß
 # fürs Repo (~500 MB) und lokal beim Nutzer vorhanden statt versioniert.
 docs/cards/artworks/

@@ -17,17 +17,18 @@
 
 import type { BotDifficulty } from "../../ai";
 import { h, text } from "../h";
+import { asset } from "../assetUrl";
 
 const SCENE_ART_URL_PREFIX = "/scene-art/";
 
 /** URL des Spielbrett-Hintergrundbilds (dev + Produktions-Build, s. vite.config.ts). */
 export function boardArtUrl(): string {
-  return `${SCENE_ART_URL_PREFIX}tavern-background.png`;
+  return asset(`${SCENE_ART_URL_PREFIX}tavern-background.png`);
 }
 
 /** URL des Gegner-Avatars zur jeweiligen Bot-Schwierigkeitsstufe. */
 export function botAvatarUrl(difficulty: BotDifficulty): string {
-  return `${SCENE_ART_URL_PREFIX}avatar-${difficulty}.png`;
+  return asset(`${SCENE_ART_URL_PREFIX}avatar-${difficulty}.png`);
 }
 
 /**

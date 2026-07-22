@@ -27,6 +27,7 @@
 
 import type { CardDefinition } from "../../model";
 import { h } from "../h";
+import { asset } from "../assetUrl";
 
 /** Leitet den erwarteten Artwork-Dateinamen aus der Karten-`id` ab (s. docs/cards/card-art-brief.md). */
 export function artworkFileName(cardId: string): string {
@@ -37,7 +38,7 @@ const ARTWORK_URL_PREFIX = "/cards/artworks/";
 
 /** URL, unter der das Artwork ausgeliefert wird (dev + Produktions-Build, s. vite.config.ts). */
 export function artworkUrl(cardId: string): string {
-  return `${ARTWORK_URL_PREFIX}${artworkFileName(cardId)}`;
+  return asset(`${ARTWORK_URL_PREFIX}${artworkFileName(cardId)}`);
 }
 
 export function cardFrameArt(def: CardDefinition): HTMLElement {
