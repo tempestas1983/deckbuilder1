@@ -55,6 +55,26 @@ describe("Gegen die KI spielen (v0.1.7, Spieler 2 = Bot)", () => {
       document.body.append(root);
       // Wie main.ts: erst abonnieren, DANACH den ersten Render anstoßen.
       subscribe(() => render(root));
+
+      // Regressionsschutz (Nutzer-Feedback 2026-07-24: "macht keinen Sinn, dass
+      // der Mensch für den Bot passen darf"): "Priorität passen" darf NIE
+      // sichtbar sein, während die Priorität bei einem bot-gesteuerten Spieler
+      // liegt - sonst kann ein Mensch dem Bot seinen ganzen Zug wegdrücken
+      // (s. render.ts#statusBar). Als Beobachter NACH dem Render-Abonnement
+      // registriert, damit das DOM beim Prüfen schon aktuell ist: so wird die
+      // Invariante bei JEDEM Render der ganzen Partie geprüft, statt nur an den
+      // wenigen Stellen, an denen die Klick-Schleife unten zufällig hinsieht.
+      const passButtonViolations: string[] = [];
+      let botPriorityRenders = 0;
+      subscribe(() => {
+        // Vor initGame() (Hauptmenü/Deckbau) gibt es noch gar keinen GameState.
+        const priority = getState()?.priorityPlayer;
+        if (priority === undefined || !isBotControlled(priority)) return;
+        botPriorityRenders++;
+        const passBtn = root.querySelector(".btn-pass");
+        if (passBtn) passButtonViolations.push(`${priority}: "${passBtn.textContent}"`);
+      });
+
       render(root);
       // Hauptmenü -> "Neues Spiel" -> "2 Spieler" (Hotseat): dieser Test prüft
       // bewusst den bestehenden, manuellen KI-Umschalter AUF dem
@@ -202,6 +222,13 @@ describe("Gegen die KI spielen (v0.1.7, Spieler 2 = Bot)", () => {
       // keine sonstige Exception/console.error.
       expect(consoleErrorSpy).not.toHaveBeenCalled();
       expect(getState().turnNumber).toBeGreaterThan(1); // Partie ist tatsächlich vorangekommen, nicht sofort steckengeblieben
+
+      // s. Beobachter oben. Die zweite Zusicherung ist die wichtigere: ohne sie
+      // wäre "keine Verstöße" auch dann erfüllt, wenn während der ganzen Partie
+      // nie ein Render mit Bot-Priorität vorkam - der Test würde dann nichts
+      // beweisen.
+      expect(passButtonViolations).toEqual([]);
+      expect(botPriorityRenders).toBeGreaterThan(0);
 
       if (getState().winner !== undefined) {
         expect(["player1", "player2", "draw"]).toContain(getState().winner);

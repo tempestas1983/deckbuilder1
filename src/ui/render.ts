@@ -585,10 +585,25 @@ function statusBar(state: GameState, mode: UiMode): HTMLElement {
   // verlassen, ohne etwas (weiteres) zu tun - ohne diesen Button gibt es
   // sonst kein UI-Element dafür (getLegalActions liefert passPriority zwar
   // immer, siehe legal-actions.ts, aber das muss auch anklickbar sein).
-  // Immer sichtbar/aktiv, wenn priorityPlayer gesetzt ist und keine
-  // PendingDecision aussteht (Combat-/Cleanup-Zwangsschritte haben ohnehin
-  // priorityPlayer === undefined, siehe turn.ts).
-  const canPass = state.priorityPlayer !== undefined && !state.pendingDecision;
+  // Sichtbar/aktiv, wenn priorityPlayer gesetzt ist und keine PendingDecision
+  // aussteht (Combat-/Cleanup-Zwangsschritte haben ohnehin priorityPlayer ===
+  // undefined, siehe turn.ts) - aber NIE, wenn die Priorität gerade bei einem
+  // bot-gesteuerten Spieler liegt.
+  //
+  // Nutzer-Feedback 2026-07-24 ("macht keinen Sinn, dass der Mensch für den Bot
+  // passen darf"): der Button hieß dann "Priorität passen (Ollo Wackelhand)"
+  // und passte tatsächlich FÜR den Bot. Wer ihn im Bot-Zug wiederholt drückte,
+  // nahm dem Bot seinen kompletten Zug weg (er kam nie dazu, ein Terrain zu
+  // legen oder etwas zu casten) - von außen sah das wie ein kaputter Bot aus,
+  // der einfach nichts tut. Der Bot passt selbst, wenn er nichts tun will
+  // (s. store.ts#runBotStep); ein menschlicher Ersatz dafür ist nie nötig.
+  //
+  // Gleiche Bedingung wie beim Entscheidungs-Spotlight (s.
+  // decisionSpotlightPlayer oben), das bot-gesteuerte Spieler schon immer
+  // ausgenommen hat - die Statusleiste war die letzte Stelle, an der die
+  // Priorität eines Bots noch bedienbar war.
+  const canPass =
+    state.priorityPlayer !== undefined && !state.pendingDecision && !isBotControlled(state.priorityPlayer);
   const priorityPlayer = state.priorityPlayer;
   // Nutzer-Feedback: "Priorität passen" hier und der "Überspringen"-Button
   // im auffälligen Spotlight-Banner (s. Aufruf von decisionSpotlightPlayer
