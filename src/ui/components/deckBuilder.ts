@@ -25,7 +25,14 @@
 import type { CardDefinition, CardPool, CardType, ManaColor, PlayerId } from "../../model";
 import { BOT_DIFFICULTIES, BOT_DIFFICULTY_LABELS, type BotDifficulty } from "../../ai";
 import { AI_DECKS } from "../aiDecks";
-import { COLOR_LABEL, dominantColorClass, dominantColorKey, effectiveRulesText, subtypeLine } from "../cardInfo";
+import {
+  COLOR_LABEL,
+  dominantColorClass,
+  dominantColorKey,
+  effectiveRulesText,
+  rulesTextDensityClass,
+  subtypeLine,
+} from "../cardInfo";
 import { h, text } from "../h";
 import { cardFrameArt } from "./cardArt";
 import { manaCostBadge } from "./manaCost";
@@ -630,7 +637,7 @@ function poolRow(
   ];
   const rulesText = effectiveRulesText(def);
   if (rulesText) {
-    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: "card-frame-text" }, ruleTextNodes(rulesText))]));
+    frameChildren.push(h("div", { class: "card-frame-text-box" }, [h("div", { class: rulesTextDensityClass(rulesText) }, ruleTextNodes(rulesText))]));
   }
   if (def.type === "unit") {
     frameChildren.push(h("div", { class: "card-frame-pt" }, [text(`${def.power}/${def.toughness}`)]));

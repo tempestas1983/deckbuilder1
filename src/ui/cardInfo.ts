@@ -161,6 +161,32 @@ export function effectiveRulesText(def: CardDefinition): string | undefined {
   return texts.length > 0 ? texts.join(" ") : undefined;
 }
 
+/**
+ * CSS-Klasse für die Regeltext-Box, abhängig von der Textlänge - "je länger
+ * der Text, desto kompakter der Satz", damit er in den Kartenrahmen passt.
+ *
+ * Hintergrund (Spielerbericht 2026-07-24: "manche Karten haben einen zu langen
+ * Text für ihr Kartenfenster und enden unfertig"): `.card-frame-text` hatte
+ * einen harten `-webkit-line-clamp: 5` bei fester Schriftgröße. Der längste
+ * Regeltext im Set hat 158 Zeichen, was bei ~18 Zeichen pro Zeile auf einer
+ * 118px-Kachel ~9 Zeilen ergibt - die Karte schnitt mitten im Satz ab.
+ *
+ * Bewusst eine reine LÄNGEN-Heuristik statt echter Textmessung: Die Kacheln
+ * werden bei jedem Store-Update neu gebaut (s. render.ts), eine Messung pro
+ * Karte würde dabei jedes Mal ein Layout erzwingen. Die drei Stufen sind an
+ * den tatsächlichen Längen im Set kalibriert (153 Regeltexte: 140 unter 80
+ * Zeichen, 10 zwischen 80 und 120, 3 darüber).
+ *
+ * Genutzt an allen drei Stellen, die `.card-frame-text` rendern (cardTile.ts,
+ * handCard.ts, deckBuilder.ts) - die Kartenbreiten unterscheiden sich zwar,
+ * die Staffelung greift aber überall in dieselbe Richtung.
+ */
+export function rulesTextDensityClass(rulesText: string): string {
+  if (rulesText.length > 120) return "card-frame-text card-frame-text-xlong";
+  if (rulesText.length > 80) return "card-frame-text card-frame-text-long";
+  return "card-frame-text";
+}
+
 export function effectivePT(state: GameState, pool: CardPool, instanceId: InstanceId): { power: number; toughness: number } {
   return computeEffectiveStats(state, pool, instanceId);
 }

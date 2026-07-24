@@ -1267,13 +1267,40 @@ body {
   min-height: 14px;
 }
 
+/* Regeltext (Spielerbericht 2026-07-24: "Text zu lang fürs Kartenfenster,
+   endet unfertig"). Vorher: feste Schriftgröße + harter
+   `-webkit-line-clamp: 5` - der längste Regeltext des Sets (158 Zeichen)
+   brauchte auf einer 118px-Kachel ~9 Zeilen und wurde mitten im Satz
+   abgeschnitten.
+
+   Jetzt staffelt `cardInfo.ts#rulesTextDensityClass` nach Textlänge: lange
+   Texte werden kleiner und enger gesetzt, sodass sie vollständig in den
+   Rahmen passen, statt beschnitten zu werden. Der Clamp bleibt als reines
+   Sicherheitsnetz erhalten (falls künftig noch längere Texte dazukommen),
+   liegt aber überall deutlich über dem, was die jeweilige Stufe tatsächlich
+   braucht. */
 .card-frame-text {
   font-style: italic;
   color: #c8cad2;
   display: -webkit-box;
-  -webkit-line-clamp: 5;
+  -webkit-line-clamp: 7;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.card-frame-text-long {
+  font-size: 0.9em;
+  line-height: 1.2;
+  -webkit-line-clamp: 9;
+}
+
+.card-frame-text-xlong {
+  font-size: 0.82em;
+  line-height: 1.15;
+  -webkit-line-clamp: 12;
 }
 
 /* Keyword-Hervorhebung im Regeltext (s. components/keywordText.ts) - der

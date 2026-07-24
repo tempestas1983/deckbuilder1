@@ -13,6 +13,7 @@ import {
   effectiveKeywords,
   effectivePT,
   effectiveRulesText,
+  rulesTextDensityClass,
   subtypeLine,
 } from "../cardInfo";
 import { h, text } from "../h";
@@ -79,7 +80,7 @@ export function cardTile(
   if (rulesText || statusBadges.length > 0) {
     frameChildren.push(
       h("div", { class: "card-frame-text-box" }, [
-        rulesText ? h("div", { class: "card-frame-text" }, ruleTextNodes(rulesText)) : undefined,
+        rulesText ? h("div", { class: rulesTextDensityClass(rulesText) }, ruleTextNodes(rulesText)) : undefined,
         statusBadges.length > 0 ? h("div", { class: "card-frame-status" }, statusBadges) : undefined,
       ]),
     );
