@@ -66,26 +66,14 @@ export function attackersPanel(selectedCount: number, onNone: () => void): HTMLE
   ]);
 }
 
-export function blockersPanel(
-  pairs: Array<{ blocker: string; attacker: string }>,
-  labelFor: (instanceId: string) => string,
-  onRemove: (blocker: string) => void,
-  onConfirm: () => void,
-  onNone: () => void,
-): HTMLElement {
-  const pairList = pairs.map((p) =>
-    h("div", { class: "block-pair" }, [
-      text(`${labelFor(p.blocker)} blockt ${labelFor(p.attacker)}`),
-      h("button", { class: "btn btn-cancel btn-small", onclick: () => onRemove(p.blocker) }, [text("×")]),
-    ]),
-  );
-  return h("div", { class: "action-banner combat-panel" }, [
-    h("span", {}, [text("Blocker zuordnen: erst eigene Einheit, dann Angreifer anklicken.")]),
-    h("div", { class: "block-pair-list" }, pairList),
-    h("button", { class: "btn btn-play", onclick: onConfirm }, [text("Blocks bestätigen")]),
-    h("button", { class: "btn btn-cancel", onclick: onNone }, [text("Keine Blocker")]),
-  ]);
-}
+/*
+ * `blockersPanel` gab es hier bis zum Spielerbericht 2026-07-24 ("die Blocker
+ * zu bestimmen ist richtig schwer") - ein Banner mit einer Textliste
+ * ("X blockt Y") neben dem Board, während die Zuordnung selbst über zwei
+ * Klicks quer über die beiden Battlefield-Reihen lief. Ersetzt durch die
+ * fokussierte Kampf-Ansicht components/combatOverlay.ts, die Angreifer,
+ * eigene Einheiten, Zuordnung und Bestätigen an einem Ort zusammenführt.
+ */
 
 /**
  * orderBlockers-PendingDecision (rules-engine.md 6d(1)): pro mehrfach

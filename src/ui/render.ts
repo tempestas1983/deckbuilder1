@@ -86,6 +86,7 @@ import { botSpeedPanel, botSpeedPanelButton } from "./components/botSpeedPanel";
 import { sfxToggleButton } from "./components/sfxToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
+import { blockLegalityFromActions, combatOverlay } from "./components/combatOverlay";
 import { terrainPile, terrainPileCollapseHandle, type TerrainPileEntry } from "./components/terrainPile";
 import { deckBuilderScreen } from "./components/deckBuilder";
 import { mainMenuScreen } from "./components/mainMenu";
@@ -99,7 +100,6 @@ import { turnFlowPanel } from "./components/turnFlowPanel";
 import { stackPanel } from "./components/stackPanel";
 import {
   attackersPanel,
-  blockersPanel,
   chooseModeDecisionPanel,
   discardPanel,
   modeSelectPanel,
@@ -532,6 +532,10 @@ function renderGameBoard(root: HTMLElement): void {
     // hier gesondert unter dem gesamten Board zu stehen - hier NICHT mehr
     // aufrufen, sonst erscheint der Stack doppelt.
     boardSection(state, pool, mode),
+    // Blocker-Zuordnung als eigene, fokussierte Ansicht über dem Board
+    // (Spielerbericht 2026-07-24, s. combatFocusOverlay unten) - NACH
+    // boardSection, damit sie darüber liegt.
+    combatFocusOverlay(state, pool, mode),
     tutorialActive && isTutorialHelpOpen() ? tutorialHelpPanel(() => closeTutorialHelp()) : undefined,
     // Auftrag Punkt 3: das globale Keyword-Nachschlagewerk ist in JEDER
     // Partie erreichbar (nicht nur im Tutorial-Modus, anders als
@@ -795,17 +799,10 @@ function actionBanner(state: GameState, mode: UiMode): HTMLElement[] {
       ),
     ];
   }
-  if (mode.kind === "declaringBlockers") {
-    return [
-      blockersPanel(
-        mode.pairs,
-        (id) => cardDef(getPool(), state, id).name,
-        (blocker) => setUiMode({ ...mode, pairs: mode.pairs.filter((p) => p.blocker !== blocker) }),
-        () => dispatch({ kind: "declareBlockers", player: mode.player, blocks: mode.pairs }),
-        () => dispatch({ kind: "declareBlockers", player: mode.player, blocks: [] }),
-      ),
-    ];
-  }
+  // mode.kind === "declaringBlockers" hat hier bewusst kein Banner mehr: die
+  // Blocker-Zuordnung ist seit dem Spielerbericht 2026-07-24 eine eigene,
+  // fokussierte Ansicht über dem Board (s. combatFocusOverlay), die
+  // Erklärung, Zuordnung und Bestätigen an einem Ort zusammenführt.
   if (mode.kind === "discarding") {
     return [
       discardPanel(mode.required, mode.selected.length, () =>
@@ -988,6 +985,65 @@ function attackCallToAction(mode: UiMode): HTMLElement | undefined {
       ],
     ),
   ]);
+}
+
+/**
+ * Fokussierte Blocker-Zuordnung über dem Board (Spielerbericht 2026-07-24:
+ * "die Blocker zu bestimmen ist richtig schwer ... die angreifende Schar in
+ * einem hervorgehobenen Fenster, der Rest leicht ausgeblendet, und die
+ * Verteidiger wirklich in Position ziehen"), s. components/combatOverlay.ts.
+ *
+ * Diese Funktion sammelt nur zusammen, was die Ansicht braucht - alle
+ * Legalitätsangaben kommen fertig aus getLegalActions, nichts davon wird hier
+ * abgeleitet:
+ *
+ * - `legalAttackersByBlocker`: aus den `declareBlockers`-Einzelpaar-Kandidaten.
+ *   Die Engine enumeriert diese Paare NUR, solange höchstens eine
+ *   guardian-Blockpflicht besteht (legal-actions.ts#combatCandidates) - für
+ *   einen Verteidiger, der dort auftaucht, ist die Liste seiner erlaubten
+ *   Angreifer aber vollständig, und nur dann sperrt die Ansicht überhaupt
+ *   etwas.
+ * - `noBlocksOffered`: die Engine bietet `blocks: []` exakt dann an, wenn KEINE
+ *   guardian-Pflicht besteht - dasselbe Signal sagt der Ansicht also
+ *   gleichzeitig, ob "Keine Blocker" ein legaler Ausweg ist und ob die
+ *   Paar-Enumeration oben als vollständig gelten darf.
+ */
+function combatFocusOverlay(
+  state: GameState,
+  pool: ReturnType<typeof getPool>,
+  mode: UiMode,
+): HTMLElement | undefined {
+  if (mode.kind !== "declaringBlockers") return undefined;
+
+  const attackers = state.players[state.activePlayer].battlefield.filter(
+    (id) => state.cards[id]?.permanentState?.combat?.role === "attacker",
+  );
+  const defenders = state.players[mode.player].battlefield.filter(
+    (id) => cardDef(pool, state, id).type === "unit",
+  );
+
+  const legality = blockLegalityFromActions(legalActions(mode.player));
+
+  return combatOverlay(state, pool, {
+    attackers,
+    defenders,
+    pairs: mode.pairs,
+    selectedBlocker: mode.selectedBlocker,
+    legalAttackersByBlocker: legality.legalAttackersByBlocker,
+    noBlocksOffered: legality.noBlocksOffered,
+    onSelectBlocker: (blocker) => setUiMode({ ...mode, selectedBlocker: blocker }),
+    onAssign: (blocker, attacker) =>
+      setUiMode({
+        ...mode,
+        // Ein Verteidiger blockt genau einen Angreifer - eine erneute Zuordnung
+        // verschiebt ihn, statt ein zweites Paar anzulegen (wie bisher).
+        pairs: [...mode.pairs.filter((p) => p.blocker !== blocker), { blocker, attacker }],
+        selectedBlocker: undefined,
+      }),
+    onRemove: (blocker) => setUiMode({ ...mode, pairs: mode.pairs.filter((p) => p.blocker !== blocker) }),
+    onConfirm: () => dispatch({ kind: "declareBlockers", player: mode.player, blocks: mode.pairs }),
+    onNone: () => dispatch({ kind: "declareBlockers", player: mode.player, blocks: [] }),
+  });
 }
 
 function playerArea(
@@ -1297,33 +1353,12 @@ function battlefieldZone(
       });
     }
 
-    if (mode.kind === "declaringBlockers") {
-      const isOwnUnblockedUnit =
-        mode.player === playerId && def.type === "unit" && !mode.pairs.some((p) => p.blocker === id);
-      if (isOwnUnblockedUnit) {
-        const selected = mode.selectedBlocker === id;
-        return cardTile(state, pool, id, {
-          targetable: true,
-          selected,
-          tutorialHighlighted,
-          onClick: () => setUiMode({ ...mode, selectedBlocker: selected ? undefined : id }),
-        });
-      }
-      const isEnemyAttacker =
-        playerId === state.activePlayer && state.cards[id]?.permanentState?.combat?.role === "attacker";
-      if (isEnemyAttacker && mode.selectedBlocker) {
-        return cardTile(state, pool, id, {
-          targetable: true,
-          tutorialHighlighted,
-          onClick: () =>
-            setUiMode({
-              ...mode,
-              pairs: [...mode.pairs.filter((p) => p.blocker !== mode.selectedBlocker), { blocker: mode.selectedBlocker!, attacker: id }],
-              selectedBlocker: undefined,
-            }),
-        });
-      }
-    }
+    // Hinweis: Die Blocker-Zuordnung hat hier bewusst KEINEN Zweig mehr.
+    // Sie läuft seit dem Spielerbericht 2026-07-24 vollständig über die
+    // fokussierte Kampf-Ansicht (s. combatFocusOverlay/components/
+    // combatOverlay.ts), die das Board währenddessen überlagert - ein
+    // zusätzlicher Klickpfad auf den verdeckten Battlefield-Kacheln wäre
+    // unerreichbar und würde nur den Eindruck erwecken, es gäbe ihn noch.
 
     // Aktivierte Fähigkeiten (0 oder 1 Zielslot), nur für den aktuell agierenden Spieler.
     // ("abilities" in def schließt SpellCard aus - Spells liegen nie auf dem

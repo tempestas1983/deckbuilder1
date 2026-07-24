@@ -120,18 +120,214 @@ body {
   padding: 8px 12px;
 }
 
-.combat-panel .block-pair-list {
+/* Fokussierte Blocker-Zuordnung ------------------------------------------
+   Spielerbericht 2026-07-24: "die Blocker zu bestimmen ist richtig schwer.
+   Cool wäre, wenn die angreifende Schar in einem hervorgehobenen Fenster
+   gezeigt wird (der Rest leicht ausgeblendet im Hintergrund) und man seine
+   Verteidiger wirklich in Position ziehen kann."
+
+   Genau das macht `.combat-overlay`: der abdunkelnde Hintergrund ist das
+   "leicht ausgeblendete" Board (es bleibt sichtbar - man soll den Rest der
+   Partie ja weiter im Blick haben, nur eben nachrangig), `.combat-focus` das
+   hervorgehobene Fenster. S. components/combatOverlay.ts. */
+.combat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+  background: rgba(10, 8, 6, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.combat-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(1080px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 16px 18px;
+  border: 2px solid var(--bad);
+  border-radius: 12px;
+  background: linear-gradient(170deg, #2a1c16 0%, #191216 100%);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+.combat-focus-title {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #ffd9cf;
+}
+
+.combat-focus-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Eine Spalte je Angreifer: oben der Angreifer, darunter der Ablageplatz für
+   seine Blocker. Die Zuordnung ist damit räumlich statt als Textzeile
+   ("X blockt Y") sichtbar - der eigentliche Punkt des Umbaus. */
+.combat-attacker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.combat-attacker-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 2px dashed rgba(224, 90, 90, 0.35);
+  border-radius: 8px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.combat-attacker-slot-blocked {
+  border-style: solid;
+  border-color: rgba(63, 191, 107, 0.55);
+  background: rgba(63, 191, 107, 0.08);
+}
+
+/* Während ein Verteidiger gezogen oder per Klick vorgemerkt ist: erlaubte
+   Ablageplätze treten hervor, verbotene treten zurück. Die Angaben dazu
+   kommen aus getLegalActions (s. render.ts#combatFocusOverlay) - hier wird
+   nichts über Regeln entschieden, nur eingefärbt. */
+.combat-slot-ok {
+  border-color: var(--good);
+  background: rgba(63, 191, 107, 0.12);
+}
+
+.combat-slot-blocked {
+  opacity: 0.4;
+}
+
+.combat-slot-hover {
+  border-color: var(--good);
+  background: rgba(63, 191, 107, 0.26);
+  box-shadow: 0 0 14px rgba(63, 191, 107, 0.4);
+}
+
+.combat-slot-blockers {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 100%;
+  min-height: 34px;
 }
 
-.block-pair {
+.combat-slot-empty {
   display: flex;
-  gap: 6px;
   align-items: center;
-  font-size: 13px;
+  justify-content: center;
+  min-height: 34px;
+  padding: 4px;
+  border-radius: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Zugeordnete Blocker erscheinen verkleinert unter ihrem Angreifer - die
+   volle Kachel würde die Spalte doppelt so hoch machen, ohne mehr zu sagen. */
+.combat-assigned {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.combat-assigned .card-tile {
+  width: 96px;
+  font-size: 9px;
+}
+
+.combat-remove-btn {
+  flex-shrink: 0;
+  padding: 0 6px;
+  line-height: 1.4;
+}
+
+.combat-defender-head {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.combat-defender-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.combat-defender {
+  border-radius: 8px;
+  cursor: grab;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.combat-defender:hover {
+  transform: translateY(-3px);
+}
+
+.combat-defender-selected {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Bereits zugeordnet: bleibt sichtbar (man will die eigene Aufstellung im
+   Blick behalten), ist aber kein Ziehpunkt mehr - herausnehmen geht über das
+   × beim Angreifer. */
+.combat-defender-used {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.combat-defender-used:hover {
+  transform: none;
+}
+
+/* Kann laut Engine keinen der Angreifer aufhalten (z.B. getappt, oder ein
+   Bodenkämpfer gegen lauter Flieger) - nur dann gezeigt, wenn die Engine
+   ihre Kandidaten überhaupt vollständig enumeriert hat, s.
+   combatOverlay.ts#isUseless. */
+.combat-defender-useless {
+  opacity: 0.3;
+  filter: grayscale(0.8);
+  cursor: not-allowed;
+}
+
+.combat-defender-useless:hover {
+  transform: none;
+}
+
+.combat-focus-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.combat-confirm-btn {
+  font-size: 15px;
+  font-weight: 700;
+  padding: 8px 18px;
+}
+
+.combat-focus-forced {
+  font-size: 12px;
+  color: #ffb4a8;
 }
 
 .x-input {
