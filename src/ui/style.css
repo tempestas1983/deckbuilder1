@@ -1061,6 +1061,34 @@ body {
   color: var(--muted);
 }
 
+/* Mana-Vorrat als farbige Pips (Spielerwunsch 2026-07-24) - dieselbe
+   `.mana-pip`-Optik wie die Kostenanzeige auf den Karten, damit "habe ich
+   genug?" ein reiner Farbvergleich statt einer Übersetzung zwischen zwei
+   Darstellungen ist. Die Pips sind hier minimal kleiner als auf den Karten:
+   das Panel ist schmaler und trägt drei weitere Info-Zeilen. */
+.player-panel-mana {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.player-panel-mana-pips {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.player-panel-mana .mana-pip {
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+}
+
+.player-panel-mana-empty {
+  font-style: italic;
+  opacity: 0.7;
+}
+
 /* Auftrag Punkt 3 ("Angriff/Schaden ... Lebenspunkte, die spürbar
    reagieren statt zu springen"): kurzer Puls-/Flash-Effekt beim Ändern des
    Lebenswerts (s. playerPanel.ts#lifePulse/render.ts#computeLifePulse) -

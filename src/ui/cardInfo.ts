@@ -103,6 +103,44 @@ export interface ManaPip {
   colorClass: string;
 }
 
+/**
+ * Dieselbe Pip-Aufbereitung für den aktuell VERFÜGBAREN Mana-Vorrat eines
+ * Spielers (`PlayerState.manaPool`) statt für Kosten - Spielerwunsch
+ * 2026-07-24: "Mana als Icons dargestellt wäre super". Der Vorrat stand
+ * bisher als reiner Fließtext im Spieler-Panel ("Mana: 2× Flamme, 1× farblos"),
+ * während Kartenkosten schon immer als farbige Pips erschienen - man musste
+ * also zwischen zwei Darstellungen desselben Konzepts übersetzen, um zu sehen,
+ * ob eine Karte bezahlbar ist. Gleiche Optik auf beiden Seiten macht den
+ * Abgleich zu einem reinen Farbvergleich.
+ *
+ * Bewusst dieselbe Konvention wie `manaCostPips`: EIN Pip pro Farbe mit der
+ * Anzahl als Beschriftung (nicht ein Pip pro Mana-Punkt) - hält das Panel auch
+ * bei großen Vorräten schmal und ist direkt mit den Kosten-Pips vergleichbar.
+ * Farbloses Mana kommt hier ANS ENDE (bei Kosten steht der generische Anteil
+ * vorn): im Vorrat ist es der Rest, der nach den Farben übrig bleibt.
+ */
+export function manaPoolPips(pool: Record<string, number>): ManaPip[] {
+  const pips: ManaPip[] = [];
+  for (const c of COLORS) {
+    const n = pool[c] ?? 0;
+    if (n > 0) pips.push({ key: c, label: String(n), colorClass: COLOR_CLASS[c] });
+  }
+  const colorless = pool.colorless ?? 0;
+  if (colorless > 0) pips.push({ key: "colorless", label: String(colorless), colorClass: "mana-colorless" });
+  return pips;
+}
+
+/** Vollständiger Vorrats-Text (Tooltip/Screenreader-Fallback zu `manaPoolPips`). */
+export function formatManaPool(pool: Record<string, number>): string {
+  const bits: string[] = [];
+  for (const c of COLORS) {
+    const n = pool[c] ?? 0;
+    if (n > 0) bits.push(`${n}× ${COLOR_LABEL[c]}`);
+  }
+  if ((pool.colorless ?? 0) > 0) bits.push(`${pool.colorless}× farblos`);
+  return bits.length ? bits.join(", ") : "leer";
+}
+
 export function manaCostPips(cost: ManaCost | undefined): ManaPip[] {
   if (!cost) return [];
   const pips: ManaPip[] = [];

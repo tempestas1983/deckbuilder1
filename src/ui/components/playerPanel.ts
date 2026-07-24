@@ -5,7 +5,7 @@
  */
 
 import type { GameState, PlayerId } from "../../model";
-import { COLOR_LABEL } from "../cardInfo";
+import { formatManaPool, manaPoolPips } from "../cardInfo";
 import { h, text } from "../h";
 
 export interface PlayerPanelOptions {
@@ -69,10 +69,11 @@ export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPa
   }
   if (p.hasLost) badges.push(h("span", { class: "badge badge-lost" }, [text("verloren")]));
 
-  const manaBits = (["flame", "tide", "wild", "light", "void"] as const)
-    .map((c) => (p.manaPool[c] > 0 ? `${p.manaPool[c]}× ${COLOR_LABEL[c]}` : undefined))
-    .filter((x): x is string => !!x);
-  if (p.manaPool.colorless > 0) manaBits.push(`${p.manaPool.colorless}× farblos`);
+  // Mana-Vorrat als farbige Pips statt Fließtext (Spielerwunsch 2026-07-24) -
+  // dieselbe Optik wie die Kostenanzeige auf den Karten, s.
+  // cardInfo.ts#manaPoolPips. Der vollständige Text bleibt als `title` erhalten.
+  const poolPips = manaPoolPips(p.manaPool);
+  const poolText = formatManaPool(p.manaPool);
 
   const classes = ["player-panel"];
   if (opts.targetable) classes.push("targetable");
@@ -109,7 +110,16 @@ export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPa
       h("div", { class: `player-panel-life${opts.lifePulse ? ` life-pulse-${opts.lifePulse}` : ""}` }, [
         text(`❤ ${p.life}`),
       ]),
-      h("div", { class: "player-panel-mana" }, [text(manaBits.length ? `Mana: ${manaBits.join(", ")}` : "Mana: leer")]),
+      h("div", { class: "player-panel-mana", title: `Mana: ${poolText}` }, [
+        h("span", { class: "player-panel-mana-label" }, [text("Mana")]),
+        poolPips.length > 0
+          ? h(
+              "span",
+              { class: "player-panel-mana-pips" },
+              poolPips.map((pip) => h("span", { class: `mana-pip ${pip.colorClass}` }, [text(pip.label)])),
+            )
+          : h("span", { class: "player-panel-mana-empty" }, [text("leer")]),
+      ]),
       h("div", { class: "player-panel-zones" }, [
         text(`Hand ${p.hand.length} · Bibliothek ${p.library.length} · Friedhof ${p.graveyard.length} · Exil ${p.exile.length}`),
       ]),
