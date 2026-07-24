@@ -26,6 +26,7 @@ import {
   buttonWithText,
   click,
   enterHotseatNewGame,
+  expandTerrainPile,
   keepAllMulligans,
   makeSeededRandom,
   queryAll,
@@ -45,10 +46,21 @@ const LIGHT_ALTAR_NAME = starterSet[LIGHT_ALTAR]!.name;
 const SUN_ACOLYTE_NAME = starterSet[SUN_ACOLYTE]!.name;
 const BLESSING_NAME = starterSet[BLESSING]!.name;
 
+/**
+ * Ab 4 Terrains fasst render.ts sie standardmäßig zu EINER Stapel-Kachel
+ * zusammen (Spielerbericht 2026-07-24, s. render.ts#TERRAIN_PILE_MIN) - dieser
+ * Test braucht aber die einzelnen Terrain-Kacheln, also vorher aufklappen
+ * (echter Klick, derselbe Weg wie für einen Spieler). Der Zustand hält für den
+ * Rest der Partie an, ein einmaliges Aufklappen genügt also.
+ */
 function untappedTerrainTiles(root: ParentNode): HTMLElement[] {
-  return queryAll<HTMLElement>(root, ".battlefield-zone .card-tile.targetable").filter(
-    (t) => t.querySelector(".card-tile-name")?.textContent === LIGHT_ALTAR_NAME,
-  );
+  const find = () =>
+    queryAll<HTMLElement>(root, ".battlefield-zone .card-tile.targetable").filter(
+      (t) => t.querySelector(".card-tile-name")?.textContent === LIGHT_ALTAR_NAME,
+    );
+  const tiles = find();
+  if (tiles.length > 0) return tiles;
+  return expandTerrainPile(root) ? find() : tiles;
 }
 
 function resolveStack(root: ParentNode, getState: () => import("../../model").GameState): void {
@@ -174,7 +186,15 @@ describe("Battlefield-Gruppierung + Aura-Overlay + Action-Glow (Nutzer-Auftrag, 
     const battlefieldZoneEl = queryAll<HTMLElement>(root, ".battlefield-zone").find((z) => z.children.length > 0)!;
     expect(battlefieldZoneEl).toBeTruthy();
 
-    const topLevelNames = Array.from(battlefieldZoneEl.children).map((child) => {
+    // `.terrain-pile` (die Einklapp-Kachel des aufgeklappten Terrain-Stapels,
+    // s. terrainPile.ts#terrainPileCollapseHandle) ist ein Bedienelement, keine
+    // Karte - sie steht bewusst als eigenes Flex-Kind an der Stelle, an der der
+    // Stapel saß, und ist für die Gruppierungs-Reihenfolge der KARTEN
+    // uninteressant.
+    const cardChildren = Array.from(battlefieldZoneEl.children).filter(
+      (child) => !child.classList.contains("terrain-pile"),
+    );
+    const topLevelNames = cardChildren.map((child) => {
       const primaryTile = child.classList.contains("card-tile") ? child : child.querySelector(":scope > .card-tile");
       return primaryTile?.querySelector(".card-tile-name")?.textContent ?? null;
     });
@@ -189,7 +209,7 @@ describe("Battlefield-Gruppierung + Aura-Overlay + Action-Glow (Nutzer-Auftrag, 
     expect(topLevelNames.slice(acolyteTopLevelIndex + 1)).toEqual([]);
 
     // Die Aura hängt als überlappende Mini-Kachel direkt am Slot der Einheit.
-    const acolyteSlot = battlefieldZoneEl.children[acolyteTopLevelIndex] as HTMLElement;
+    const acolyteSlot = cardChildren[acolyteTopLevelIndex] as HTMLElement;
     expect(acolyteSlot.classList.contains("battlefield-slot")).toBe(true);
     expect(acolyteSlot.classList.contains("battlefield-slot-has-aura")).toBe(true);
     const auraBadge = acolyteSlot.querySelector(".battlefield-aura-badge");

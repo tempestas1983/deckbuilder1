@@ -50,6 +50,7 @@ import {
   isMusicEnabled,
   isMusicPanelOpen,
   isSfxEnabled,
+  isTerrainPileExpanded,
   isTutorialActive,
   isTutorialBubbleVisible,
   isTutorialHelpOpen,
@@ -72,6 +73,7 @@ import {
   toggleMusicEnabled,
   toggleMusicPanel,
   toggleSfxEnabled,
+  toggleTerrainPile,
   toggleTutorialHelp,
 } from "./store";
 import { BOT_DIFFICULTY_LABELS, BOT_DISPLAY_NAMES } from "../ai";
@@ -84,6 +86,7 @@ import { botSpeedPanel, botSpeedPanelButton } from "./components/botSpeedPanel";
 import { sfxToggleButton } from "./components/sfxToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
+import { terrainPile, terrainPileCollapseHandle, type TerrainPileEntry } from "./components/terrainPile";
 import { deckBuilderScreen } from "./components/deckBuilder";
 import { mainMenuScreen } from "./components/mainMenu";
 import { opponentSelectScreen } from "./components/opponentSelect";
@@ -1216,6 +1219,20 @@ const BATTLEFIELD_TYPE_ORDER: Record<CardType, number> = {
   spell: 4,
 };
 
+/**
+ * Ab wie vielen Terrains wird die Terrain-Gruppe zum eingeklappten Stapel
+ * (Spielerbericht 2026-07-24: "Terrain werden schnell zu viele und nehmen viel
+ * Platz weg", s. components/terrainPile.ts)?
+ *
+ * Bewusst NICHT ab dem ersten Terrain: das Einklappen kostet einen zusätzlichen
+ * Klick, bevor man tappen kann. Bis einschließlich drei Terrains ist die Reihe
+ * ungefähr so breit wie die Stapel-Kachel plus die Einheiten daneben - da
+ * gewinnt man nichts und zahlt den Klick umsonst. Ab dem vierten Terrain
+ * (typischerweise Zug 4-5, ab dann wächst die Reihe jede Runde weiter) beginnt
+ * die Reihe, die Einheiten zu verdrängen - genau der Punkt aus dem Bericht.
+ */
+const TERRAIN_PILE_MIN = 4;
+
 function battlefieldZone(
   state: GameState,
   pool: ReturnType<typeof getPool>,
@@ -1407,7 +1424,7 @@ function battlefieldZone(
     .filter((id) => !auraIds.has(id))
     .sort((a, b) => BATTLEFIELD_TYPE_ORDER[cardDef(pool, state, a).type] - BATTLEFIELD_TYPE_ORDER[cardDef(pool, state, b).type]);
 
-  const slots = sortedIds.map((id) => {
+  const buildSlot = (id: InstanceId): HTMLElement => {
     const tile = buildTile(id);
     tileById.set(id, tile);
 
@@ -1424,7 +1441,76 @@ function battlefieldZone(
       return h("div", { class: "battlefield-aura-badge", style: `left: ${6 + i * 22}px` }, [auraTile]);
     });
     return h("div", { class: "battlefield-slot battlefield-slot-has-aura" }, [tile, ...badges]);
-  });
+  };
+
+  // ---------------------------------------------------------------------
+  // Terrain-Stapel (Spielerbericht 2026-07-24, s. TERRAIN_PILE_MIN und
+  // components/terrainPile.ts): die Terrain-Gruppe liegt dank
+  // BATTLEFIELD_TYPE_ORDER ohnehin schon zusammenhängend am Anfang der Reihe
+  // und ist damit ohne Umsortieren als Block einklappbar.
+  // ---------------------------------------------------------------------
+
+  // Ein Terrain, an dem eine Aura hängt, bleibt IMMER einzeln sichtbar: seine
+  // Aura-Mini-Kachel ist absolut über genau dieser Kachel positioniert (s.
+  // buildSlot) und würde beim Einklappen ersatzlos verschwinden. Außerdem ist
+  // ein verzaubertes Terrain gerade das eine, das man nicht wegräumen will.
+  const pileableTerrainIds = sortedIds.filter(
+    (id) =>
+      cardDef(pool, state, id).type === "terrain" &&
+      (state.cards[id]?.permanentState?.attachments ?? []).filter((auraId) => auraIds.has(auraId)).length === 0,
+  );
+
+  // Situatives Zwangs-Aufklappen: ein eingeklapptes Terrain ist nicht
+  // anklickbar. Solange ein Terrain gerade WIRKLICH einzeln angeklickt werden
+  // MUSS, darf der Stapel deshalb nicht zu sein - sonst wäre eine
+  // PendingDecision-Zielwahl auf ein Terrain unerreichbar (echte Sackgasse,
+  // das Spiel käme nicht weiter) bzw. der Tutorial-Schritt "eigenes Terrain
+  // antippen" nicht ausführbar.
+  //
+  // Die normale Mana-Fähigkeit zählt hier bewusst NICHT als "muss": sie ist nie
+  // erzwungen, und genau für sie ist das Aufklappen per Klick gedacht - würde
+  // sie den Stapel automatisch öffnen, wäre er in jeder eigenen Hauptphase
+  // offen und das Entrümpeln fände nie statt.
+  const terrainNeedsDirectAccess = (id: InstanceId): boolean => {
+    if (targetMap.has(targetKeyOf({ kind: "permanent", instanceId: id }))) return true;
+    if (mode.kind === "xTarget" && xTargetShapeAllowsPermanent(mode.spec, cardDef(pool, state, id))) return true;
+    if (tutorialHighlight?.permanentInstanceId === id) return true;
+    if (tutorialHighlight?.ownUntappedTerrain && !state.cards[id]?.permanentState?.tapped) return true;
+    return false;
+  };
+
+  const pileIds = new Set(pileableTerrainIds);
+  const collapsed =
+    pileableTerrainIds.length >= TERRAIN_PILE_MIN &&
+    !isTerrainPileExpanded(playerId) &&
+    !pileableTerrainIds.some(terrainNeedsDirectAccess);
+
+  // Die Stapel-/Einklapp-Kachel steht an der Stelle der ERSTEN Terrain-Kachel,
+  // damit die Terrain-Gruppe optisch dort bleibt, wo sie vorher war.
+  const showPileHandle = pileableTerrainIds.length >= TERRAIN_PILE_MIN;
+  let pileNode: HTMLElement | undefined;
+  let pileHandlePlaced = false;
+
+  const slots: HTMLElement[] = [];
+  for (const id of sortedIds) {
+    const inPile = pileIds.has(id);
+    if (inPile && showPileHandle && !pileHandlePlaced) {
+      pileHandlePlaced = true;
+      if (collapsed) {
+        const entries: TerrainPileEntry[] = pileableTerrainIds.map((terrainId) => ({
+          instanceId: terrainId,
+          def: cardDef(pool, state, terrainId),
+          tapped: !!state.cards[terrainId]?.permanentState?.tapped,
+        }));
+        pileNode = terrainPile(entries, { onToggle: () => toggleTerrainPile(playerId), own: playerId === "player1" });
+        slots.push(pileNode);
+      } else {
+        slots.push(terrainPileCollapseHandle(pileableTerrainIds.length, () => toggleTerrainPile(playerId)));
+      }
+    }
+    if (inPile && collapsed) continue;
+    slots.push(buildSlot(id));
+  }
 
   // Nutzer-Auftrag ("Nachvollziehbarkeit von KI-Spielzügen ... visuell, eine
   // Karte wird gelegt, es wird getappt"): die zuletzt betroffene(n) Karte(n)
@@ -1439,7 +1525,14 @@ function battlefieldZone(
   const recentActionIds = getRecentActionInstanceIds();
   if (recentActionIds.size > 0) {
     for (const id of recentActionIds) {
-      tileById.get(id)?.classList.add("action-glow");
+      // Eingeklapptes Terrain hat gar keine eigene Kachel - der Hinweis "hier
+      // ist gerade etwas passiert" (z.B. der Bot tappt ein Terrain für Mana)
+      // wandert dann auf die Stapel-Kachel, statt ersatzlos zu verschwinden.
+      // Genau bei bot-gesteuerten Zügen ist dieser Glow die einzige Anzeige
+      // dafür, dass überhaupt etwas passiert ist (s. Auftrag
+      // "Nachvollziehbarkeit von KI-Spielzügen").
+      const tile = tileById.get(id) ?? (pileNode && pileIds.has(id) ? pileNode : undefined);
+      tile?.classList.add("action-glow");
     }
   }
 

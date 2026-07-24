@@ -29,7 +29,7 @@ import {
   queryAll,
   queryOne,
   registerCardName,
-  tapUntappedPermanent,
+  tryTapUntappedPermanent,
 } from "./testHelpers";
 import type { GameState } from "../../model";
 
@@ -101,13 +101,10 @@ function advanceToOwnDeclareAttackers(
         click(playBtn);
         continue;
       }
-      const untappedRidge = queryAll<HTMLElement>(root, ".battlefield-zone .card-tile.targetable").find(
-        (t) => t.querySelector(".card-tile-name")?.textContent === RIDGE_NAME,
-      );
-      if (untappedRidge) {
-        tapUntappedPermanent(root, RIDGE_NAME);
-        continue;
-      }
+      // Der Helper klappt einen eingeklappten Terrain-Stapel selbst auf (ab 4
+      // Terrains der Normalfall, s. render.ts#TERRAIN_PILE_MIN) - dieses Deck
+      // hat 36 Flammenkuppen, hier läuft also fast immer der Stapel-Pfad.
+      if (tryTapUntappedPermanent(root, RIDGE_NAME)) continue;
     }
 
     if (root.querySelector(".discard-toggle")) {

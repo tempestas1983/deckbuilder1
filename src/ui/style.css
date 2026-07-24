@@ -1214,6 +1214,137 @@ body {
   filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.65));
 }
 
+/* Terrain-Stapel (Spielerbericht 2026-07-24: "Terrain werden schnell zu viele
+   und nehmen viel Platz weg ... ein gestapelter Terrain-Blick, der sich beim
+   Anklicken aufklappt") - s. components/terrainPile.ts + render.ts
+   #TERRAIN_PILE_MIN.
+
+   Die Kachel ist absichtlich SCHMALER als eine .card-tile (118px) und trägt
+   die Holzoptik der Zone statt eines Kartenrahmens: sie ist keine Karte,
+   sondern ein zusammengeschobener Stapel davon - das soll man ihr auf den
+   ersten Blick ansehen, damit niemand sie für eine echte Karte hält und auf
+   ein Tap-Verhalten wartet. Als <button> (nicht <div> wie .card-tile) ist sie
+   nebenbei per Tastatur erreichbar. */
+.terrain-pile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 128px;
+  padding: 6px 8px;
+  border: 2px dashed rgba(201, 162, 39, 0.45);
+  border-radius: 8px;
+  background: linear-gradient(160deg, rgba(74, 48, 24, 0.95) 0%, rgba(30, 20, 10, 0.95) 100%);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.terrain-pile:hover,
+.terrain-pile:focus-visible {
+  border-color: rgba(201, 162, 39, 0.9);
+  box-shadow: 0 0 10px rgba(201, 162, 39, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Alle Terrains getappt = diese Runde ist hier kein Mana mehr zu holen.
+   Bewusst nur gedämpft statt gesperrt: aufklappen darf man trotzdem immer
+   (Karten ansehen, Ziele prüfen). */
+.terrain-pile-exhausted {
+  border-style: solid;
+  border-color: rgba(120, 120, 130, 0.4);
+  opacity: 0.75;
+}
+
+/* Die gefächerten "Kartenrücken" hinter der Zahl: reine Deko (max. 3, s.
+   terrainPile.ts) - die echte Anzahl steht als Zahl darüber. */
+.terrain-pile-stack {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 46px;
+}
+
+.terrain-pile-back {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  border-radius: 4px;
+  background: linear-gradient(150deg, var(--mana-wild-dark) 0%, #14100a 100%);
+  transform: translate(calc(var(--pile-index) * 3px), calc(var(--pile-index) * -3px)) rotate(calc(var(--pile-index) * -4deg));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.terrain-pile-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  font-size: 19px;
+  font-weight: 800;
+  color: #f2e4c0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.terrain-pile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.terrain-pile-title {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.terrain-pile-ready {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.1;
+}
+
+.terrain-pile-pips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.terrain-pile-hint {
+  font-size: 9px;
+  color: rgba(201, 162, 39, 0.85);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Aufgeklappt: schmale Rückweg-Kachel an genau der Stelle, an der vorher der
+   Stapel stand (s. terrainPileCollapseHandle). */
+.terrain-pile-expanded {
+  width: auto;
+  min-width: 62px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.terrain-pile-expanded .terrain-pile-info {
+  align-items: center;
+}
+
+.terrain-pile-collapse-icon {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  color: rgba(201, 162, 39, 0.85);
+}
+
 /* Klassisches Kartenrahmen-Layout (v0.1.10) -----------------------------
    Gemeinsame Optik für Handkarten (.hand-card), Battlefield-/Graveyard-/
    Stack-Kacheln (.card-tile) und den Kartenpool im Deckbau (.deck-pool-row):
@@ -2073,6 +2204,11 @@ body {
    Animationsdauer ist bewusst gleich lang, damit sie nicht vorher sichtbar
    "einfriert". */
 .card-tile.action-glow,
+/* Eingeklappter Terrain-Stapel: der Glow landet auf der Stapel-Kachel, wenn
+   die betroffene Terrain-Kachel gerade zugeklappt ist (s.
+   render.ts#battlefieldZone) - sonst wäre "der Bot hat ein Terrain getappt"
+   im eingeklappten Zustand komplett unsichtbar. */
+.terrain-pile.action-glow,
 .stack-row.action-glow {
   outline: 3px solid var(--good);
   animation: action-glow-fade 1.2s ease-out;

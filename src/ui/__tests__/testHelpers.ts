@@ -270,12 +270,51 @@ function protectedCardNameCache(_state: GameState, definitionId: string): string
   return nameCache.get(definitionId) ?? definitionId;
 }
 
+/**
+ * Klappt einen eingeklappten Terrain-Stapel per echtem Klick auf (Spielerbericht
+ * 2026-07-24, s. render.ts#TERRAIN_PILE_MIN + components/terrainPile.ts): ab 4
+ * Terrains werden diese standardmäßig zu EINER Stapel-Kachel zusammengefasst
+ * und haben dann gar keine eigene `.card-tile` mehr.
+ *
+ * Klappt bewusst nur den ERSTEN gefundenen Stapel auf (im DOM = der von
+ * player1): kein bisheriger Test braucht mehr, und ein blindes Aufklappen aller
+ * Stapel würde nebenbei die Gegner-Reihe mitverändern. Gibt zurück, ob
+ * tatsächlich etwas aufgeklappt wurde.
+ */
+export function expandTerrainPile(root: ParentNode): boolean {
+  const pile = root.querySelector<HTMLElement>(".terrain-pile:not(.terrain-pile-expanded)");
+  if (!pile) return false;
+  click(pile);
+  return true;
+}
+
+/**
+ * Wie `tapUntappedPermanent`, aber ohne Fehler, wenn nichts Passendes da ist -
+ * für Autopilot-Schleifen, die "tappe ein Terrain, FALLS möglich" brauchen.
+ * Gibt zurück, ob tatsächlich geklickt wurde.
+ *
+ * Klappt einen eingeklappten Terrain-Stapel vorher auf - exakt derselbe Klick,
+ * den ein echter Spieler auch machen müsste; der Helper bildet damit weiterhin
+ * den realen Bedienweg ab und umgeht nichts.
+ */
+export function tryTapUntappedPermanent(root: ParentNode, name: string): boolean {
+  const findTile = (): HTMLElement | undefined =>
+    queryAll<HTMLElement>(root, ".battlefield-zone .card-tile.targetable").find(
+      (t) => t.querySelector(".card-tile-name")?.textContent === name,
+    );
+
+  let tile = findTile();
+  if (!tile && expandTerrainPile(root)) tile = findTile();
+  if (!tile) return false;
+  click(tile);
+  return true;
+}
+
 /** Findet die erste antippbare (untappte) Battlefield-Kachel mit gegebenem Anzeigenamen und klickt sie (z.B. Terrain-Mana-Fähigkeit). */
 export function tapUntappedPermanent(root: ParentNode, name: string): void {
-  const tiles = queryAll<HTMLElement>(root, ".battlefield-zone .card-tile.targetable");
-  const tile = tiles.find((t) => t.querySelector(".card-tile-name")?.textContent === name);
-  if (!tile) throw new Error(`tapUntappedPermanent: kein antippbares Permanent "${name}" gefunden.`);
-  click(tile);
+  if (!tryTapUntappedPermanent(root, name)) {
+    throw new Error(`tapUntappedPermanent: kein antippbares Permanent "${name}" gefunden.`);
+  }
 }
 
 /**

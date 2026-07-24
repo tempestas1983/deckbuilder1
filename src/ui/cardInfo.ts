@@ -141,6 +141,38 @@ export function formatManaPool(pool: Record<string, number>): string {
   return bits.length ? bits.join(", ") : "leer";
 }
 
+/**
+ * Welche Manafarben erzeugt dieses Permanent über seine Mana-Fähigkeiten?
+ * Reines Auslesen der Kartendaten (`abilities[].effects[].kind === "addMana"`),
+ * KEINE Regel-Logik: hier wird weder geprüft, ob die Fähigkeit gerade aktiviert
+ * werden darf (das entscheidet getLegalActions), noch wie viel Mana tatsächlich
+ * herauskommt (`amount` kann dynamisch sein, s. model/abilities.ts#Amount).
+ *
+ * Gebraucht für die eingeklappte Terrain-Stapel-Kachel (s.
+ * components/terrainPile.ts): "welche Farben stehen mir noch zur Verfügung?"
+ * ist die einzige Information, die man einem zugeklappten Terrain-Stapel
+ * ansehen können MUSS - ohne sie müsste man jedes Mal aufklappen, nur um zu
+ * sehen, ob die passende Farbe überhaupt noch ungetappt dabei ist.
+ *
+ * `color: "any"` (ein Terrain, das eine beliebige Farbe erzeugt) fällt bewusst
+ * unter "colorless"-Optik: der Pip steht dann für "eine Farbe deiner Wahl", was
+ * sich nicht als eine der fünf festen Farben zeichnen lässt.
+ */
+export function manaColorsProduced(def: CardDefinition): Array<ManaColor | "colorless"> {
+  const abilities = "abilities" in def ? def.abilities : undefined;
+  if (!abilities) return [];
+  const colors: Array<ManaColor | "colorless"> = [];
+  for (const ability of abilities) {
+    if (ability.kind !== "activated" || !ability.isManaAbility) continue;
+    for (const effect of ability.effects ?? []) {
+      if (effect.kind !== "addMana") continue;
+      const color: ManaColor | "colorless" = effect.color === "any" ? "colorless" : effect.color;
+      if (!colors.includes(color)) colors.push(color);
+    }
+  }
+  return colors;
+}
+
 export function manaCostPips(cost: ManaCost | undefined): ManaPip[] {
   if (!cost) return [];
   const pips: ManaPip[] = [];

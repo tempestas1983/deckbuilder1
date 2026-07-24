@@ -483,6 +483,41 @@ export function closeRulesGuide(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Terrain-Stapel auf dem Battlefield (Spielerbericht 2026-07-24: "Terrain
+// werden schnell zu viele und nehmen viel Platz weg ... ein 'gestapelter'
+// Terrain-Blick, der sich beim Anklicken zu den einzelnen Terrain-Karten
+// aufklappt"). REINER Anzeige-Zustand pro Spielerbereich - die Engine kennt
+// keinen "eingeklappten" Zustand, `battlefield` bleibt unverändert; nur
+// render.ts#battlefieldZone entscheidet anhand dieses Flags, ob es die
+// Terrain-Gruppe als eine Stapel-Kachel oder als Einzelkacheln zeichnet.
+//
+// Bewusst pro `PlayerId` (Set statt einzelnem Boolean): beide Spielerbereiche
+// haben ihre eigene Terrain-Reihe, und wer seine eigene Reihe aufklappt, um
+// Mana zu tappen, will dabei nicht gleichzeitig die des Gegners aufgeklappt
+// bekommen.
+//
+// Startzustand: NICHT aufgeklappt (leeres Set) - das Einklappen ist der
+// Normalfall, den der Bericht wollte. Ein Aufklappen gilt bis zum nächsten
+// bewussten Klick auf die Stapel-Kachel; render.ts klappt zusätzlich
+// SITUATIV automatisch auf, wenn ein Terrain gerade angeklickt werden MUSS
+// (Zielwahl/Tutorial), s. dortiges `terrainPileAutoExpandReason`.
+// ---------------------------------------------------------------------------
+
+let expandedTerrainPiles: Set<PlayerId> = new Set();
+
+export function isTerrainPileExpanded(player: PlayerId): boolean {
+  return expandedTerrainPiles.has(player);
+}
+
+export function toggleTerrainPile(player: PlayerId): void {
+  const next = new Set(expandedTerrainPiles);
+  if (next.has(player)) next.delete(player);
+  else next.add(player);
+  expandedTerrainPiles = next;
+  notify();
+}
+
+// ---------------------------------------------------------------------------
 // Benannte, dauerhaft gespeicherte Decks: erweitert die simple "letzte
 // Deckliste pro Spieler"-Persistenz oben (LAST_DECK_STORAGE_KEY, EIN Slot pro
 // Spieler, kein Name) um eine echte kleine Deck-Verwaltung - der Nutzer kann
@@ -846,6 +881,10 @@ export function backToMainMenu(): void {
   musicPanelOpen = false;
   saveDeckFormOpen = false;
   loadDeckPanelOpen = false;
+  // Aufgeklappte Terrain-Stapel gehören zu EINER konkreten Partie (die
+  // Instanzen darin existieren danach nicht mehr) - beim Verlassen auf den
+  // eingeklappten Normalzustand zurücksetzen, s. isTerrainPileExpanded.
+  expandedTerrainPiles = new Set();
   stopBotLoop();
   notify();
 }
