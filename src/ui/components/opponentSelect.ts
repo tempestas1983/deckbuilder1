@@ -20,11 +20,25 @@
  */
 
 import { BOT_DIFFICULTIES, BOT_DIFFICULTY_LABELS, BOT_DISPLAY_NAMES, type BotDifficulty } from "../../ai";
+import { AI_DECKS } from "../aiDecks";
 import { h, text } from "../h";
+
+/**
+ * Sentinel-Wert der "Zufällig"-Option im Deck-Dropdown - identisch zum
+ * gleichnamigen Konstrukt in components/deckBuilder.ts (kein AI_DECKS-Index
+ * ist jemals negativ, daher kollisionsfrei).
+ */
+const RANDOM_AI_DECK_VALUE = "-1";
 
 export interface OpponentSelectOptions {
   onChooseBot: (difficulty: BotDifficulty) => void;
   onChooseHotseat: () => void;
+  /**
+   * Welchen der 7 kuratierten `aiDecks.ts#AI_DECKS`-Archetypen der Bot spielen
+   * soll - `undefined` = "Zufällig" (Default), s. store.ts#getChosenAiDeckArchetype.
+   */
+  chosenAiDeckArchetype: number | undefined;
+  onChangeAiDeckArchetype: (next: number | undefined) => void;
   /** Zurück zum Hauptmenü, ohne einen Gegner zu wählen. */
   onBack: () => void;
 }
@@ -52,6 +66,53 @@ export function opponentSelectScreen(opts: OpponentSelectOptions): HTMLElement {
           ),
         ),
       ),
+      // Deck-Wahl für den KI-Gegner. Der Regler stand bisher AUSSCHLIESSLICH im
+      // player2-Deckbau-Screen (components/deckBuilder.ts#botDeckSelect, nur
+      // sichtbar bei `botControlled`) - genau dieser Screen wird beim regulären
+      // Weg über die Gegner-Auswahl aber komplett übersprungen
+      // (render.ts#renderDeckBuilder/onConfirm), und player1s eigener Deckbau
+      // zeigt ihn wegen `botControlled: false` nie. Die Einstellung existierte
+      // damit, war im normalen Spielablauf jedoch unerreichbar (Spielerbericht
+      // "es fehlt die Option, das Deck des Gegners zu wählen"). Sie gehört
+      // ohnehin hierher: es ist eine Aussage über den GEGNER, nicht übers
+      // eigene Deck.
+      //
+      // Das Geheimhaltungs-Prinzip aus aiDecks.ts bleibt gewahrt - "Zufällig"
+      // ist weiterhin Default und verrät nichts; wer gezielt einen Namen
+      // auswählt, kennt ihn ohnehin schon.
+      h("label", { class: "opponent-select-deck-label" }, [
+        text("Deck des Gegners: "),
+        h(
+          "select",
+          {
+            class: "opponent-select-deck-select",
+            title:
+              opts.chosenAiDeckArchetype !== undefined
+                ? AI_DECKS[opts.chosenAiDeckArchetype]?.description ?? ""
+                : "Zieht beim Partiestart eines der 7 kuratierten Archetyp-Decks per Zufall - der Name bleibt verborgen, bis er sich im Spiel zeigt.",
+            onchange: (ev: Event) => {
+              const value = (ev.target as HTMLSelectElement).value;
+              opts.onChangeAiDeckArchetype(value === RANDOM_AI_DECK_VALUE ? undefined : Number(value));
+            },
+          },
+          [
+            h("option", { value: RANDOM_AI_DECK_VALUE, selected: opts.chosenAiDeckArchetype === undefined }, [
+              text("Zufällig"),
+            ]),
+            ...AI_DECKS.map((deck, index) =>
+              h(
+                "option",
+                {
+                  value: String(index),
+                  selected: opts.chosenAiDeckArchetype === index,
+                  title: deck.description,
+                },
+                [text(deck.name)],
+              ),
+            ),
+          ],
+        ),
+      ]),
     ]),
     h("div", { class: "opponent-select-section" }, [
       h("div", { class: "opponent-select-section-heading" }, [text("Gegen einen zweiten Menschen spielen")]),

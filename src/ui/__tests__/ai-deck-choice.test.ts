@@ -155,4 +155,60 @@ describe("Bot-Deck-Archetyp-Auswahl (Auftrag 'welches Deck spielt die KI', 2026-
       expect(store.getDecklist("player2")).toEqual(AI_DECKS[targetIndex]!.decklist);
     },
   );
+
+  /**
+   * Spielerbericht 2026-07-24: "wir haben 7 vorgebaute Decks, aber es fehlt die
+   * Option, bei der Gegner-Auswahl zu entscheiden, welches Deck er spielt".
+   *
+   * Die Einstellung existierte bereits (s. Tests oben), war auf dem REGULÄREN
+   * Weg (Hauptmenü -> Neues Spiel -> Schwierigkeitsstufe) aber unerreichbar:
+   * der player2-Deckbau-Screen mit dem Select wird dabei übersprungen, und
+   * player1s eigener Deckbau zeigt ihn wegen `botControlled: false` nie. Man
+   * kam nur über den Hotseat-Umweg oben daran. Der Regler steht deshalb jetzt
+   * direkt auf dem Gegner-Auswahl-Screen.
+   */
+  it("Gegner-Auswahl-Screen bietet die Deck-Wahl direkt an und sie greift ohne Hotseat-Umweg", async () => {
+    const { render } = await import("../render");
+    const store = await import("../store");
+    const root = document.createElement("div");
+    document.body.append(root);
+    store.subscribe(() => render(root));
+    render(root);
+
+    click(queryOne(root, ".main-menu-new-game-btn"));
+
+    const select = queryOne<HTMLSelectElement>(root, ".opponent-select-deck-select");
+    const optionLabels = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
+    expect(optionLabels).toEqual(["Zufällig", ...AI_DECKS.map((d) => d.name)]);
+    expect(select.value).toBe("-1"); // Default: unverändertes Zufallsverhalten
+    expect(store.getChosenAiDeckArchetype("player2")).toBeUndefined();
+
+    const targetIndex = 1; // "Gezeiten der Standhaftigkeit"
+    selectValue(select, String(targetIndex));
+    expect(store.getChosenAiDeckArchetype("player2")).toBe(targetIndex);
+
+    // Stufe wählen -> player1-Deckbau -> bestätigen: der Bot muss GENAU dieses
+    // Deck bekommen, nicht ein zufälliges.
+    click(queryOne<HTMLButtonElement>(root, '.opponent-select-difficulty-btn[data-difficulty="easy"]'));
+    click(queryOne(root, ".deckbuilder-random-fill-btn"));
+    click(queryOne(root, ".deckbuilder-confirm-btn"));
+
+    expect(store.getDecklist("player2")).toEqual(AI_DECKS[targetIndex]!.decklist);
+  });
+
+  it("Zurück auf 'Zufällig' im Gegner-Auswahl-Screen setzt die Wahl wieder zurück", async () => {
+    const { render } = await import("../render");
+    const store = await import("../store");
+    const root = document.createElement("div");
+    document.body.append(root);
+    store.subscribe(() => render(root));
+    render(root);
+
+    click(queryOne(root, ".main-menu-new-game-btn"));
+    selectValue(queryOne<HTMLSelectElement>(root, ".opponent-select-deck-select"), "2");
+    expect(store.getChosenAiDeckArchetype("player2")).toBe(2);
+
+    selectValue(queryOne<HTMLSelectElement>(root, ".opponent-select-deck-select"), "-1");
+    expect(store.getChosenAiDeckArchetype("player2")).toBeUndefined();
+  });
 });

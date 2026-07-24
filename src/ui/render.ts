@@ -374,6 +374,11 @@ function renderRoot(root: HTMLElement): void {
       opponentSelectScreen({
         onChooseBot: (difficulty) => chooseOpponentBot(difficulty),
         onChooseHotseat: () => chooseOpponentHotseat(),
+        // Deck-Wahl für den KI-Gegner: dieselbe Store-Einstellung, die auch der
+        // (im regulären Ablauf übersprungene) player2-Deckbau-Screen setzt -
+        // ausgewertet beim Partiestart über `resolveAiDeck`, s. onConfirm unten.
+        chosenAiDeckArchetype: getChosenAiDeckArchetype("player2"),
+        onChangeAiDeckArchetype: (next) => setChosenAiDeckArchetype("player2", next),
         onBack: () => backToMainMenu(),
       }),
     );

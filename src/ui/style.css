@@ -2440,6 +2440,28 @@ body {
   color: var(--parchment-muted);
 }
 
+/* Deck-Wahl für den KI-Gegner (s. components/opponentSelect.ts) - bewusst
+   ruhiger gestaltet als die Schwierigkeits-Buttons darüber: das ist eine
+   optionale Feineinstellung, die Stufenwahl bleibt die Hauptaktion. */
+.opponent-select-deck-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--parchment-muted);
+}
+
+.opponent-select-deck-select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--tavern-border);
+  background: var(--tavern-panel-b);
+  color: var(--parchment);
+  font-size: 13px;
+  font-family: inherit;
+  max-width: 60vw;
+}
+
 .opponent-select-hotseat-btn {
   padding: 12px 24px;
   font-size: 15px;
