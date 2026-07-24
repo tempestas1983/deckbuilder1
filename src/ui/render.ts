@@ -784,11 +784,11 @@ function actionBanner(state: GameState, mode: UiMode): HTMLElement[] {
     return [targetingBanner(`${label} (Spielbrett antippen).`, () => resetUiMode())];
   }
   if (mode.kind === "declaringAttackers") {
+    // Der "Angreifen"-Button selbst sitzt in der rechten Board-Spalte
+    // (s. attackCallToAction) - hier bleibt nur Erklärung + "Keine Angreifer".
     return [
-      attackersPanel(
-        mode.selected.length,
-        () => dispatch({ kind: "declareAttackers", player: mode.player, attackers: mode.selected }),
-        () => dispatch({ kind: "declareAttackers", player: mode.player, attackers: [] }),
+      attackersPanel(mode.selected.length, () =>
+        dispatch({ kind: "declareAttackers", player: mode.player, attackers: [] }),
       ),
     ];
   }
@@ -895,7 +895,7 @@ function boardSection(state: GameState, pool: ReturnType<typeof getPool>, mode: 
   // in style.css für schmale Fenster - die Spalte wird dort nicht mehr
   // komplett ausgeblendet, weil sie jetzt funktional statt rein kosmetisch
   // ist, sondern unter das Spielfeld gestapelt).
-  const turnFlow = turnFlowColumn(state);
+  const turnFlow = turnFlowColumn(state, mode);
 
   return h("div", { class: "board-row" }, [board, turnFlow]);
 }
@@ -921,7 +921,7 @@ function boardSection(state: GameState, pool: ReturnType<typeof getPool>, mode: 
  *   später). Im reinen Hotseat wechselt dieser Platzhalter entsprechend
  *   zwischen "player1"/"player2" (bzw. deren Anzeigename).
  */
-function turnFlowColumn(state: GameState): HTMLElement {
+function turnFlowColumn(state: GameState, mode: UiMode): HTMLElement {
   const activePlayer = state.activePlayer;
   const avatarNode = isBotControlled(activePlayer)
     ? botAvatarImg(getBotDifficulty(activePlayer))
@@ -939,6 +939,51 @@ function turnFlowColumn(state: GameState): HTMLElement {
         ? `Priority: ${playerDisplayName(priorityPlayer)}`
         : "Priority: (Engine verarbeitet Turn-Based Action)",
     }),
+    attackCallToAction(mode),
+  ]);
+}
+
+/**
+ * Großer, roter "ANGREIFEN"-Button unter der Phasenanzeige in der rechten
+ * Board-Spalte - nur während der eigenen Angreifer-Deklaration sichtbar.
+ *
+ * Spielerbericht 2026-07-24: "kann man den Angriff etwas 'aufregender'
+ * machen? Statt diesem winzigen Button oben ein großer roter ANGRIFF-Button
+ * rechts unter der Phasenanzeige". Der Moment, in dem man seine Armee losschickt,
+ * ist der dramatischste des Zuges und verdient mehr Gewicht als eine Zeile im
+ * Instruktions-Banner.
+ *
+ * Ohne ausgewählte Einheit ist der Button GESPERRT statt versteckt: die
+ * Deklaration ist ein Pflicht-Schritt, der Spieler soll sehen, worauf er
+ * zusteuert. Den Kampf ganz auslassen geht bewusst weiterhin nur über das
+ * klar benannte "Keine Angreifer" im Banner - ein leerer Angriff soll kein
+ * versehentlicher Klick auf den auffälligsten Button des Bildschirms sein.
+ */
+function attackCallToAction(mode: UiMode): HTMLElement | undefined {
+  if (mode.kind !== "declaringAttackers") return undefined;
+  const count = mode.selected.length;
+  return h("div", { class: "attack-cta" }, [
+    h(
+      "button",
+      {
+        class: "btn attack-confirm-btn",
+        disabled: count === 0,
+        title:
+          count === 0
+            ? "Zuerst mindestens eine eigene Einheit anklicken."
+            : `${count} Einheit(en) in den Kampf schicken.`,
+        onclick: () => {
+          if (count === 0) return;
+          dispatch({ kind: "declareAttackers", player: mode.player, attackers: mode.selected });
+        },
+      },
+      [
+        h("span", { class: "attack-confirm-label" }, [text("ANGREIFEN")]),
+        h("span", { class: "attack-confirm-count" }, [
+          text(count === 0 ? "keine Einheit gewählt" : `${count} ${count === 1 ? "Einheit" : "Einheiten"}`),
+        ]),
+      ],
+    ),
   ]);
 }
 

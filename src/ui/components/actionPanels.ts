@@ -41,15 +41,28 @@ export function xInputPanel(
   ]);
 }
 
-export function attackersPanel(
-  selectedCount: number,
-  onConfirm: () => void,
-  onNone: () => void,
-): HTMLElement {
-  return h("div", { class: "action-banner" }, [
-    h("span", {}, [text(`Angreifer wählen (${selectedCount} ausgewählt) - eigene Einheiten anklicken.`)]),
-    h("button", { class: "btn btn-play", onclick: onConfirm }, [text("Angriff erklären")]),
-    h("button", { class: "btn btn-cancel", onclick: onNone }, [text("Keine Angreifer")]),
+/**
+ * Angreifer-Deklaration, Instruktions-Banner.
+ *
+ * Der eigentliche "Angreifen"-Auslöser sitzt seit dem Spielerbericht vom
+ * 2026-07-24 NICHT mehr hier, sondern als großer, roter Button in der rechten
+ * Board-Spalte unter der Phasenanzeige (s. render.ts#attackCallToAction) -
+ * "statt dieses winzigen Buttons oben". Dieses Banner trägt daher nur noch die
+ * Erklärung und den bewussten Verzicht ("Keine Angreifer").
+ *
+ * Der Hinweis nennt das Abwählen jetzt ausdrücklich: ein erneuter Klick auf
+ * eine bereits gewählte Einheit nimmt sie wieder aus dem Angriff (das ging
+ * technisch schon immer, war aber nirgends erwähnt - genau die Unsicherheit
+ * aus dem Bericht "man kann nicht abwählen, falls man sich verklickt hat").
+ */
+export function attackersPanel(selectedCount: number, onNone: () => void): HTMLElement {
+  return h("div", { class: "action-banner attackers-panel" }, [
+    h("span", {}, [
+      text(
+        `Angreifer wählen (${selectedCount} ausgewählt) - eigene Einheiten anklicken. Nochmal anklicken nimmt eine Einheit wieder heraus.`,
+      ),
+    ]),
+    h("button", { class: "btn btn-cancel attack-none-btn", onclick: onNone }, [text("Keine Angreifer")]),
   ]);
 }
 

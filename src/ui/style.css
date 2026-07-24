@@ -614,6 +614,80 @@ body {
   z-index: 1;
 }
 
+/* Großer "ANGREIFEN"-Auslöser unter der Phasenanzeige (Spielerbericht
+   2026-07-24: "statt dieses winzigen Buttons oben ein großer roter
+   ANGRIFF-Button rechts unter der Phasenanzeige"). Bewusst der auffälligste
+   Button des Bildschirms - der Moment, in dem die Armee losgeschickt wird,
+   ist der dramatischste des Zuges. Der Puls läuft nur, solange tatsächlich
+   etwas ausgewählt ist (also der Klick auch etwas bewirkt). */
+.attack-cta {
+  display: flex;
+  width: 100%;
+}
+
+.attack-confirm-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 14px 12px;
+  border-radius: 10px;
+  border: 2px solid #ff8a6b;
+  background: linear-gradient(160deg, #d33b2c, #8f1d15);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(190, 40, 25, 0.45);
+  animation: attack-cta-pulse 1.6s ease-in-out infinite;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease;
+}
+
+.attack-confirm-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.12);
+}
+
+.attack-confirm-btn:disabled {
+  cursor: not-allowed;
+  border-color: var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  box-shadow: none;
+  animation: none;
+}
+
+.attack-confirm-label {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  line-height: 1;
+}
+
+.attack-confirm-count {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+@keyframes attack-cta-pulse {
+  0%,
+  100% {
+    box-shadow: 0 6px 18px rgba(190, 40, 25, 0.4);
+  }
+  50% {
+    box-shadow: 0 6px 26px rgba(255, 110, 80, 0.75);
+  }
+}
+
+/* Reduzierte Bewegung respektieren (der Puls ist reine Dramatik, keine
+   Information - die Farbe trägt die Botschaft bereits). */
+@media (prefers-reduced-motion: reduce) {
+  .attack-confirm-btn {
+    animation: none;
+  }
+}
+
 /* Großformatiges Porträt des GERADE AKTIVEN Spielers (Szenen-Artwork, s.
    docs/scene-art-brief.md / components/sceneArt.ts#botAvatarImg +
    #humanAvatarPlaceholder) - ersetzt das frühere kleine 22px-Porträt im
