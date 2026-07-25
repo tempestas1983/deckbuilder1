@@ -120,6 +120,117 @@ body {
   padding: 8px 12px;
 }
 
+/* Kampfbericht (Nutzer-Feedback 2026-07-25: "wir brauchen nach jedem Kampf
+   eine kurze Übersicht, was passiert ist") - s.
+   components/combatSummaryPanel.ts. Bewusst ein ruhiger Bericht-Kasten, kein
+   Alarm-Banner: er erzählt Vergangenes und soll nicht mit den handlungs-
+   auffordernden Bannern (.action-banner, .attack-cta) um Aufmerksamkeit
+   konkurrieren. */
+.combat-summary-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid rgba(224, 90, 90, 0.5);
+  border-left: 4px solid var(--bad);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(42, 28, 22, 0.95) 0%, rgba(30, 22, 26, 0.95) 100%);
+}
+
+.combat-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.combat-summary-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffd9cf;
+}
+
+.combat-summary-headline {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.combat-summary-attackers {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.combat-summary-attacker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.combat-summary-attacker-name {
+  font-weight: 700;
+}
+
+.combat-summary-attacker-name::before {
+  content: "⚔ ";
+  color: var(--bad);
+}
+
+/* Geblockt = aufgehalten: optisch zurückgenommen, damit die durchgekommenen
+   Angreifer (die, die Leben gekostet haben) beim Überfliegen herausstechen. */
+.combat-summary-attacker-blocked .combat-summary-attacker-name::before {
+  content: "⛊ ";
+  color: var(--good);
+}
+
+.combat-summary-attacker-outcome {
+  color: var(--muted);
+}
+
+.combat-summary-casualties {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.combat-summary-casualties-none {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.combat-summary-label {
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+.combat-summary-casualty-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.combat-summary-casualty {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(224, 90, 90, 0.4);
+}
+
+.combat-summary-casualty::before {
+  content: "☠ ";
+  color: var(--bad);
+}
+
 /* Fokussierte Blocker-Zuordnung ------------------------------------------
    Spielerbericht 2026-07-24: "die Blocker zu bestimmen ist richtig schwer.
    Cool wäre, wenn die angreifende Schar in einem hervorgehobenen Fenster
@@ -245,9 +356,17 @@ body {
   gap: 4px;
 }
 
+/* Höhe gedeckelt (s. .combat-focus-actions): drei zugeordnete Blocker an
+   einem Angreifer sind sonst dreimal eine volle Kartenhöhe und treiben das
+   Fenster unnötig in die Länge. Abgeschnitten wird von unten (Regeltext,
+   P/T) - Name, Farbfläche und Typzeile bleiben sichtbar, und das reicht zum
+   Wiedererkennen; die vollständige Karte steht ohnehin weiter unten in der
+   eigenen Reihe. */
 .combat-assigned .card-tile {
   width: 96px;
   font-size: 9px;
+  max-height: 78px;
+  overflow: hidden;
 }
 
 .combat-remove-btn {
@@ -312,11 +431,30 @@ body {
   transform: none;
 }
 
+/* Nutzer-Feedback 2026-07-25: "wenn man mehrere Kreaturen zuordnet, wird der
+   grüne Button irgendwann schwer klickbar." Jeder zugeordnete Blocker macht
+   seine Angreifer-Spalte höher; ab ein paar Zuordnungen wuchs das Fenster
+   über die Fensterhöhe hinaus und der Bestätigen-Button rutschte aus dem
+   sichtbaren Bereich - man musste erst scrollen, um den Kampf überhaupt
+   beenden zu können.
+
+   `.combat-focus` ist der scrollende Container, deshalb genügt hier
+   position:sticky am unteren Rand: die Aktionsleiste bleibt immer sichtbar,
+   egal wie viele Blocker zugeordnet sind. Der eigene Hintergrund (statt
+   transparent) verhindert, dass darunter durchscrollende Kacheln durch den
+   Text der Leiste schimmern. */
 .combat-focus-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  margin: 0 -18px -16px;
+  padding: 12px 18px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(25, 18, 22, 0.92) 0%, rgba(25, 18, 22, 1) 45%);
 }
 
 .combat-confirm-btn {
@@ -1420,19 +1558,29 @@ body {
    sondern ein zusammengeschobener Stapel davon - das soll man ihr auf den
    ersten Blick ansehen, damit niemand sie für eine echte Karte hält und auf
    ein Tap-Verhalten wartet. Als <button> (nicht <div> wie .card-tile) ist sie
-   nebenbei per Tastatur erreichbar. */
+   nebenbei per Tastatur erreichbar.
+
+   Layout bewusst SENKRECHT (Nutzer-Feedback 2026-07-25 mit Screenshot: "ist
+   etwas überlagernd"): die erste Fassung stellte Stapel, Textblock und
+   "aufklappen"-Hinweis nebeneinander in 128px Breite - zusammen brauchten die
+   drei Spalten mehr Platz als vorhanden war, wodurch sich Text, Pips und
+   Hinweis sichtbar überlappten. Untereinander gibt es dieses Wettrennen um
+   die Breite gar nicht erst, und die Kachel wird dabei sogar noch schmaler
+   (spart also zusätzlich Platz, was ja der ganze Zweck war). */
 .terrain-pile {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 128px;
-  padding: 6px 8px;
+  justify-content: center;
+  gap: 4px;
+  width: 104px;
+  padding: 8px 6px;
   border: 2px dashed rgba(201, 162, 39, 0.45);
   border-radius: 8px;
   background: linear-gradient(160deg, rgba(74, 48, 24, 0.95) 0%, rgba(30, 20, 10, 0.95) 100%);
   color: var(--text);
   font: inherit;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
 }
@@ -1485,13 +1633,6 @@ body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
-.terrain-pile-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
 .terrain-pile-title {
   font-size: 11px;
   font-weight: 700;
@@ -1507,31 +1648,23 @@ body {
 .terrain-pile-pips {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  margin-top: 2px;
+  justify-content: center;
+  gap: 3px;
 }
 
 .terrain-pile-hint {
-  font-size: 9px;
+  font-size: 8px;
   color: rgba(201, 162, 39, 0.85);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  line-height: 1.1;
 }
 
 /* Aufgeklappt: schmale Rückweg-Kachel an genau der Stelle, an der vorher der
    Stapel stand (s. terrainPileCollapseHandle). */
 .terrain-pile-expanded {
-  width: auto;
-  min-width: 62px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  width: 62px;
   gap: 2px;
-  text-align: center;
-}
-
-.terrain-pile-expanded .terrain-pile-info {
-  align-items: center;
 }
 
 .terrain-pile-collapse-icon {

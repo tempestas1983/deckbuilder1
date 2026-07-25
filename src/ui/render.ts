@@ -25,12 +25,14 @@ import {
   copyDeckFromPlayer1,
   closeTutorialHelp,
   dismissTutorialBubble,
+  dismissCombatSummary,
   dispatch,
   getAppPhase,
   getBotDifficulty,
   getBotSpeedPreset,
   getChosenAiDeckArchetype,
   getDecklist,
+  getLastCombatSummary,
   getLastError,
   getMusicCurrentTrack,
   getMusicRepeatMode,
@@ -87,6 +89,7 @@ import { sfxToggleButton } from "./components/sfxToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
 import { blockLegalityFromActions, combatOverlay } from "./components/combatOverlay";
+import { combatSummaryPanel } from "./components/combatSummaryPanel";
 import { terrainPile, terrainPileCollapseHandle, type TerrainPileEntry } from "./components/terrainPile";
 import { deckBuilderScreen } from "./components/deckBuilder";
 import { mainMenuScreen } from "./components/mainMenu";
@@ -264,6 +267,31 @@ function decisionSpotlightPlayer(state: GameState, mode: UiMode): PlayerId | und
  * docs/engine-status.md, Abschnitt "Für frontend-engineer") und automatisch
  * in den passenden UiMode überführt.
  */
+/**
+ * Darf für diesen Spieler überhaupt ein erzwungener Eingabe-Modus geöffnet
+ * werden? Nur, wenn er NICHT bot-gesteuert ist.
+ *
+ * Nutzer-Feedback 2026-07-24/25 ("macht keinen Sinn, dass der Mensch für den
+ * Bot passen darf") - dieselbe Regel gilt für die erzwungenen Combat-/Cleanup-
+ * Schritte: die Engine vergibt dort keine Priority, sondern wartet auf eine
+ * bestimmte Aktion, und `autoEnterForcedModes` hat dafür bisher IMMER die
+ * passende Eingabe-UI aufgebaut - auch dann, wenn der Spieler, der handeln
+ * muss, ein Bot ist. Der Mensch bekam damit:
+ *
+ * - die Angreifer-Deklaration des Bots inklusive "Keine Angreifer" (ein Klick
+ *   darauf nimmt dem Bot seinen kompletten Angriff),
+ * - die Blocker-Zuordnung des Bots (er hätte dessen Verteidigung bestimmt),
+ * - den Cleanup-Abwurf des Bots - und weil der Abwurf-Modus die Handzone
+ *   bewusst von der Verdeckungs-Regel ausnimmt (s. handZone), lag dabei die
+ *   ganze Bot-Hand offen.
+ *
+ * Der Bot erledigt all das selbst (s. store.ts#actingPlayer/runBotStep); ein
+ * menschlicher Ersatz war nie nötig.
+ */
+function forcedModeBelongsToHuman(player: PlayerId): boolean {
+  return !isBotControlled(player);
+}
+
 function autoEnterForcedModes(state: GameState): void {
   if (state.winner !== undefined) return;
   const mode = getUiMode();
@@ -294,7 +322,11 @@ function autoEnterForcedModes(state: GameState): void {
       // dortiger Kommentar). Reine Wiedererkennung über legalActions (exakt
       // dieselbe Erkennung wie store.ts#autoResolvableActionFor), keine
       // eigene Legalitätslogik.
-      if (hasRealDeclareAttackersChoice(state)) {
+      // ... und NIE für einen bot-gesteuerten Spieler (s.
+      // forcedModeBelongsToHuman): sonst erklärt der Mensch den Angriff des
+      // Bots - inklusive "Keine Angreifer", was dem Bot seinen Angriff
+      // komplett nimmt.
+      if (forcedModeBelongsToHuman(state.activePlayer) && hasRealDeclareAttackersChoice(state)) {
         setUiMode({ kind: "declaringAttackers", player: state.activePlayer, selected: [] });
       }
     }
@@ -303,8 +335,9 @@ function autoEnterForcedModes(state: GameState): void {
   if (state.step === "declareBlockers" && state.priorityPlayer === undefined) {
     if (mode.kind !== "declaringBlockers") {
       // s. Kommentar bei declareAttackers oben - analog für "Keine Blocker".
-      if (hasRealDeclareBlockersChoice(state)) {
-        setUiMode({ kind: "declaringBlockers", player: otherOf(state.activePlayer), pairs: [] });
+      const defender = otherOf(state.activePlayer);
+      if (forcedModeBelongsToHuman(defender) && hasRealDeclareBlockersChoice(state)) {
+        setUiMode({ kind: "declaringBlockers", player: defender, pairs: [] });
       }
     }
     return;
@@ -312,6 +345,11 @@ function autoEnterForcedModes(state: GameState): void {
   if (
     state.step === "cleanup" &&
     state.priorityPlayer === undefined &&
+    // Auch hier nie für einen Bot (s. forcedModeBelongsToHuman): der
+    // Abwurf-Modus nimmt die Handzone bewusst von der Verdeckungs-Regel aus
+    // (s. handZone), damit man SEINE EIGENEN Karten auswählen kann - für einen
+    // bot-gesteuerten Spieler würde damit dessen komplette Hand aufgedeckt.
+    forcedModeBelongsToHuman(state.activePlayer) &&
     state.players[state.activePlayer].hand.length > 7
   ) {
     if (mode.kind !== "discarding") {
@@ -525,6 +563,17 @@ function renderGameBoard(root: HTMLElement): void {
       );
     })(),
     ...actionBanner(state, mode),
+    // Kurzer Kampfbericht (Nutzer-Feedback 2026-07-25) - nicht-modal, bleibt
+    // bis zum Wegklicken bzw. bis zum nächsten Kampf stehen, s.
+    // components/combatSummaryPanel.ts.
+    (() => {
+      const summary = getLastCombatSummary();
+      if (!summary) return undefined;
+      return combatSummaryPanel(summary, {
+        nameOf: (player) => playerDisplayName(player),
+        onDismiss: () => dismissCombatSummary(),
+      });
+    })(),
     state.winner !== undefined ? gameOverBanner(state) : undefined,
     // Auftrag "Stack soll zwischen die Battlefields statt nach unten": der
     // `stackPanel(...)`-Aufruf sitzt jetzt INNERHALB von `boardSection` (als

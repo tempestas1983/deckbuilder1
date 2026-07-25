@@ -93,23 +93,21 @@ export function terrainPile(entries: TerrainPileEntry[], opts: TerrainPileOption
         ...backs,
         h("span", { class: "terrain-pile-count" }, [text(String(total))]),
       ]),
-      h("span", { class: "terrain-pile-info" }, [
-        h("span", { class: "terrain-pile-title" }, [text(total === 1 ? "Terrain" : "Terrains")]),
-        h("span", { class: "terrain-pile-ready" }, [
-          text(untapped.length > 0 ? `${untapped.length} bereit` : "alle getappt"),
-        ]),
-        pips.length > 0
-          ? h(
-              "span",
-              { class: "terrain-pile-pips" },
-              pips.map((p) =>
-                h("span", { class: `mana-pip ${p.colorClass}`, title: `${p.count}× ${p.label}` }, [
-                  text(String(p.count)),
-                ]),
-              ),
-            )
-          : undefined,
+      h("span", { class: "terrain-pile-title" }, [text(total === 1 ? "Terrain" : "Terrains")]),
+      h("span", { class: "terrain-pile-ready" }, [
+        text(untapped.length > 0 ? `${untapped.length} bereit` : "alle getappt"),
       ]),
+      pips.length > 0
+        ? h(
+            "span",
+            { class: "terrain-pile-pips" },
+            pips.map((p) =>
+              h("span", { class: `mana-pip ${p.colorClass}`, title: `${p.count}× ${p.label}` }, [
+                text(String(p.count)),
+              ]),
+            ),
+          )
+        : undefined,
       h("span", { class: "terrain-pile-hint" }, [text("aufklappen")]),
     ],
   );
@@ -133,10 +131,8 @@ export function terrainPileCollapseHandle(total: number, onToggle: () => void): 
     },
     [
       h("span", { class: "terrain-pile-collapse-icon" }, [text("«")]),
-      h("span", { class: "terrain-pile-info" }, [
-        h("span", { class: "terrain-pile-title" }, [text("Terrains")]),
-        h("span", { class: "terrain-pile-hint" }, [text("einklappen")]),
-      ]),
+      h("span", { class: "terrain-pile-title" }, [text("Terrains")]),
+      h("span", { class: "terrain-pile-hint" }, [text("einklappen")]),
     ],
   );
 }

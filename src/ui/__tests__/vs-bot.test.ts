@@ -75,6 +75,29 @@ describe("Gegen die KI spielen (v0.1.7, Spieler 2 = Bot)", () => {
         if (passBtn) passButtonViolations.push(`${priority}: "${passBtn.textContent}"`);
       });
 
+      // Gleiche Regel für die ERZWUNGENEN Schritte (Combat-Deklaration,
+      // Cleanup-Abwurf), bei denen die Engine gar keine Priority vergibt und
+      // `render.ts#autoEnterForcedModes` die Eingabe-UI aufbaut - s.
+      // forcedModeBelongsToHuman. Ohne diese Sperre könnte der Mensch den
+      // Angriff des Bots erklären ("Keine Angreifer" nimmt ihm den Angriff
+      // ganz), dessen Blocker zuordnen, und beim Abwurf sogar dessen komplette
+      // Hand einsehen (der Abwurf-Modus hebt die Handverdeckung bewusst auf).
+      const forcedModeViolations: string[] = [];
+      let botForcedStepRenders = 0;
+      subscribe(() => {
+        const s = getState();
+        if (!s || s.priorityPlayer !== undefined) return;
+        const botIsActing =
+          (s.step === "declareAttackers" && isBotControlled(s.activePlayer)) ||
+          (s.step === "declareBlockers" && isBotControlled(s.activePlayer === "player1" ? "player2" : "player1")) ||
+          (s.step === "cleanup" && isBotControlled(s.activePlayer));
+        if (!botIsActing) return;
+        botForcedStepRenders++;
+        if (root.querySelector(".attackers-panel")) forcedModeViolations.push(`${s.step}: Angreifer-Panel`);
+        if (root.querySelector(".combat-overlay")) forcedModeViolations.push(`${s.step}: Blocker-Ansicht`);
+        if (root.querySelector(".discard-toggle")) forcedModeViolations.push(`${s.step}: Abwurf (Bot-Hand offen!)`);
+      });
+
       render(root);
       // Hauptmenü -> "Neues Spiel" -> "2 Spieler" (Hotseat): dieser Test prüft
       // bewusst den bestehenden, manuellen KI-Umschalter AUF dem
@@ -229,6 +252,8 @@ describe("Gegen die KI spielen (v0.1.7, Spieler 2 = Bot)", () => {
       // beweisen.
       expect(passButtonViolations).toEqual([]);
       expect(botPriorityRenders).toBeGreaterThan(0);
+      expect(forcedModeViolations).toEqual([]);
+      expect(botForcedStepRenders).toBeGreaterThan(0);
 
       if (getState().winner !== undefined) {
         expect(["player1", "player2", "draw"]).toContain(getState().winner);

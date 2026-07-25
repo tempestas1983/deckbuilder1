@@ -21,6 +21,7 @@ import {
 } from "./tutorialContent";
 import { TUTORIAL_DECK_PLAYER1, TUTORIAL_DECK_PLAYER2, TUTORIAL_SEED } from "./tutorialDeck";
 import { cardDef } from "./cardInfo";
+import { createCombatSummaryTracker, type CombatSummary } from "./combatSummary";
 
 const pool: CardPool = starterSet;
 const engine: RulesEngine = createRulesEngine(pool);
@@ -710,6 +711,34 @@ export function getState(): GameState {
 
 export function getLog(): string[] {
   return log;
+}
+
+// ---------------------------------------------------------------------------
+// Kampfbericht (Nutzer-Feedback 2026-07-25: "wir brauchen nach jedem Kampf
+// eine kurze Übersicht, was passiert ist").
+//
+// Die eigentliche Mitschrift liegt in combatSummary.ts (eigenständiges Modul
+// mit injizierten Nachschlage-Funktionen, damit sie gegen einen echten
+// Event-Strom testbar ist, ohne dafür einen Test-Setter in diesen
+// Produktionscode einzubauen). Hier nur die Verdrahtung an den Store-State.
+// ---------------------------------------------------------------------------
+
+export type { CombatSummary, CombatSummaryAttacker } from "./combatSummary";
+
+const combatSummaryTracker = createCombatSummaryTracker({
+  nameOf: (instanceId) => cardNameFor(instanceId),
+  controllerOf: (instanceId) => controllerOf(instanceId),
+  activePlayer: () => state.activePlayer,
+  turnNumber: () => state.turnNumber,
+});
+
+export function getLastCombatSummary(): CombatSummary | undefined {
+  return combatSummaryTracker.completed();
+}
+
+export function dismissCombatSummary(): void {
+  if (!combatSummaryTracker.clearCompleted()) return;
+  notify();
 }
 
 export function getLastError(): string | undefined {
@@ -1856,6 +1885,7 @@ function processEvents(events: GameEvent[], opts: { suppressCardDrawn: boolean }
     if (t) log.push(t);
     playSfxForEvent(e, opts);
     collectGlowInstanceIds(e, glowIds);
+    combatSummaryTracker.record(e);
   }
   if (log.length > 300) log = log.slice(-300);
   markRecentAction(glowIds);
@@ -1898,6 +1928,10 @@ export function initGame(
   log = [`Seed: ${seed}`];
   lastError = undefined;
   uiMode = { kind: "idle" };
+  // Kampfbericht der VORHERIGEN Partie darf nicht in die neue durchschlagen
+  // (gleiche Begründung wie beim Glow unten - Instanzen/Namen gehören zu
+  // einem anderen Spiel).
+  combatSummaryTracker.reset();
   // s. resetRecentActionGlow-Kommentar: InstanceIds starten pro Partie neu
   // bei "card1" - eine evtl. noch laufende Glow-Anzeige der vorherigen
   // Partie darf nicht in die neue hinein "durchscheinen".
