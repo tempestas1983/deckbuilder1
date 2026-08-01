@@ -5,7 +5,7 @@
   "start_url": "/deckbuilder/",
   "scope": "/deckbuilder/",
   "display": "standalone",
-  "orientation": "landscape",
+  "orientation": "any",
   "background_color": "#2c1c0e",
   "theme_color": "#2c1c0e",
   "icons": [
