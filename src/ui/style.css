@@ -52,6 +52,27 @@
   box-sizing: border-box;
 }
 
+/* Touch-Polish (Mobile-Auftrag): gilt gezielt für die tatsächlich
+   klickbaren Spielbausteine, NICHT global per `*` - Formularfelder
+   (Deckbau-Suche, Namensfelder, X-Kosten-Input) sollen weiterhin normal
+   markier-/eingebbar bleiben. `touch-action: manipulation` unterdrückt den
+   Doppeltipp-Zoom auf diesen Elementen, `-webkit-tap-highlight-color`
+   entfernt den grauen iOS-Tap-Flash, `user-select: none` verhindert
+   versehentliches Text-Markieren beim schnellen Antippen. */
+.hand-card,
+.card-tile,
+.deck-pool-row,
+.terrain-pile,
+.combat-defender,
+.combat-attacker-slot,
+.board-active-avatar,
+.btn,
+button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
 /* Warmer, gedämpfter Raum-Hintergrund hinter dem gesamten Board - dunkler
    Verlauf mit sanfter "Kerzenschein"-Aufhellung nahe der Mitte/oben statt
    eines flachen --bg-Tons, s. Auftrag Punkt 1 ("Vignette, Ränder
@@ -373,6 +394,16 @@ body {
   flex-shrink: 0;
   padding: 0 6px;
   line-height: 1.4;
+  /* Mindest-Tap-Target ~44x44px (Touch-Auftrag), ohne die visuelle Größe des
+     "×" zu verändern: unsichtbares Padding + gleich große negative Margin
+     vergrößert nur die Trefferfläche, nicht die Optik. */
+  position: relative;
+}
+
+.combat-remove-btn::after {
+  content: "";
+  position: absolute;
+  inset: -12px;
 }
 
 .combat-defender-head {
@@ -482,7 +513,11 @@ body {
   background: var(--panel-2);
   color: var(--text);
   border-radius: 4px;
-  padding: 5px 10px;
+  /* Touch-Auftrag: näher an der 44px-Mindest-Tap-Target-Empfehlung als die
+     ursprünglichen 5px 10px. .btn-small (s.u.) setzt für dichte UI-Stellen
+     (Deckbau-Zähler etc.) bewusst ein eigenes, kleineres Padding und bleibt
+     davon unberührt. */
+  padding: 10px 14px;
   cursor: pointer;
   font-size: 13px;
 }
@@ -1343,6 +1378,102 @@ body {
     flex: 1 1 auto;
     min-width: 0;
   }
+
+  /* Mobile-Auftrag: Tablet-Hochformat hat spürbar weniger Breite als
+     Desktop - Rand/Abstände moderat verkleinern, damit mehr von den
+     Hand-/Battlefield-Kacheln passt, ohne das Layout selbst umzubauen. */
+  #app {
+    padding: 8px;
+  }
+
+  .board {
+    gap: 4px;
+  }
+
+  .board-row {
+    gap: 10px;
+  }
+}
+
+/* Mobile-Auftrag: drei Breakpoint-Stufen statt einer.
+   - `> 900px`  Desktop/Tablet-Querformat: unverändert, s.o.
+   - `≤ 900px`  Tablet-Hochformat: Block oben.
+   - `≤ 480px`  Smartphone-Hochformat: dieser Block. Grenze deckt die
+     gängigen Smartphone-Breiten ab (iPhone SE 375, iPhone 12-14 390,
+     Pixel/Galaxy-Klasse 360-430).
+   - Smartphone-Querformat (Breite oft > 480px, aber sehr geringe Höhe):
+     eigener `orientation: landscape`-Block direkt darunter, da dort die
+     Höhe statt der Breite das knappe Gut ist. */
+@media (max-width: 480px) {
+  #app {
+    padding: 6px;
+  }
+
+  .board {
+    padding: 10px 8px 12px;
+  }
+
+  .board-active-avatar {
+    width: 64px;
+    flex: 0 0 64px;
+  }
+
+  .terrain-pile {
+    width: 88px;
+  }
+
+  /* Hand-Zone: garantiert genau eine Zeile per horizontalem Scrollen statt
+     `flex-wrap` (das bei 5-7 Handkarten auf Schmalgeräten die Zone über
+     mehrere Zeilen wachsen lässt und das Spielfeld verdrängt). */
+  .hand-zone {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    /* Scroll-Affordance: rechter Rand blendet sanft aus, statt die letzte
+       Karte hart abzuschneiden - signalisiert "hier geht's weiter", ohne
+       zusätzliches Markup. */
+    mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+  }
+
+  .hand-zone .hand-card {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+}
+
+/* Smartphone-Querformat: die Breite reicht hier oft für ein
+   Wrap-taugliches Layout, aber die Höhe (~360-420px) nicht - dieselbe
+   Hand-Zone-Scroll-Lösung wie im Hochformat-Block, unabhängig von der
+   Breite. */
+@media (max-width: 700px) and (orientation: landscape) {
+  .zone-label {
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .hand-zone,
+  .battlefield-zone,
+  .graveyard-zone {
+    padding: 4px;
+  }
+
+  .hand-zone {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+  }
+
+  .hand-zone .hand-card {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
 }
 
 .btn-concede {
@@ -1703,9 +1834,17 @@ body {
 .hand-card.mana-light, .card-tile.mana-light, .deck-pool-row.mana-light { border-color: var(--mana-light); }
 .hand-card.mana-void, .card-tile.mana-void, .deck-pool-row.mana-void { border-color: var(--mana-void); }
 
-.hand-card { width: 158px; font-size: 11px; }
-.card-tile { width: 118px; font-size: 10px; }
-.deck-pool-row { width: 132px; font-size: 10px; }
+/* Mobile-Auftrag: `clamp()` statt fester px-Breiten, damit die Kacheln auf
+   schmaleren Screens mitschrumpfen. Der `max`-Wert entspricht exakt dem
+   bisherigen Ist-Zustand (>900px unverändert), die `vw`-Basis ist eine
+   pragmatische Annäherung an die verfügbare Breite (`.board` nimmt auf
+   Tablet/Phone praktisch die volle Viewportbreite ein, s. 900px-Block oben).
+   Font-Size bleibt bewusst fest - Regeltext ist für die Zielgruppe (Kinder)
+   bei 10-11px schon knapp, zusätzliches Schrumpfen würde ihn unleserlich
+   machen; die Breite trägt die Hauptlast der Verkleinerung. */
+.hand-card { width: clamp(128px, 34vw, 158px); font-size: 11px; }
+.card-tile { width: clamp(96px, 26vw, 118px); font-size: 10px; }
+.deck-pool-row { width: clamp(104px, 28vw, 132px); font-size: 10px; }
 
 .card-frame-header {
   display: flex;

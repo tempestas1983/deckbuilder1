@@ -357,3 +357,16 @@ Regeltexts, sondern auf einem stimmigen visuellen Motiv.
 | core-wraithcall-pact.png | Schattenruf-Pakt | void | spell | common | Ein flüsternder Pakt mit schattenhaften Geistern zehrt Lebenskraft vom Gegner und offenbart neues Wissen. |
 | core-wraithwing-stalker.png | Schwingenschatten | void | unit (Geist) | common | Ein schattenhafter Geist mit durchscheinenden, dunklen Flügeln gleitet lautlos durch die Nacht. |
 | core-zealous-vanguard.png | Eifervorhut | light | unit (Kleriker) | common | Eine eifrige Vorkämpferin mit goldenem Schild stürmt ungeduldig als Erste in die Schlacht. |
+
+## Token-Kreaturen (kein Teil der 300 Karten)
+
+Diese 1/1-Kreaturen stecken in keinem Deck, sondern werden von anderen Karten
+per `createToken`-Effekt auf das Battlefield gebracht (s. `src/cards/starter-set.ts`,
+`isToken: true`). Sie brauchen ebenfalls je ein Artwork; gleicher Ablageort und
+gleiche Stilvorgaben wie oben.
+
+| Dateiname | Kartenname | Farbe(n) | Typ (Untertyp) | Seltenheit | Bildbeschreibung |
+|---|---|---|---|---|---|
+| core-sprout-token.png | Sprössling | wild | unit (Pflanzenwesen) | common | Ein kleines, niedliches Pflanzenwesen aus frischem Grün: ein junger Trieb mit zwei Blattarmen und leuchtenden Knospenaugen, das aus satt-braunem Waldboden zwischen Moos und Farn sprießt, warmes gedämpftes Waldlicht. |
+| core-spirit-token.png | Lichtgeist | light | unit (Geist) | common | Ein zierlicher, durchscheinender Lichtgeist mit sanft leuchtenden Flügeln aus goldenem Schein, der frei schwebend im warmen Gold-Weiß der Morgensonne flattert; zarte Funken und weiches Strahlen umgeben ihn. |
+| core-skeleton-token.png | Gebeinknecht | void | unit (Untoter) | common | Ein schlichter, klappriger Skelettkrieger aus fahlen Knochen mit einer rostigen, scharrenden Klinge, der sich aus violett-schwarzem Grabnebel erhebt; kaltes, fahles Zwielicht und aufgerissene Erde. |

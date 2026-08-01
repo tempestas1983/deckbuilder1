@@ -102,9 +102,11 @@ export function terrainPile(entries: TerrainPileEntry[], opts: TerrainPileOption
             "span",
             { class: "terrain-pile-pips" },
             pips.map((p) =>
-              h("span", { class: `mana-pip ${p.colorClass}`, title: `${p.count}× ${p.label}` }, [
-                text(String(p.count)),
-              ]),
+              h(
+                "span",
+                { class: `mana-pip ${p.colorClass}`, title: `${p.count}× ${p.label}`, "aria-label": `${p.count}× ${p.label}` },
+                [text(String(p.count))],
+              ),
             ),
           )
         : undefined,
