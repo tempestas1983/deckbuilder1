@@ -7,6 +7,128 @@ in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 `docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
 Dokument ist die Kurzfassung "wo stehen wir gerade".
 
+## Meilenstein: Fünf unabhängige Frontend-Features (Frontend v0.1.35, NOCH NICHT committet)
+
+Fünf voneinander unabhängige Frontend-Änderungen derselben Session
+(2026-08-02), keine Engine-/Model-/Kartenpool-/KI-Änderung. Alle fünf gegen
+den tatsächlichen Code verifiziert (`src/ui/components/handCard.ts`,
+`src/ui/style.css`, `src/ui/render.ts`, `vite.config.ts`,
+`src/ui/components/cardArt.ts`, `package.json`, `src/ui/main.ts`,
+`public/manifest.json`, `src/ui/store.ts`, `src/ui/types.ts`,
+`src/ui/components/statsScreen.ts`, `src/ui/components/mainMenu.ts`,
+`src/ui/components/juiceToggle.ts`, sowie die beiden neuen Tests
+`game-history.test.ts`/`juice-toggle.test.ts`), nicht nur den
+Fertigstellungsbericht übernommen. **Zum Zeitpunkt dieses Sweeps im
+Arbeitsverzeichnis von `/home/steffen/deckbuilder1` noch uncommitted.**
+Details: `docs/frontend-status.md` Abschnitt „Fünf unabhängige Features ...
+(v0.1.35)".
+
+1. **Kompaktere KI-Hand.** Die verdeckte Gegnerhand zeigte vorher pro
+   Handkarte eine eigene Kartenrückseiten-Kachel nebeneinander (viel
+   Platzverbrauch, keine Information). Jetzt EINE Stapel-Kachel
+   (`src/ui/components/handCard.ts#hiddenHandStack(hand)`, ersetzt die alte
+   `handCardHidden(id)`-pro-Karte-Funktion), mit Zahl-Badge für die
+   tatsächliche Handgröße und einer CSS-Stapel-Optik
+   (`.hand-card-hidden-stack-multi::before`/`::after`, zwei versetzte
+   Rückseiten-Flächen bei >1 Karte) in `src/ui/style.css`. Verdrahtung in
+   `src/ui/render.ts#hiddenHandZone`. Nur die GEGNERISCHE verdeckte Hand
+   betroffen, die eigene offene Hand des Menschen unverändert.
+2. **Karten-Artwork-Kompression.** Die 303 Karten-Artworks
+   (`docs/cards/artworks/`, gitignored/nutzer-gepflegt) waren 1024×1024-PNG,
+   laut Auftrag ~500 MB insgesamt, obwohl nie größer als 158px CSS-Breite
+   gerendert. `vite.config.ts` (`cardArtworkPlugin`, jetzt eigenständig
+   statt über das generische `staticArtPlugin`) transformiert jetzt sowohl
+   im Dev-Server (on-the-fly, gecacht unter
+   `node_modules/.cache/card-artwork-webp/`, keyed nach Datei+mtime+
+   Zielgröße) als auch beim Produktions-Build (`closeBundle`) auf 480px
+   WebP, Qualität 80, via neue Dev-Dependency `sharp@^0.35.3`.
+   Originaldateien bleiben unverändert. `src/ui/components/cardArt.ts`
+   (`artworkFileName`) liefert jetzt `.webp` statt `.png`. Ergebnis laut
+   Auftrag: `dist-ui/cards/artworks/` schrumpft von 500 MB auf **7,9 MB**
+   (~63×).
+3. **PWA-/Offline-Fähigkeit.** `public/manifest.json` + Icons existierten
+   schon (installierbar), es fehlte der Service Worker. Neu:
+   `vite.config.ts` (`serviceWorkerPlugin`/`buildServiceWorkerSource`)
+   generiert `dist-ui/sw.js` NUR beim Produktions-Build (keine
+   Dev-Middleware dafür, um Vites HMR nicht zu stören). Strategie:
+   Runtime-Caching statt fester Precache-Liste (Vite-Build-Hashes ändern
+   sich pro Build, 303+ Artwork-Dateien wären als feste Liste unwartbar) —
+   Navigation-Requests network-first mit Cache-Fallback, alles andere im
+   `/deckbuilder/`-Scope cache-first mit Fill-on-Fetch, `Range`-Requests
+   (Audio-Seeking) bewusst ausgenommen. Cache-Name enthält einen
+   Build-Zeitstempel, alte Caches werden beim `activate` aufgeräumt.
+   Registrierung in `src/ui/main.ts` nur wenn
+   `import.meta.env.PROD && "serviceWorker" in navigator`.
+4. **Statistik-/Spielverlauf-Screen.** Neuer dauerhafter Spielverlauf in
+   localStorage (Key `deckbuilder1.gameHistory`, gedeckelt auf die letzten
+   100 Einträge, Datenstruktur `GameHistoryEntry = { id, playedAt (ISO),
+   result: "win"|"loss"|"draw", opponent: {kind:"bot",difficulty} |
+   {kind:"human"} }`), aus Sicht player1. Aufzeichnung in `src/ui/store.ts`
+   über eine neue, von der Sound-Logik getrennte Funktion
+   `recordGameHistoryForEvent`, angeknüpft an dasselbe `gameEnded`-Event
+   wie der bestehende Sieg-/Niederlage-Sound; Tutorial-Partien bewusst
+   ausgeschlossen. Neuer `AppPhase`-Kind `"stats"` (`src/ui/types.ts`),
+   neue Komponente `src/ui/components/statsScreen.ts` (chronologischer
+   Verlauf + Aggregation Siege/Niederlagen/Unentschieden gesamt und pro
+   Gegnertyp/Schwierigkeitsstufe), neuer Button „Statistik" im Hauptmenü
+   (`src/ui/components/mainMenu.ts`). Neuer Test
+   `src/ui/__tests__/game-history.test.ts` (2 Tests: Hotseat-Partie und
+   Bot-Partie, beide bestätigen einen echten `localStorage`-Eintrag +
+   Anzeige im Screen).
+5. **Juice-Effekte mit Toggle.** Neuer Store-Zustand `effectsEnabled`
+   (`isJuiceEnabled`/`toggleJuiceEnabled`, exakt gleiches Persistenzmuster
+   wie das bestehende `sfxEnabled`, `localStorage`-Key
+   `deckbuilder1.effectsEnabled`, Default `true`), neue Toggle-Komponente
+   `src/ui/components/juiceToggle.ts` in derselben Statusleiste wie
+   Musik-/SFX-/Bot-Speed-Toggle (`render.ts`). Neue, von der Sound-Logik
+   getrennte Trigger-Funktion `applyJuiceForEvent` (`store.ts`) mit drei
+   neuen CSS-Effekten (`style.css`): `hit` (Zucken+Rot-Flash bei Schaden,
+   ausgelöst durch `damageDealt`/negatives `lifeChanged`), `impact`
+   (warmer Gold-Puls beim tatsächlichen Auflösen eines Zaubers/einer
+   Fähigkeit, `zoneChanged` von „stack" nach „battlefield", bewusst NICHT
+   bei Fizzle/Countern), `death` (kurzes Aufleuchten/Skalieren beim
+   Erscheinen auf dem Friedhof, `unitDied`). Greift nur wenn
+   `isJuiceEnabled()` UND NICHT `prefers-reduced-motion`. Bestehende
+   informationstragende Animationen (`action-glow-fade`, `life-pulse-*`,
+   Entscheidungs-/Angriffs-Pulse) bewusst NICHT an den Toggle gekoppelt.
+   Neuer Test `src/ui/__tests__/juice-toggle.test.ts` (4 Tests).
+- **Verifikation der Testzahlen (laut Auftrag, vom documenter per
+  `Glob`/`Grep` gegen den tatsächlichen Dateibaum gegengeprüft, kein
+  eigener Shell-Zugriff für einen echten Testlauf in dieser
+  Sweep-Session):** `npx tsc --noEmit` sauber, `npx vitest run` **48
+  Testdateien, 221 Tests grün, 1 bewusst übersprungen** (`describe.skip`
+  auf `color-balance.analysis.test.ts`, unverändert), `npx vite build`
+  erfolgreich (`dist-ui/` inkl. `sw.js`, `manifest.json`,
+  `cards/artworks/` 7,9 MB). Per `Glob` bestätigt: exakt 48 Testdateien
+  (19 Engine + 5 KI, davon die bereits vorher dokumentierte, ebenfalls
+  noch uncommittete `hardBot-lethal.test.ts` aus dem KI-v2.2-Meilenstein
+  unten, + 24 UI, davon die 2 neuen `game-history.test.ts`/
+  `juice-toggle.test.ts`, je per Grep auf 2 bzw. 4 `it(`-Fälle
+  gegengezählt). Rechnerische Gegenprobe: 213 (v0.1.34-Stand) + 2
+  (`hardBot-lethal.test.ts`) + 2 (`game-history.test.ts`) + 4
+  (`juice-toggle.test.ts`) = 221 — stimmt exakt mit der gemeldeten Zahl
+  überein.
+- **documenter (dieser Sweep, 2026-08-02):** alle fünf Teile per direkter
+  Code-Lektüre verifiziert statt den Fertigstellungsbericht blind zu
+  übernehmen — jede genannte Funktion/Datei/Klasse existiert exakt wie
+  beschrieben, keine Abweichung gefunden. `docs/frontend-status.md` (neue
+  Kopfzeile inkl. Uncommitted-Hinweis, neue „v0.1.35 auf einen
+  Blick"-Kurzfassung, vollständiger neuer Detail-Abschnitt mit fünf
+  Teilen + Verifikation, Struktur-Tabelle, „Was funktioniert" Punkte 6-9,
+  „Nächste Schritte" Punkte 21-24), `docs/README.md` (Kopfzeile,
+  Frontend-/Projekt-Setup-Zeilen der Statustabelle, neuer „Seit dem
+  letzten Sweep"-Absatz, „Weitere offene Punkte" Punkt 13 für den
+  frontend-engineer), `docs/status.md` (dieser Eintrag) aktualisiert.
+  `docs/rules-engine.md`, `docs/engine-status.md`, `docs/ai-status.md`,
+  `docs/cards/starter-set.md` waren NICHT Gegenstand dieses Sweeps (keine
+  Engine-/Model-/Kartenpool-/KI-Änderung in dieser Session). Kein
+  Code-/Test-Change durch den documenter selbst — reine
+  Dokumentationsarbeit, kein eigener `npm test`/`npm run build`/
+  `npx vitest run`/`npx vite build`-Lauf in dieser Sweep-Session (kein
+  Shell-Werkzeug verfügbar) — alle Test-/Build-Zahlen stammen aus dem im
+  Auftrag beschriebenen echten Lauf, per `Glob`/`Grep`-Gegenprobe wie oben
+  beschrieben verifiziert, keine Abweichung gefunden.
+
 ## Meilenstein: hard-Bot Lethal-Check (KI v2.2, NOCH NICHT committet)
 
 Kleine, fokussierte KI-only-Session (2026-08-02, im Anschluss an den

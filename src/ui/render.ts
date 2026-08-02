@@ -37,6 +37,8 @@ import {
   getMusicCurrentTrack,
   getMusicRepeatMode,
   getMusicTracks,
+  getJuiceCardEffect,
+  getJuicePlayerEffect,
   getOpenKeywordGlossary,
   getPool,
   getRecentActionInstanceIds,
@@ -49,6 +51,7 @@ import {
   isBotControlled,
   isBotSpeedPanelOpen,
   isKeywordGlossaryPanelOpen,
+  isJuiceEnabled,
   isMusicEnabled,
   isMusicPanelOpen,
   isSfxEnabled,
@@ -57,7 +60,9 @@ import {
   isTutorialBubbleVisible,
   isTutorialHelpOpen,
   legalActions,
+  listGameHistory,
   openDeckBuilderStandalone,
+  openStats,
   passUntilSomethingHappens,
   resetUiMode,
   selectMusicTrack,
@@ -72,6 +77,7 @@ import {
   startNewGameFlow,
   startTutorial,
   toggleBotSpeedPanel,
+  toggleJuiceEnabled,
   toggleKeywordGlossaryPanel,
   toggleMusicEnabled,
   toggleMusicPanel,
@@ -87,6 +93,7 @@ import { decisionSpotlightBanner } from "./components/decisionSpotlight";
 import { musicPanel, musicPanelButton } from "./components/musicPanel";
 import { botSpeedPanel, botSpeedPanelButton } from "./components/botSpeedPanel";
 import { sfxToggleButton } from "./components/sfxToggle";
+import { juiceToggleButton } from "./components/juiceToggle";
 import { h, text } from "./h";
 import { cardTile } from "./components/cardTile";
 import { blockLegalityFromActions, combatOverlay } from "./components/combatOverlay";
@@ -95,9 +102,10 @@ import { terrainPile, terrainPileCollapseHandle, type TerrainPileEntry } from ".
 import { deckBuilderScreen } from "./components/deckBuilder";
 import { mainMenuScreen } from "./components/mainMenu";
 import { opponentSelectScreen } from "./components/opponentSelect";
+import { statsScreen } from "./components/statsScreen";
 import { buildDemoDeck } from "./deck";
 import { resolveAiDeck } from "./aiDecks";
-import { handCard, handCardDiscardToggle, handCardHidden } from "./components/handCard";
+import { handCard, handCardDiscardToggle, hiddenHandStack } from "./components/handCard";
 import { playerPanel } from "./components/playerPanel";
 import { botAvatarImg, humanAvatarPlaceholder } from "./components/sceneArt";
 import { turnFlowPanel } from "./components/turnFlowPanel";
@@ -407,8 +415,13 @@ function renderRoot(root: HTMLElement): void {
         onNewGame: () => startNewGameFlow(),
         onDeckBuilder: () => openDeckBuilderStandalone(),
         onTutorial: () => startTutorial(),
+        onStats: () => openStats(),
       }),
     );
+    return;
+  }
+  if (phase.kind === "stats") {
+    root.append(statsScreen({ history: listGameHistory(), onBackToMainMenu: () => backToMainMenu() }));
     return;
   }
   if (phase.kind === "opponentSelect") {
@@ -719,6 +732,10 @@ function statusBar(state: GameState, mode: UiMode): HTMLElement {
     // Soundeffekte (s. sfxPlayer.ts): eigenständiger Mute-Zustand neben dem
     // Musik-Toggle, s. store.ts#isSfxEnabled-Dateikommentar.
     sfxToggleButton(isSfxEnabled(), () => toggleSfxEnabled()),
+    // "Mehr Juice" (s. store.ts#applyJuiceForEvent-Dateikommentar):
+    // eigenständiger Zustand für die zusätzlichen Kampf-/Zauber-Animationen,
+    // neben Musik-/SFX-Toggle in derselben immer sichtbaren Leiste.
+    juiceToggleButton(isJuiceEnabled(), () => toggleJuiceEnabled()),
     // Bot-Zuggeschwindigkeit (s. store.ts#setBotSpeedPreset-Dateikommentar):
     // MUSS während einer laufenden Partie erreichbar sein, nicht nur im
     // Deckbau-Screen - analog zum Musik-Button jederzeit sichtbar.
@@ -1141,6 +1158,11 @@ function playerArea(
   // computeLifePulse oben - MUSS pro Render genau einmal pro Spieler
   // aufgerufen werden (aktualisiert den Tracking-Zustand als Nebeneffekt).
   const lifePulse = computeLifePulse(playerId, state.players[playerId].life);
+  // "Mehr Juice" (s. store.ts#applyJuiceForEvent-Dateikommentar): kurzes
+  // Treffer-Zucken auf dem Spielerbereich bei Gesichtsschaden/Lebensverlust -
+  // ergänzt das bestehende `lifePulse`-"Ticken" der Zahl selbst, betrifft
+  // aber den ganzen Panel-Rahmen (spürbarer als nur die Zahl).
+  const juiceHitShake = getJuicePlayerEffect(playerId) === "hit";
   // Auftrag Teil 3a: der Hand+Battlefield-Bereich des Spielers, der GERADE
   // tatsächlich eine echte Entscheidung treffen muss/kann, sticht optisch
   // hervor (s. decidingPlayer oben) - bewusst NUR bei einer echten
@@ -1159,7 +1181,7 @@ function playerArea(
   //   ganz unten in player1s Box, direkt vor der Nahtstelle zu player2).
   // - player2 (unten): Battlefield -> Panel -> Hand (Battlefield sitzt damit
   //   ganz oben in player2s Box, direkt hinter der Nahtstelle). Die Hand
-  //   von player2 (zeigt wegen handCard.ts#handCardHidden ohnehin nur
+  //   von player2 (zeigt wegen handCard.ts#hiddenHandStack ohnehin nur
   //   verdeckte Kartenrücken, s. Auftrag) wandert dadurch ganz ans untere
   //   Ende der Seite - die am wenigsten prominente Position, wie gefordert.
   // Der Graveyard beider Spieler bleibt bewusst an den jeweiligen äußeren
@@ -1167,6 +1189,7 @@ function playerArea(
   // der Hand), damit er nie zwischen den beiden Battlefields landen kann.
   const panelNode = playerPanel(state, playerId, {
       lifePulse,
+      hitShake: juiceHitShake,
       botControlled: isBotControlled(playerId),
       // v0.1.9: Anzeige der aktiven Bot-Schwierigkeitsstufe im Spielbrett-
       // Header (docs/ai-status.md Abschnitt 9.8, Punkt 3, optional) - nur
@@ -1317,15 +1340,19 @@ function handZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: 
 
 /**
  * Verdeckte Darstellung einer fremden Hand (s. handZone oben, Auftrag
- * "Gegner-Hand ist komplett sichtbar"): nur Kartenrückseiten + Gesamtzahl,
- * keine Namen/Kosten/Regeltexte, nichts davon anklickbar.
+ * "Gegner-Hand ist komplett sichtbar"): keine Namen/Kosten/Regeltexte, nichts
+ * davon anklickbar.
+ *
+ * Nutzer-Feedback 2026-08-02: früher EINE Kartenrückseiten-Kachel PRO
+ * Handkarte (nimmt genauso viel Platz ein wie player1s echte Hand, obwohl sie
+ * spielerisch keinerlei Information trägt - der Mensch sieht ohnehin nur
+ * Rückseiten, egal wie viele es sind). Jetzt genau EIN kompakter Stapel (s.
+ * handCard.ts#hiddenHandStack) mit Zahl-Badge statt N nebeneinanderliegender
+ * Kacheln - spart Platz, bleibt aber über die Zahl UND eine leichte
+ * Stapel-Optik (bei >1 Karte) ablesbar.
  */
 function hiddenHandZone(hand: readonly InstanceId[]): HTMLElement {
-  const tiles = hand.map((id) => handCardHidden(id));
-  return h("div", { class: "hand-zone hand-zone-hidden" }, [
-    ...tiles,
-    h("div", { class: "hand-zone-hidden-count" }, [text(`${hand.length} ${hand.length === 1 ? "Karte" : "Karten"}`)]),
-  ]);
+  return h("div", { class: "hand-zone hand-zone-hidden" }, [hiddenHandStack(hand)]);
 }
 
 /**
@@ -1644,10 +1671,41 @@ function battlefieldZone(
     }
   }
 
+  // "Mehr Juice" (s. store.ts#applyJuiceForEvent-Dateikommentar): Treffer-
+  // Zucken ("hit", z.B. Terrain könnte theoretisch Schaden-Ziel sein -
+  // deshalb wie beim Action-Glow oben mit Stapel-Kachel-Fallback) bzw.
+  // Impact-Puls ("impact", nur echte Kacheln - eine eingeklappte Terrain-
+  // Kachel kann laut Auftrag ohnehin nie vom Stack auflösen) auf der
+  // jeweils betroffenen Kachel. Gleiches NACHTRÄGLICH-per-classList-Muster
+  // wie beim Action-Glow oben, aus demselben Grund (~8 Rückgabestellen in
+  // buildTile).
+  for (const [id, tile] of tileById) {
+    const juiceKind = getJuiceCardEffect(id);
+    if (juiceKind === "hit") tile.classList.add("juice-hit-shake");
+    else if (juiceKind === "impact") tile.classList.add("juice-impact-pulse");
+  }
+  if (pileNode) {
+    for (const id of pileIds) {
+      if (tileById.has(id)) continue; // hat schon eine eigene, nicht eingeklappte Kachel oben bekommen
+      if (getJuiceCardEffect(id) === "hit") {
+        pileNode.classList.add("juice-hit-shake");
+        break;
+      }
+    }
+  }
+
   return h("div", { class: "battlefield-zone" }, slots);
 }
 
 function graveyardZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: PlayerId): HTMLElement {
-  const cards = state.players[playerId].graveyard.map((id) => cardTile(state, pool, id));
+  const cards = state.players[playerId].graveyard.map((id) => {
+    const tile = cardTile(state, pool, id);
+    // "Mehr Juice" (s. store.ts#applyJuiceForEvent-Dateikommentar):
+    // frisch im Friedhof angekommene Karte kurz einblenden statt einfach
+    // kommentarlos zu erscheinen (s. dortiger Kommentar, warum die Animation
+    // hier statt an der ehemaligen Battlefield-Position spielt).
+    if (getJuiceCardEffect(id) === "death") tile.classList.add("juice-death-fade");
+    return tile;
+  });
   return h("div", { class: "graveyard-zone" }, cards.length ? cards : [h("div", { class: "empty-hint" }, [text("(leer)")])]);
 }

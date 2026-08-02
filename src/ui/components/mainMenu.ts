@@ -50,6 +50,8 @@ export interface MainMenuOptions {
   onDeckBuilder: () => void;
   /** "Tutorial" - startet direkt die geführte Beispielpartie (s. store.ts#startTutorial, unverändert gegenüber dem bisherigen Einstieg über den player1-Deckbau-Screen). */
   onTutorial: () => void;
+  /** "Statistik" - zeigt den Spielverlauf-Screen (s. store.ts#openStats/types.ts#AppPhase "stats"). */
+  onStats: () => void;
 }
 
 export function mainMenuScreen(opts: MainMenuOptions): HTMLElement {
@@ -97,6 +99,14 @@ export function mainMenuScreen(opts: MainMenuOptions): HTMLElement {
         [
           h("span", { class: "main-menu-btn-label" }, [text("Anleitung")]),
           h("span", { class: "main-menu-btn-hint" }, [text("Kartentypen, Schlüsselwörter und Tipps zum Nachlesen - kein Zeitdruck, keine Partie")]),
+        ],
+      ),
+      h(
+        "button",
+        { class: "btn main-menu-btn main-menu-stats-btn", onclick: opts.onStats },
+        [
+          h("span", { class: "main-menu-btn-label" }, [text("Statistik")]),
+          h("span", { class: "main-menu-btn-hint" }, [text("Spielverlauf und Sieg-/Niederlage-Bilanz früherer Partien")]),
         ],
       ),
     ]),

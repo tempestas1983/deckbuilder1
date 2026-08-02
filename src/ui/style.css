@@ -2097,11 +2097,15 @@ body {
 }
 
 /* Verdeckte fremde Hand (Auftrag "Gegner-Hand ist komplett sichtbar", s.
-   render.ts#hiddenHandZone/components/handCard.ts#handCardHidden): reine
+   render.ts#hiddenHandZone/components/handCard.ts#hiddenHandStack): reine
    Kartenrückseiten-Optik statt des vollen Kartenrahmens - bewusst ohne
    Kopfzeile/Textbereich, damit auf keinen Fall Name/Kosten/Regeltext
-   durchscheinen. */
-.hand-card-hidden {
+   durchscheinen.
+   Nutzer-Feedback 2026-08-02 ("verdeckte Hand nimmt zu viel Platz ein"): NUR
+   noch EINE `.hand-card-hidden-stack`-Kachel für die ganze Hand statt einer
+   Kachel pro Handkarte, s. hiddenHandStack für die Begründung. */
+.hand-card-hidden-stack {
+  position: relative;
   cursor: default;
   align-items: center;
   justify-content: center;
@@ -2109,6 +2113,8 @@ body {
 }
 
 .hand-card-hidden-back {
+  position: relative;
+  z-index: 2;
   width: 100%;
   height: 100%;
   min-height: 140px;
@@ -2119,7 +2125,57 @@ body {
   border: 1px solid var(--border);
 }
 
-.hand-zone-hidden-count {
+/* Stapel-Optik (Auftrag "ggf etwas sichtbar gestapelt wenn es mehr als eine
+   karte sind"): zwei zusätzliche, leicht nach unten-rechts versetzte
+   Rückseiten-Flächen "schauen" hinter der obersten Karte hervor - reine
+   CSS-Pseudo-Elemente statt zusätzlicher Kacheln pro Handkarte, damit die
+   Anzahl der DOM-Knoten unabhängig von der tatsächlichen Handgröße bleibt.
+   Nur bei mehr als 1 Karte angehängt (s. hiddenHandStack). */
+.hand-card-hidden-stack-multi::before,
+.hand-card-hidden-stack-multi::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  min-height: 140px;
+  border-radius: 4px;
+  background: linear-gradient(155deg, var(--mana-colorless) 0%, var(--mana-colorless-dark) 100%);
+  border: 1px solid var(--border);
+}
+
+.hand-card-hidden-stack-multi::before {
+  z-index: 0;
+  transform: translate(6px, 6px);
+}
+
+.hand-card-hidden-stack-multi::after {
+  z-index: 1;
+  transform: translate(3px, 3px);
+}
+
+/* Zahl-Badge (Auftrag "Handkartenanzahl soll weiterhin sichtbar/ablesbar
+   bleiben"): ersetzt den früheren separaten Zähler-Text neben dem
+   Kartenstapel - sitzt direkt auf der obersten Kartenrückseite. */
+.hand-card-hidden-stack-count {
+  position: absolute;
+  z-index: 3;
+  bottom: 6px;
+  right: 6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Fallback ohne Karten (nichts zu stapeln) - reiner Zähler-Hinweis wie zuvor. */
+.hand-zone-hidden-empty {
   align-self: center;
   color: var(--muted);
   font-size: 12px;
@@ -2710,6 +2766,120 @@ body {
   }
 }
 
+/* "Mehr Juice" (Nutzer-Feedback 2026-08-02, "spürbarere visuelle Rückmeldung
+   bei Spielaktionen ... damit sich Aktionen für Kinder befriedigender
+   anfühlen"): drei neue, rein KOSMETISCHE Zusatz-Animationen für Kampf-/
+   Zauber-Momente, ergänzend zu den bestehenden informationstragenden
+   `.action-glow`/`.life-pulse-*`/Entscheidungs-Pulsen oben (die bleiben
+   bewusst UNVERÄNDERT und laufen immer - s. store.ts#applyJuiceForEvent-
+   Dateikommentar für die Abgrenzung). Werden ausschließlich per JS gesetzt
+   (store.ts#applyJuiceForEvent, bereits dort über `isJuiceEnabled()` UND
+   `prefersReducedMotion()` gated), der `@media`-Block ganz unten ist
+   zusätzliche Verteidigung auf CSS-Ebene (Nutzer-Auftrag: die
+   `prefers-reduced-motion`-Systempräferenz soll UNABHÄNGIG vom Toggle
+   respektiert werden) - falls die Klasse doch einmal gesetzt würde (z.B.
+   ein künftiger Aufrufer vergisst die JS-Prüfung), greift die
+   Browser-Präferenz trotzdem.
+
+   Farben/Dauern bewusst im selben Rahmen wie die bestehenden Animationen
+   (250ms-2.2s, warme Fantasy-/Taverne-Palette): `--bad` für Treffer (wie
+   `life-pulse-down`), ein warmes Gold (`--mana-light`) für den Impact-Puls
+   (passend zur Taverne/Kerzenschein-Optik, s. `--candle-glow`), gedämpfte
+   Sättigung für das Sterbe-Ausblenden. */
+.card-tile.juice-hit-shake,
+.terrain-pile.juice-hit-shake,
+.player-panel.juice-hit-shake {
+  animation: juice-hit-shake 380ms ease-in-out;
+}
+
+@keyframes juice-hit-shake {
+  0% {
+    transform: translateX(0);
+  }
+  15% {
+    transform: translateX(-6px);
+    box-shadow: 0 0 12px 3px rgba(224, 90, 90, 0.75);
+  }
+  32% {
+    transform: translateX(5px);
+  }
+  48% {
+    transform: translateX(-4px);
+  }
+  64% {
+    transform: translateX(3px);
+  }
+  80% {
+    transform: translateX(-1px);
+  }
+  100% {
+    transform: translateX(0);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Zauber/Fähigkeit löst tatsächlich auf und "landet" als Permanent (s.
+   store.ts#applyJuiceForEvent, nur `zoneChanged` von "stack" nach
+   "battlefield" - Zauber, die ohne Wirkung verpuffen/gecountert werden,
+   lösen das bewusst NICHT aus). */
+.card-tile.juice-impact-pulse,
+.terrain-pile.juice-impact-pulse {
+  animation: juice-impact-pulse 550ms ease-out;
+}
+
+@keyframes juice-impact-pulse {
+  0% {
+    transform: scale(0.86);
+    box-shadow: 0 0 0 0 rgba(201, 162, 39, 0);
+  }
+  35% {
+    transform: scale(1.08);
+    box-shadow: 0 0 22px 6px rgba(201, 162, 39, 0.65);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Kreatur ist gerade gestorben und frisch im Friedhof angekommen (s.
+   store.ts#applyJuiceForEvent-Dateikommentar: aus Render-Architektur-Gründen
+   spielt die Animation an der NEUEN Position im Friedhof statt eines
+   "Verschwindens" von der alten Battlefield-Kachel) - kurzes Aufblitzen +
+   Schrumpfen statt kommentarlosem Erscheinen. */
+.card-tile.juice-death-fade {
+  animation: juice-death-fade 650ms ease-in;
+}
+
+@keyframes juice-death-fade {
+  0% {
+    transform: scale(1.18);
+    opacity: 1;
+    filter: grayscale(0) brightness(1.3);
+  }
+  40% {
+    transform: scale(0.9);
+    opacity: 0.85;
+    filter: grayscale(0.5) brightness(0.85);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    filter: grayscale(0) brightness(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-tile.juice-hit-shake,
+  .terrain-pile.juice-hit-shake,
+  .player-panel.juice-hit-shake,
+  .card-tile.juice-impact-pulse,
+  .terrain-pile.juice-impact-pulse,
+  .card-tile.juice-death-fade {
+    animation: none;
+  }
+}
+
 .tutorial-help-entry-confirmation {
   border-top: 1px dashed var(--border);
   margin-top: 4px;
@@ -3219,4 +3389,146 @@ body {
 
 .opponent-select-back-btn {
   margin-top: 8px;
+}
+
+/* Statistik-Screen (Spielverlauf, s. components/statsScreen.ts,
+   store.ts#recordGameHistoryForEvent/listGameHistory) - eigenständiger
+   AppPhase-Screen wie der Deckbau, gleiches Grundlayout-Prinzip
+   (.deckbuilder-screen: Kopfzeile, Inhalt, Fußzeile). */
+.stats-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(720px, 94vw);
+  margin: 0 auto;
+  padding: 16px 0 24px;
+}
+
+.stats-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stats-title {
+  margin: 0;
+  font-size: 22px;
+  color: #f2d38a;
+}
+
+.stats-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--tavern-border);
+  background: var(--panel-2);
+}
+
+.stats-aggregate-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.stats-aggregate-row:first-child {
+  font-weight: 700;
+  font-size: 15px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.stats-aggregate-label {
+  color: var(--text);
+}
+
+.stats-aggregate-numbers {
+  color: var(--muted);
+  text-align: right;
+}
+
+.stats-history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stats-history-title {
+  margin: 0;
+  font-size: 15px;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.stats-history-empty {
+  color: var(--muted);
+  font-style: italic;
+  padding: 8px 0;
+}
+
+.stats-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.stats-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-size: 13px;
+  border-left: 3px solid var(--border);
+}
+
+.stats-history-row-win {
+  border-left-color: var(--good);
+}
+
+.stats-history-row-loss {
+  border-left-color: var(--bad);
+}
+
+.stats-history-row-draw {
+  border-left-color: var(--muted);
+}
+
+.stats-history-date {
+  color: var(--muted);
+  flex: 1;
+}
+
+.stats-history-result {
+  font-weight: 700;
+  flex: 1;
+  text-align: center;
+}
+
+.stats-history-row-win .stats-history-result {
+  color: var(--good);
+}
+
+.stats-history-row-loss .stats-history-result {
+  color: var(--bad);
+}
+
+.stats-history-opponent {
+  flex: 1;
+  text-align: right;
+  color: var(--text);
+}
+
+.stats-footer {
+  display: flex;
+  justify-content: flex-start;
 }

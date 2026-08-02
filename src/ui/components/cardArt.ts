@@ -2,10 +2,14 @@
  * Gemeinsamer Baustein für den ".card-frame-art"-Bildbereich (bisher reiner
  * Farbverlauf per Manafarben-Klasse, s. style.css `.mana-*.card-frame-art`).
  *
- * Der Nutzer legt extern generierte Artworks nach und nach in
+ * Der Nutzer legt extern generierte Artworks nach und nach als PNG in
  * `docs/cards/artworks/` ab (Dateiname 1:1 aus der Karten-`id` ableitbar,
  * s. `docs/cards/card-art-brief.md`) - für die meisten der 300 Karten
- * existiert (noch) keine Datei. Diese Funktion versucht das passende Bild zu
+ * existiert (noch) keine Datei. Ausgeliefert wird dabei NICHT das Quell-PNG,
+ * sondern eine verkleinerte, neu komprimierte WebP-Fassung (s.
+ * `cardArtworkPlugin` in `vite.config.ts`) - die Quelldatei bleibt
+ * unangetastet, nur die per `artworkUrl()` referenzierte Kopie ist kleiner.
+ * Diese Funktion versucht das passende Bild zu
  * laden und zeigt es bei Erfolg über dem Farbverlauf an (object-fit: cover,
  * füllt den vorhandenen Bereich); schlägt das Laden fehl (Normalfall, Datei
  * existiert noch nicht), bleibt GENAU der bisherige Farbverlauf-Platzhalter
@@ -19,19 +23,20 @@
  * auslösen würden - der Browser fordert die meisten Bilder dadurch gar nicht
  * erst an, solange sie nicht in den sichtbaren Bereich gescrollt sind.
  *
- * Ausliefer-Mechanismus: `vite.config.ts` (Dev-Middleware + Build-
- * Kopierschritt liefern `docs/cards/artworks/<datei>` unter genau dieser
- * URL aus, s. dortiger Kommentar) - der Ablageort/Workflow für den Nutzer
- * ändert sich dadurch NICHT.
+ * Ausliefer-Mechanismus: `vite.config.ts` (`cardArtworkPlugin`) - Dev-
+ * Middleware + Build-Schritt transformieren `docs/cards/artworks/<id>.png`
+ * on-the-fly bzw. einmalig zu WebP und liefern das Ergebnis unter genau
+ * dieser URL aus, s. dortiger Kommentar) - der Ablageort/Workflow für den
+ * Nutzer (PNGs ablegen) ändert sich dadurch NICHT.
  */
 
 import type { CardDefinition } from "../../model";
 import { h } from "../h";
 import { asset } from "../assetUrl";
 
-/** Leitet den erwarteten Artwork-Dateinamen aus der Karten-`id` ab (s. docs/cards/card-art-brief.md). */
+/** Leitet den erwarteten Artwork-Dateinamen (ausgeliefertes Format, s. Dateikommentar) aus der Karten-`id` ab. */
 export function artworkFileName(cardId: string): string {
-  return `${cardId.replace(/\./g, "-")}.png`;
+  return `${cardId.replace(/\./g, "-")}.webp`;
 }
 
 const ARTWORK_URL_PREFIX = "/cards/artworks/";

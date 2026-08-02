@@ -421,6 +421,57 @@ export function toggleSfxEnabled(): void {
 }
 
 // ---------------------------------------------------------------------------
+// "Mehr Juice" (Nutzer-Feedback 2026-08-02, "spürbarere visuelle Rückmeldung
+// bei Spielaktionen ... Treffer, Zauber wirken, Angriff, Kreatur stirbt"):
+// eigener Mute-artiger An/Aus-Zustand für die NEUEN, rein kosmetischen
+// Kampf-/Zauber-Animationen (s. applyJuiceForEvent weiter unten), EXAKT nach
+// demselben Persistenz-/API-Muster wie `sfxEnabled` oben (eigenständig, NICHT
+// an sfxEnabled/musicEnabled gekoppelt - wer z.B. Sound mag, aber von den
+// zusätzlichen Zuck-/Puls-Effekten "abgelenkt" wird [oder umgekehrt], kann
+// beide unabhängig voneinander umschalten). Bestehende, INFORMATIONSTRAGENDE
+// Animationen (`.action-glow`/`.life-pulse-*`/Entscheidungs-/Angriffs-Pulse -
+// zeigen z.B. an, WELCHE Karte zuletzt gehandelt hat bzw. wer gerade eine
+// echte Entscheidung treffen muss) bleiben bewusst UNABHÄNGIG von diesem
+// Toggle: sie laufen immer, ein Abschalten würde Informationen verstecken,
+// nicht nur Dekoration.
+// ---------------------------------------------------------------------------
+
+const EFFECTS_ENABLED_STORAGE_KEY = "deckbuilder1.effectsEnabled";
+
+/** Defensiv wie loadSfxEnabledFromLocalStorage: fehlt/ist ungültig der gespeicherte Wert, starten die Zusatz-Effekte standardmäßig AN. */
+function loadEffectsEnabledFromLocalStorage(): boolean {
+  try {
+    const raw = window.localStorage.getItem(EFFECTS_ENABLED_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function saveEffectsEnabledToLocalStorage(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(EFFECTS_ENABLED_STORAGE_KEY, String(enabled));
+  } catch {
+    // localStorage nicht verfügbar/voll/deaktiviert - einfach ignorieren (s.o.).
+  }
+}
+
+let effectsEnabled: boolean = loadEffectsEnabledFromLocalStorage();
+
+/** Aktuell gewünschter Zusatz-Effekte-Zustand (persistiert über Sessions hinweg, s.o.). */
+export function isJuiceEnabled(): boolean {
+  return effectsEnabled;
+}
+
+/** An/Aus-Umschalter für die zusätzlichen Kampf-/Zauber-Animationen (Klick auf den eigenen Button neben Musik/SFX/Bot-Geschwindigkeit). */
+export function toggleJuiceEnabled(): void {
+  effectsEnabled = !effectsEnabled;
+  saveEffectsEnabledToLocalStorage(effectsEnabled);
+  notify();
+}
+
+// ---------------------------------------------------------------------------
 // Keyword-Glossar (Nutzer-Feedback: Karten zeigen Schlüsselwörter wie
 // "Todesberührung." im Regeltext, ohne dass irgendwo nachschlagbar war, was
 // das bedeutet - s. docs/frontend-status.md, neue Version). Bewusst
@@ -656,6 +707,119 @@ export function loadSavedDeck(player: PlayerId, id: string): void {
   setDecklist(player, { ...found.decklist });
 }
 
+// ---------------------------------------------------------------------------
+// Spielverlauf/Statistik (dauerhafte Partie-Historie, s. components/
+// statsScreen.ts): pro abgeschlossener Partie EIN Eintrag (Zeitpunkt,
+// Ergebnis aus player1-Sicht, Gegnertyp), dauerhaft in localStorage - gleiches
+// defensives try/catch-Persistenz-Muster wie überall in dieser Datei (s.
+// SavedDeck-Abschnitt oben). Das eigentliche Anlegen eines Eintrags passiert
+// in `recordGameHistoryForEvent` (s.u., aufgerufen aus `processEvents` bei
+// "gameEnded") - bewusst eine EIGENE Funktion, getrennt von `playSfxForEvent`
+// (die laut Namen/Struktur nur für Soundeffekte zuständig ist).
+// ---------------------------------------------------------------------------
+
+/** Ergebnis einer abgeschlossenen Partie AUS SICHT VON PLAYER1 (etablierte Konvention, s. playSfxForEvent-Kommentar zu "gameEnded"). */
+export type GameHistoryResult = "win" | "loss" | "draw";
+
+/**
+ * Gegnertyp einer abgeschlossenen Partie: entweder eine der drei KI-
+ * Schwierigkeitsstufen (BotDifficulty, s. ../ai) oder "human" für ein
+ * Hotseat-Match gegen einen zweiten Menschen (isBotControlled("player2") ===
+ * false) - player1 ist laut Konvention immer der lokale Mensch, daher ist
+ * ausschließlich player2s Bot-Status relevant.
+ */
+export type GameHistoryOpponent = { kind: "bot"; difficulty: BotDifficulty } | { kind: "human" };
+
+export interface GameHistoryEntry {
+  id: string;
+  /** ISO-Zeitstempel (new Date().toISOString()) - dient Anzeige UND Sortierung (neueste zuerst), exakt wie SavedDeck#savedAt. */
+  playedAt: string;
+  result: GameHistoryResult;
+  opponent: GameHistoryOpponent;
+}
+
+const GAME_HISTORY_STORAGE_KEY = "deckbuilder1.gameHistory";
+/** Deckelt die localStorage-Liste (Auftrag: "damit localStorage nicht unbegrenzt wächst") - ältere Einträge fallen beim Aufzeichnen einfach hinten raus, s. recordGameHistoryForEvent. */
+const GAME_HISTORY_MAX_ENTRIES = 100;
+
+function isGameHistoryOpponentShape(value: unknown): value is GameHistoryOpponent {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (v.kind === "human") return true;
+  return v.kind === "bot" && (v.difficulty === "easy" || v.difficulty === "medium" || v.difficulty === "hard");
+}
+
+function isGameHistoryEntryShape(value: unknown): value is GameHistoryEntry {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === "string" &&
+    typeof v.playedAt === "string" &&
+    (v.result === "win" || v.result === "loss" || v.result === "draw") &&
+    isGameHistoryOpponentShape(v.opponent)
+  );
+}
+
+/** Defensiv wie loadSavedDecksFromLocalStorage: ungültige/fehlende Daten -> leere Liste statt Absturz. */
+function loadGameHistoryFromLocalStorage(): GameHistoryEntry[] {
+  try {
+    const raw = window.localStorage.getItem(GAME_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isGameHistoryEntryShape);
+  } catch {
+    return [];
+  }
+}
+
+function persistGameHistory(next: GameHistoryEntry[]): void {
+  try {
+    window.localStorage.setItem(GAME_HISTORY_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // localStorage nicht verfügbar/voll/deaktiviert - einfach ignorieren (s.o.).
+  }
+}
+
+let gameHistory: GameHistoryEntry[] = loadGameHistoryFromLocalStorage();
+
+/** Alle aufgezeichneten Partien, neueste zuerst (Anzeige-Reihenfolge im Statistik-Screen, s. components/statsScreen.ts). */
+export function listGameHistory(): GameHistoryEntry[] {
+  return [...gameHistory].sort((a, b) => b.playedAt.localeCompare(a.playedAt));
+}
+
+/** Reine Anzeige-/Storage-ID, s. generateSavedDeckId-Kommentar (gleicher Grund für den Fallback statt crypto.randomUUID). */
+function generateGameHistoryId(): string {
+  return `game-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Zeichnet EINE abgeschlossene Partie im Spielverlauf auf - aufgerufen aus
+ * `processEvents` bei jedem "gameEnded"-Event, bewusst als eigene, von
+ * `playSfxForEvent` getrennte Funktion (s. Abschnitt-Kommentar oben).
+ *
+ * Tutorial-Partien (tutorialActive) werden bewusst NICHT aufgezeichnet - die
+ * feste, geskriptete Tutorial-Beispielpartie (immer dieselben Decks/derselbe
+ * Seed, s. startTutorial) ist keine echte Partie und würde die Statistik nur
+ * verfälschen.
+ */
+function recordGameHistoryForEvent(e: GameEvent): void {
+  if (e.kind !== "gameEnded") return;
+  if (tutorialActive) return;
+  const result: GameHistoryResult = e.winner === "player1" ? "win" : e.winner === "player2" ? "loss" : "draw";
+  const opponent: GameHistoryOpponent = isBotControlled("player2")
+    ? { kind: "bot", difficulty: getBotDifficulty("player2") }
+    : { kind: "human" };
+  const entry: GameHistoryEntry = {
+    id: generateGameHistoryId(),
+    playedAt: new Date().toISOString(),
+    result,
+    opponent,
+  };
+  gameHistory = [...gameHistory, entry].slice(-GAME_HISTORY_MAX_ENTRIES);
+  persistGameHistory(gameHistory);
+}
+
 // "Deck speichern"-Formular und "Deck laden"-Liste sind zwei getrennte
 // Popover-Panels (s. components/savedDecksPanel.ts) - reiner Anzeige-Zustand,
 // analog zu isMusicPanelOpen/isKeywordGlossaryPanelOpen oben. Öffnet eines der
@@ -811,6 +975,12 @@ export function startNewGameFlow(): void {
  */
 export function openDeckBuilderStandalone(): void {
   appPhase = { kind: "deckbuild", player: "player1", mode: "standalone" };
+  notify();
+}
+
+/** "Statistik" im Hauptmenü: zeigt den Spielverlauf-Screen (s. components/statsScreen.ts, listGameHistory oben) - reine Anzeige, KEIN Einfluss auf laufende/zukünftige Partien. */
+export function openStats(): void {
+  appPhase = { kind: "stats" };
   notify();
 }
 
@@ -2001,9 +2171,167 @@ function collectGlowInstanceIds(e: GameEvent, out: InstanceId[]): void {
 }
 
 /**
+ * "Mehr Juice" (Nutzer-Feedback 2026-08-02): welche Art von kurzem,
+ * kosmetischem Animations-Impuls eine InstanceId/ein Spieler gerade zeigen
+ * soll - `render.ts`/`cardTile`-Konsumstellen/`playerPanel.ts` übersetzen den
+ * Wert in die passende CSS-Klasse (`.juice-hit-shake`/`.juice-impact-pulse`/
+ * `.juice-death-fade`, s. style.css).
+ */
+export type JuiceEffectKind = "hit" | "impact" | "death";
+
+/**
+ * PARALLELE Zustandshaltung zu `recentActionInstanceIds` oben, aber mit einer
+ * unterscheidbaren AUSSAGE je Ziel statt eines einzelnen Glow-Flags - deshalb
+ * zwei eigene Maps statt einer Erweiterung der bestehenden Glow-Menge. ZWEI
+ * getrennte Maps (Karten- vs. Spieler-Ziele) statt einer gemeinsamen
+ * `Map<string, ...>`: `InstanceId` und `PlayerId` sind beide einfache
+ * Strings (type-technisch nicht unterscheidbar), UND ein Kreatur-Treffer
+ * (cardTile.ts) und ein Spieler-Treffer (playerPanel.ts, Lebenspunkte) werden
+ * an komplett unterschiedlichen DOM-Stellen konsumiert.
+ *
+ * Bewusst rein KOSMETISCH (anders als `recentActionInstanceIds`, das
+ * Nachvollziehbarkeit von KI-Zügen trägt, s. dortiger Kommentar) - deshalb
+ * komplett über `isJuiceEnabled()`/`prefersReducedMotion()` abschaltbar (s.
+ * `applyJuiceForEvent` unten), ohne dass dabei irgendeine Information
+ * verloren geht.
+ */
+let juiceCardEffects: Map<InstanceId, JuiceEffectKind> = new Map();
+let juicePlayerEffects: Map<PlayerId, JuiceEffectKind> = new Map();
+let juiceClearTimer: ReturnType<typeof setTimeout> | undefined;
+/**
+ * Reines Aufräum-Intervall (deckt die längste der neuen Keyframe-Dauern in
+ * style.css mit etwas Puffer ab) - das eigentliche Ende der sichtbaren
+ * Animation bestimmt CSS selbst (`animation`-Dauer je Klasse), das Entfernen
+ * der Klasse hier dient nur dazu, dass ein SPÄTERES, komplett unabhängiges
+ * Ereignis an derselben Instanz die Animation erneut auslösen kann.
+ */
+const JUICE_EFFECT_CLEAR_MS = 700;
+
+/** s. juiceCardEffects oben - für render.ts (cardTile/Battlefield-Anwendung der Effekt-Klasse). */
+export function getJuiceCardEffect(instanceId: InstanceId): JuiceEffectKind | undefined {
+  return juiceCardEffects.get(instanceId);
+}
+
+/** s. juicePlayerEffects oben - für render.ts/playerPanel.ts. */
+export function getJuicePlayerEffect(playerId: PlayerId): JuiceEffectKind | undefined {
+  return juicePlayerEffects.get(playerId);
+}
+
+function scheduleJuiceEffectClear(): void {
+  if (juiceClearTimer !== undefined) clearTimeout(juiceClearTimer);
+  juiceClearTimer = setTimeout(() => {
+    juiceClearTimer = undefined;
+    juiceCardEffects = new Map();
+    juicePlayerEffects = new Map();
+    notify();
+  }, JUICE_EFFECT_CLEAR_MS);
+}
+
+function markJuiceCardEffect(instanceId: InstanceId, kind: JuiceEffectKind): void {
+  juiceCardEffects.set(instanceId, kind);
+  scheduleJuiceEffectClear();
+}
+
+function markJuicePlayerEffect(playerId: PlayerId, kind: JuiceEffectKind): void {
+  juicePlayerEffects.set(playerId, kind);
+  scheduleJuiceEffectClear();
+}
+
+/** s. resetRecentActionGlow oben - gleicher Grund (InstanceIds starten pro Partie neu bei "card1", eine stehengebliebene alte ID einer vorherigen Partie darf nicht zufällig eine andere Karte treffen). Wird von initGame() aufgerufen. */
+function resetJuiceEffects(): void {
+  if (juiceClearTimer !== undefined) {
+    clearTimeout(juiceClearTimer);
+    juiceClearTimer = undefined;
+  }
+  juiceCardEffects = new Map();
+  juicePlayerEffects = new Map();
+}
+
+/**
+ * Browser-/System-Präferenz "reduzierte Bewegung" (Nutzer-Auftrag: der neue
+ * Toggle UND diese Präferenz sollen UNABHÄNGIG voneinander gelten, nicht nur
+ * eine von beiden - s. `applyJuiceForEvent`). `window.matchMedia` existiert
+ * in der jsdom-Testumgebung nicht (kein Polyfill vorhanden) - defensiv wie
+ * die localStorage-Zugriffe oben: fehlt die API oder wirft sie, wird
+ * angenommen, dass KEINE reduzierte Bewegung gewünscht ist (Standardannahme
+ * echter Browser ohne gesetzte Präferenz), damit die Effekte dort normal
+ * funktionieren.
+ */
+function prefersReducedMotion(): boolean {
+  try {
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+}
+
+/** `damageDealt.to` ist entweder ein Spieler (Literal "player1"/"player2") oder eine InstanceId - analog zu describeDamageTarget oben. */
+function isPlayerId(x: InstanceId | PlayerId): x is PlayerId {
+  return x === "player1" || x === "player2";
+}
+
+/**
+ * PARALLELE Funktion zu `playSfxForEvent`/`collectGlowInstanceIds` oben
+ * (ebenfalls ausschließlich über `processEvents` unten aufgerufen, gleiches
+ * Prinzip: reine Beobachtung der von der Engine bereits gelieferten
+ * `GameEvent`s, keine eigene Regel-/Legalitätslogik hier) - bewusst eine
+ * EIGENSTÄNDIGE Funktion statt in `playSfxForEvent` hineingemischt (das ist
+ * laut Namen/Dateikommentar nur für Audio zuständig) oder in
+ * `collectGlowInstanceIds` (das ist Informationsvermittlung und läuft IMMER,
+ * s. dortiger Kommentar - dieser Effekt hier ist rein dekorativ).
+ *
+ * - `damageDealt`: "Treffer"-Zucken auf dem getroffenen Ziel - Kreatur ODER
+ *   Spieler (Gesichtsschaden), je nachdem, was `e.to` ist.
+ * - `lifeChanged` mit negativem Delta: Lebensverlust OHNE eigenes
+ *   `damageDealt` (z.B. Kosten/Effekte, die Leben direkt abziehen) soll
+ *   optisch trotzdem wie ein Treffer wirken - ein Lebens-GEWINN (`delta > 0`)
+ *   bleibt bewusst unbehandelt (kein "Treffer"-Zucken bei einer guten
+ *   Nachricht). Überschneidet sich bei normalem Kampf-/Spell-Schaden
+ *   harmlos mit dem `damageDealt`-Zweig oben (derselbe Spieler wird einfach
+ *   zweimal auf "hit" gesetzt - der Timer wird dabei nur verlängert, s.
+ *   markJuicePlayerEffect).
+ * - `zoneChanged` von "stack" NACH "battlefield": der Moment, in dem ein
+ *   Zauber/eine Fähigkeit tatsächlich AUFLÖST und als echtes Permanent
+ *   "landet" (Kreatur/Verzauberung/Relikt) - bewusst NICHT jeder
+ *   `zoneChanged`-Übergang vom Stack (z.B. Richtung Friedhof bei einem
+ *   verpufften/gecounterten Zauber, s. engine/stack.ts) - ein "Impact" soll
+ *   ausschließlich ein tatsächlich wirksam gewordenes Permanent feiern.
+ * - `unitDied`: kurzes Ausblenden/Schrumpfen auf der neu im Friedhof
+ *   angekommenen Karte (s. graveyardZone in render.ts) - der Renderer baut
+ *   das DOM bei jeder Änderung komplett neu auf (s. Datei-Kommentar oben),
+ *   ein "Verschwinden von der alten Battlefield-Position" ist damit nicht
+ *   darstellbar; die Animation spielt deshalb stattdessen auf der neuen
+ *   Position im Friedhof, sobald die Karte dort erscheint (analog zum
+ *   bestehenden `life-pulse-*`/`action-glow`-Muster, die aus demselben Grund
+ *   ebenfalls nur "ankommende" statt "abgehende" Zustände animieren können).
+ *   Bei Token-Toden (SBA 7, kein echter Friedhof-Eintrag) läuft dieser Aufruf
+ *   ins Leere - keine Kachel trägt die Klasse, harmlos.
+ */
+function applyJuiceForEvent(e: GameEvent): void {
+  if (!isJuiceEnabled() || prefersReducedMotion()) return;
+  switch (e.kind) {
+    case "damageDealt":
+      if (isPlayerId(e.to)) markJuicePlayerEffect(e.to, "hit");
+      else markJuiceCardEffect(e.to, "hit");
+      return;
+    case "lifeChanged":
+      if (e.delta < 0) markJuicePlayerEffect(e.player, "hit");
+      return;
+    case "zoneChanged":
+      if (e.from === "stack" && e.to === "battlefield") markJuiceCardEffect(e.cardInstanceId, "impact");
+      return;
+    case "unitDied":
+      markJuiceCardEffect(e.instanceId, "death");
+      return;
+    default:
+      return;
+  }
+}
+
+/**
  * Gemeinsame Verarbeitung eines Event-Batches (Log-Zeilen, SFX, visuelles
- * Glow-Highlight) - EINE Implementierung statt vier fast identischer
- * Kopien an den Aufrufstellen (initGame/dispatch/runBotStep/
+ * Glow-Highlight, Juice-Effekte) - EINE Implementierung statt vier fast
+ * identischer Kopien an den Aufrufstellen (initGame/dispatch/runBotStep/
  * applyAutomaticAction), die bisher leicht hätten auseinanderlaufen können
  * (z.B. wenn nur an drei von vier Stellen ein neues Verhalten ergänzt wird).
  * Erwartet, dass `state` VOR dem Aufruf bereits auf `result.state` gesetzt
@@ -2016,7 +2344,9 @@ function processEvents(events: GameEvent[], opts: { suppressCardDrawn: boolean }
     if (t) log.push(t);
     playSfxForEvent(e, opts);
     collectGlowInstanceIds(e, glowIds);
+    applyJuiceForEvent(e);
     combatSummaryTracker.record(e);
+    recordGameHistoryForEvent(e);
   }
   if (log.length > 300) log = log.slice(-300);
   markRecentAction(glowIds);
@@ -2070,6 +2400,8 @@ export function initGame(
   // bei "card1" - eine evtl. noch laufende Glow-Anzeige der vorherigen
   // Partie darf nicht in die neue hinein "durchscheinen".
   resetRecentActionGlow();
+  // Gleicher Grund wie resetRecentActionGlow oben, für die neuen Juice-Effekte.
+  resetJuiceEffects();
   // Die initiale Starthand-Verteilung (7 cardDrawn-Events je Spieler) wird
   // NIE einzeln vertont (s. playSfxForEvent-Dateikommentar) - anders als bei
   // den beiden anderen Aufrufstellen kommt hier ohnehin nie ein

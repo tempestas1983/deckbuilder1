@@ -105,6 +105,13 @@ export type UiMode =
  * bisherigen Tutorial-Einstieg, nur der Auslöse-Ort ist jetzt das
  * Hauptmenü statt ein Button im player1-Deckbau-Screen).
  *
+ * `mainMenu` --"Statistik"--> `stats` (s. store.ts#openStats/listGameHistory,
+ * components/statsScreen.ts): reiner Anzeige-Screen für den dauerhaft in
+ * localStorage aufgezeichneten Spielverlauf (jede abgeschlossene Nicht-
+ * Tutorial-Partie, s. store.ts#recordGameHistoryForEvent) samt aggregierter
+ * Sieg-/Niederlage-/Unentschieden-Statistik - `backToMainMenu()` führt von
+ * dort wie überall zurück zu `mainMenu`.
+ *
  * `backToMainMenu()` (s. store.ts, vormals `backToDeckbuilder`) führt aus
  * `playing` IMMER zurück zu `mainMenu`, nie mehr direkt zu `deckbuild`.
  */
@@ -112,7 +119,8 @@ export type AppPhase =
   | { kind: "mainMenu" }
   | { kind: "opponentSelect" }
   | { kind: "deckbuild"; player: PlayerId; mode: "newGame" | "standalone" }
-  | { kind: "playing" };
+  | { kind: "playing" }
+  | { kind: "stats" };
 
 export function targetKeyOf(target: ChosenTarget): string {
   switch (target.kind) {

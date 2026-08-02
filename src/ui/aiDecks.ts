@@ -393,7 +393,7 @@ export const AI_DECKS: Array<{ name: string; description: string; decklist: Reco
  * Bewusste Design-Entscheidung: der gewaehlte Archetyp/Deckname wird
  * NIRGENDS in der UI angezeigt/verraten - die Kartensammlung der Bot-KI soll
  * ausschliesslich durchs tatsaechliche Spielen entdeckt werden (s.
- * `handCardHidden`, das die Gegnerhand ohnehin verdeckt). Diese Funktion gibt
+ * `hiddenHandStack`, das die Gegnerhand ohnehin verdeckt). Diese Funktion gibt
  * daher bewusst NUR die Decklist zurueck, nicht den vollen `AI_DECKS`-Eintrag
  * (Name/Beschreibung) - Aufrufer haben so gar nicht erst die Möglichkeit,
  * den Namen versehentlich irgendwo anzuzeigen.

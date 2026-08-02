@@ -50,6 +50,16 @@ export interface PlayerPanelOptions {
    * auch in Browsern ohne deren Unterstützung sichtbar bleibt.
    */
   lifePulse?: "up" | "down";
+  /**
+   * "Mehr Juice" (Nutzer-Feedback 2026-08-02, s. `store.ts#applyJuiceForEvent`
+   * -Dateikommentar): true, wenn dieser Spieler GERADE (Combat-/Spell-)Schaden
+   * genommen hat oder anderweitig Leben verloren hat - löst ein kurzes
+   * CSS-Zucken auf dem gesamten Panel aus (style.css `.juice-hit-shake`),
+   * unabhängig vom informationstragenden `lifePulse` oben (der bleibt IMMER
+   * aktiv, dieser Effekt ist rein dekorativ und über den eigenen
+   * `isJuiceEnabled()`-Toggle abschaltbar - s. render.ts#playerArea).
+   */
+  hitShake?: boolean;
 }
 
 export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPanelOptions = {}): HTMLElement {
@@ -77,6 +87,7 @@ export function playerPanel(state: GameState, playerId: PlayerId, opts: PlayerPa
 
   const classes = ["player-panel"];
   if (opts.targetable) classes.push("targetable");
+  if (opts.hitShake) classes.push("juice-hit-shake");
 
   return h(
     "div",

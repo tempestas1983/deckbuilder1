@@ -120,25 +120,44 @@ export function handCard(
 }
 
 /**
- * Verdeckte Handkarten-Kachel (Kartenrückseite) für JEDE Hand außer der von
- * player1 (dem lokalen menschlichen Spieler, s. render.ts#handZone) - zeigt
- * bewusst WEDER Name noch Kosten noch Regeltext (verdeckte Information ist
- * Kern eines Kartenspiels wie diesem), NICHT klickbar/interaktiv (anders als
- * `handCardDiscardToggle` unten, das nur strukturell als Vorbild für eine
- * vereinfachte Kachel diente). Trägt denselben `view-transition-name` wie
- * `handCard`/`cardTile` (Schema `card-<instanceId>`), damit der Karten-Morph-
- * Übergang beim Ausspielen einer zuvor verdeckten Karte (Hand -> Battlefield)
- * weiterhin funktioniert.
+ * Verdeckter Handstapel (Kartenrückseite) für JEDE Hand außer der von
+ * player1 (dem lokalen menschlichen Spieler, s. render.ts#hiddenHandZone) -
+ * zeigt bewusst WEDER Name noch Kosten noch Regeltext (verdeckte Information
+ * ist Kern eines Kartenspiels wie diesem), NICHT klickbar/interaktiv (anders
+ * als `handCardDiscardToggle` unten, das nur strukturell als Vorbild für eine
+ * vereinfachte Kachel diente).
+ *
+ * Nutzer-Feedback 2026-08-02 ("verdeckte Hand nimmt zu viel Platz ein, trägt
+ * aber keinerlei Information"): früher EINE `.hand-card-hidden`-Kachel PRO
+ * Handkarte (identisch breit wie eine echte Handkarte) - bei einer vollen
+ * Bot-Hand entsprechend viele nebeneinanderliegende, optisch nichtssagende
+ * Rückseiten. Jetzt genau EINE Kachel für die ganze Hand, die bei mehr als
+ * einer Karte per CSS-Pseudo-Elementen (s. style.css
+ * `.hand-card-hidden-stack-multi`) leicht versetzte weitere Rückseiten
+ * "darunter hervorschauen" lässt (Stapel-Optik ohne zusätzliches Markup pro
+ * Karte) - die tatsächliche Anzahl bleibt über das Zahl-Badge
+ * (`.hand-card-hidden-stack-count`) ablesbar. Bei 0 Karten wird bewusst gar
+ * kein Kartenrücken gezeigt (nichts zu stapeln) - reiner Zähler-Hinweis, s.
+ * render.ts#hiddenHandZone.
+ *
+ * Bewusst OHNE `view-transition-name` (anders als die frühere Pro-Karte-
+ * Variante): die App aktiviert `document.startViewTransition()` seit dem
+ * Nutzer-Feedback in render.ts (s. dortiger Kommentarblock) grundsätzlich
+ * nicht mehr, ein Name auf einem Element, das nicht mehr 1:1 einer Instanz
+ * entspricht (mehrere Instanzen teilen sich jetzt dieselbe Stapel-Kachel),
+ * wäre ohnehin nicht mehr eindeutig zuordenbar.
  */
-export function handCardHidden(cardInstanceId: InstanceId): HTMLElement {
-  return h(
-    "div",
-    {
-      class: "hand-card hand-card-hidden",
-      style: `view-transition-name: card-${cardInstanceId}`,
-    },
-    [h("div", { class: "hand-card-hidden-back" }, [])],
-  );
+export function hiddenHandStack(hand: readonly InstanceId[]): HTMLElement {
+  const count = hand.length;
+  if (count === 0) {
+    return h("div", { class: "hand-zone-hidden-empty" }, [text("0 Karten")]);
+  }
+  const classes = ["hand-card", "hand-card-hidden-stack"];
+  if (count > 1) classes.push("hand-card-hidden-stack-multi");
+  return h("div", { class: classes.join(" ") }, [
+    h("div", { class: "hand-card-hidden-back" }, []),
+    h("div", { class: "hand-card-hidden-stack-count" }, [text(String(count))]),
+  ]);
 }
 
 /** Vereinfachte Handkarten-Kachel für den Cleanup-Abwurf: nur Name/Kosten + Auswahl-Toggle. */

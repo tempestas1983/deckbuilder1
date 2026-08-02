@@ -17,6 +17,7 @@ import { render } from "./render";
 import { initMusicPlayer } from "./musicPlayer";
 import { initSfxPlayer } from "./sfxPlayer";
 import { initBoardBackdrop } from "./components/sceneArt";
+import { asset } from "./assetUrl";
 
 const root = document.getElementById("app");
 if (!root) {
@@ -44,3 +45,27 @@ initSfxPlayer();
 // render()-Rebuild unangetastet. Bewusst NUR hier aufgerufen, analog zu
 // initMusicPlayer/initSfxPlayer oben.
 initBoardBackdrop();
+
+// PWA-Offline-Caching (s. serviceWorkerPlugin()/buildServiceWorkerSource() in
+// vite.config.ts für die Runtime-Caching-Strategie + Cache-Versionierung).
+// Zwei Sicherungen, warum das hier unproblematisch ist:
+// - `import.meta.env.PROD`: `sw.js` existiert nur als Build-Artefakt (s.
+//   serviceWorkerPlugin#closeBundle) - im Vite-Dev-Server (`npm run dev`)
+//   gibt es dafür keine Route, und ein Service Worker würde dort ohnehin
+//   Vites eigenes HMR (Hot Module Replacement) stören, s. Kommentar an
+//   serviceWorkerPlugin. Damit bleibt `npm run dev` unverändert netzwerkfrisch.
+// - `'serviceWorker' in navigator`: jsdom (Vitest-Testumgebung, s.
+//   src/ui/__tests__/) kennt `navigator.serviceWorker` nicht - ohne diese
+//   Prüfung würde jeder Test, der main.ts importiert, mit einem TypeError
+//   abbrechen. `import.meta.env.PROD` ist in Vitest ebenfalls false, diese
+//   Prüfung greift also zusätzlich als zweite, unabhängige Absicherung.
+// `asset("sw.js")` statt hartkodiert "/deckbuilder/sw.js" (s.
+// assetUrl.ts-Dateikommentar) - dieselbe BASE_URL-Auflösung wie für alle
+// anderen Asset-URLs (SFX/Musik/Artwork) der App.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  navigator.serviceWorker.register(asset("sw.js")).catch(() => {
+    // Registrierung ist ein reines Offline-/Installierbarkeits-Extra - ein
+    // Fehlschlag (z.B. Browser ohne SW-Unterstützung, HTTP statt HTTPS beim
+    // Testen) darf die App nicht beeinträchtigen, daher bewusst stumm.
+  });
+}
