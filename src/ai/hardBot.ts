@@ -20,6 +20,17 @@
  *    firstStrike/deathtouch für Angriffs- UND Block-Entscheidungen, plus
  *    Alpha-Strike-Erkennung (lethaler Gesamtangriff) und
  *    Überlebens-Chump-Blocks bei drohendem Tod (trample-bewusst).
+ * 4. LETHAL-CHECK (siehe Abschnitt "Lethal-Check" unten): Das 1-Ply-Lookahead
+ *    bewertet jeden Cast-/Activate-/Attack-Kandidaten NUR isoliert und
+ *    vergleicht die resultierenden Einzel-Bewertungen — ein Direktschaden-
+ *    Zauber aufs gegnerische Gesicht sieht darin oft schwächer aus als eine
+ *    größere Kreatur zu spielen (unitValue ist mit 2.2 gewichtet, ein
+ *    Lebenspunkt nur mit 1.0), obwohl BEIDE Aktionen zusammen mit einem
+ *    Alpha-Strike diesen Zug siegen würden. Bevor die normale 1-Ply-Wahl
+ *    greift, prüft ein billiger, gezielter Sonderfall genau diese
+ *    Kombination: "alles rein" (Alpha-Strike + alle bezahlbaren
+ *    Face-Damage-Zauber/-Fähigkeiten dieses Zugs) — findet er eine wirklich
+ *    tödliche Reihenfolge, wird deren nächster Schritt bevorzugt gespielt.
  *
  * PERFORMANCE-BUDGET (UI darf nicht einfrieren): pro chooseActionHard-Aufruf
  * werden höchstens MAX_SIMULATED_ACTIONS applyAction-Simulationen verbraucht
@@ -45,8 +56,10 @@ import type {
   PlayerAction,
   PlayerId,
   RulesEngine,
+  TargetSpec,
 } from "../model";
 import {
+  abilitiesOf,
   canBlockPairEffective,
   effectiveStats,
   evaluateState,
@@ -70,6 +83,10 @@ const MAX_ROLLOUT_STEPS = 40;
 const MAX_SIMULATED_CANDIDATES = 12;
 /** Mindest-Bewertungsgewinn, damit ein Kandidat der Passivität vorgezogen wird. */
 const MIN_EVAL_GAIN = 0.05;
+/** Max. Top-Level-Aktionen EINER Lethal-Plan-Probe (siehe Abschnitt "Lethal-Check"). */
+const LETHAL_MAX_PLAN_STEPS = 24;
+/** Unter diesem Rest-Budget wird der Lethal-Check gar nicht erst versucht (spart ihn fürs 1-Ply-Fallback auf). */
+const LETHAL_MIN_BUDGET = 30;
 
 interface SimBudget {
   remaining: number;
@@ -111,6 +128,15 @@ export function chooseActionHard(
   // 2. Terrain spielen.
   const terrainAction = legal.find((a) => a.kind === "playTerrain");
   if (terrainAction) return terrainAction;
+
+  // 2.5 Lethal-Check (siehe Abschnitt "Lethal-Check" unten): Gibt es einen
+  // billig geprüften "Alles-rein"-Plan (Alpha-Strike + alle bezahlbaren
+  // Face-Damage-Zauber/-Fähigkeiten), der den Gegner DIESEN Zug auf <= 0
+  // Leben bringt? Falls ja, dessen nächsten Schritt bevorzugen — sticht die
+  // normale isolierte 1-Ply-Wahl unten (die einen offensichtlichen Kill
+  // übersehen kann, siehe Moduldoku Punkt 4).
+  const lethalAction = findLethalAction(engine, pool, state, legal, player, budget);
+  if (lethalAction) return lethalAction;
 
   // 3. Cast/Activate per Lookahead-Bewertung.
   const castOrActivate = chooseBestCastOrActivateHard(engine, pool, state, legal, player, budget);
@@ -570,6 +596,356 @@ function staticRemovalScore(
   if (!targetCard || targetCard.controller === player) return undefined;
   if (pool[targetCard.definitionId]?.type !== "unit") return undefined;
   return unitValue(pool, state, target.instanceId);
+}
+
+// ---------------------------------------------------------------------------
+// Lethal-Check: "Alles-rein"-Pläne (Alpha-Strike + Face-Damage) billig prüfen
+// ---------------------------------------------------------------------------
+//
+// Motivation (Moduldoku Punkt 4): Das normale 1-Ply-Lookahead bewertet jeden
+// Cast-/Activate-/Attack-Kandidaten NUR isoliert. Ein Direktschaden-Zauber
+// aufs gegnerische Gesicht verliert diesen Einzelvergleich fast immer gegen
+// eine Kreatur (unitValue-Gewicht 2.2 vs. Lebenspunkt-Gewicht 1.0), auch wenn
+// Zauber + Alpha-Strike ZUSAMMEN diesen Zug gewinnen würden. Statt echter
+// Mehr-Ply-Suche (zu teuer fürs Budget) wird deshalb NUR der pragmatische
+// Spezialfall geprüft: kann der Bot DIESEN Zug lethal spielen, wenn er
+// möglichst viele seiner Ressourcen (Angreifer + Face-Damage-Karten) einsetzt?
+//
+// Vorgehen: Zwei "Alles-rein"-Reihenfolgen ("burnFirst": erst alle bezahlbaren
+// Face-Damage-Zauber inkl. dafür nötigem Mana-Tappen, dann Alpha-Strike;
+// "attackFirst": erst Alpha-Strike, danach noch verbliebene Face-Damage-
+// Zauber) werden je EINMAL vollständig durchsimuliert — mit derselben
+// Simulationsinfrastruktur (safeApplyForSim/pickDecisionForSim) wie das
+// übrige Modul, inkl. Kampf-Abwicklung mit dem "blockt gut"-Gegnermodell
+// (heuristicBlockAction), damit ein gefundener Kill nicht auf einer
+// optimistischen "Gegner blockt nicht"-Annahme beruht. Nur wenn eine der
+// beiden Proben tatsächlich mit Gegner-Leben <= 0 endet, wird ihr ERSTER
+// Schritt zurückgegeben — alle weiteren Schritte des Plans werden NICHT
+// vorab angewendet, sondern bei den folgenden chooseActionHard-Aufrufen aus
+// dem dann echten Folgezustand neu hergeleitet (gleiches zustandsloses
+// Nachrechnen wie überall sonst im Modul).
+//
+// Billig bleiben (keine kombinatorische Suche): ein billiger Vorfilter
+// (mightBeLethalThisTurn — reine Feldabfragen, keine Simulation) lässt die
+// beiden Proben in der übergroßen Mehrheit der Züge gar nicht erst starten;
+// nur wenn Angriffs-Schadenspotenzial + mindestens eine Face-Damage-Karte
+// überhaupt in Reichweite des gegnerischen Lebens liegen könnten, werden sie
+// versucht. Bewusste Grenze (wie X-Kosten, Modul-übliches Muster): X-Kosten-
+// Zauber enumeriert getLegalActions ohnehin nie, und rohe modale Kandidaten
+// tragen nur STRUKTURELL (nicht mit exaktem Betrag) zum Vorfilter bei — für
+// den eigentlichen Beweis zählt ausschließlich die echte Simulation.
+
+/** Rein strukturelle effects+targets-Sicht einer Wirkung (Modus ODER Nicht-Modus, vereinheitlicht). */
+interface EffectsWithTargets {
+  targets?: TargetSpec[];
+  effects: Effect[];
+}
+
+/** Alle Wirkungs-"Varianten" (Modi, oder ein einzelner Eintrag bei Nicht-Modal) einer Spell-Definition. */
+function cardEffectModes(pool: CardPool, definitionId: string): EffectsWithTargets[] | undefined {
+  const def = pool[definitionId];
+  if (!def || def.type !== "spell") return undefined;
+  if (def.modes && def.modes.length > 0) return def.modes.map((m) => ({ targets: m.targets, effects: m.effects }));
+  return [{ targets: def.targets, effects: def.effects ?? [] }];
+}
+
+/** Wie cardEffectModes, für eine aktivierte Fähigkeit (Mana-Fähigkeiten sind nie Face-Damage -> undefined). */
+function abilityEffectModes(
+  pool: CardPool,
+  state: GameState,
+  sourceInstanceId: InstanceId,
+  abilityIndex: number,
+): EffectsWithTargets[] | undefined {
+  const ability = abilitiesOf(pool, state, sourceInstanceId)[abilityIndex];
+  if (!ability || ability.kind !== "activated" || ability.isManaAbility) return undefined;
+  if (ability.modes && ability.modes.length > 0) return ability.modes.map((m) => ({ targets: m.targets, effects: m.effects }));
+  return [{ targets: ability.targets, effects: ability.effects }];
+}
+
+/** Enthält irgendeine der Varianten einen dealDamage/loseLife-Effekt, der (fix oder über einen Spieler-Zielslot) den Gegner treffen KÖNNTE? Rein strukturell, kein konkretes Ziel/Betrag. */
+function structuralFaceDamagePotential(modes: EffectsWithTargets[]): boolean {
+  return modes.some(({ targets, effects }) =>
+    effects.some((effect) => {
+      if (effect.kind !== "dealDamage" && effect.kind !== "loseLife") return false;
+      const recipient = effect.kind === "dealDamage" ? effect.to : effect.who;
+      if (recipient === "opponent" || recipient === "eachOpponent") return true;
+      if (typeof recipient === "object" && "target" in recipient) {
+        const spec = targets?.[recipient.target];
+        return spec?.kind === "player" || spec?.kind === "unitOrPlayer";
+      }
+      return false;
+    }),
+  );
+}
+
+/** Vorfilter-Test für einen rohen (ggf. noch nicht modus-vervollständigten) castSpell-/activateAbility-Kandidaten. */
+function actionMightDealFaceDamage(pool: CardPool, state: GameState, action: PlayerAction): boolean {
+  if (action.kind === "castSpell") {
+    const card = state.cards[action.cardInstanceId];
+    if (!card) return false;
+    const modes = cardEffectModes(pool, card.definitionId);
+    return modes !== undefined && structuralFaceDamagePotential(modes);
+  }
+  if (action.kind === "activateAbility") {
+    const modes = abilityEffectModes(pool, state, action.sourceInstanceId, action.abilityIndex);
+    return modes !== undefined && structuralFaceDamagePotential(modes);
+  }
+  return false;
+}
+
+/** Hat die Hand noch eine strukturell face-damage-fähige Karte (unabhängig von aktueller Bezahlbarkeit)? Steuert, ob sich weiteres Mana-Tappen im Rollout überhaupt lohnen kann. */
+function handHasPotentialFaceDamageSpell(pool: CardPool, state: GameState, player: PlayerId): boolean {
+  return state.players[player].hand.some((id) => {
+    const card = state.cards[id];
+    if (!card) return false;
+    const modes = cardEffectModes(pool, card.definitionId);
+    return modes !== undefined && structuralFaceDamagePotential(modes);
+  });
+}
+
+/** Optimistische Obergrenze des diesen Zug noch erzielbaren Kampfschadens (ignoriert Blocker bewusst -> nur als billiger Vorfilter, NIE für die eigentliche Lethal-Entscheidung). */
+function potentialAttackPower(pool: CardPool, state: GameState, player: PlayerId): number {
+  let total = 0;
+  for (const id of state.players[player].battlefield) {
+    const card = state.cards[id];
+    const ps = card?.permanentState;
+    if (!ps || !card || pool[card.definitionId]?.type !== "unit") continue;
+    if (ps.combat?.role === "attacker") {
+      total += Math.max(effectiveStats(pool, state, id).power, 0);
+      continue;
+    }
+    if (ps.combat?.role === "blocker" || ps.tapped) continue;
+    if (ps.summoningSick && !hasEffectiveKeyword(pool, state, id, "swift")) continue;
+    total += Math.max(effectiveStats(pool, state, id).power, 0);
+  }
+  return total;
+}
+
+/**
+ * Billiger Vorfilter OHNE jede Simulation: Nur wenn das optimistische
+ * Angriffs-Schadenspotenzial allein schon reicht, ODER mindestens eine
+ * strukturell face-damage-fähige Aktion aktuell legal ist, lohnt sich der
+ * (teurere) simulierte Lethal-Check überhaupt. Bewusst optimistisch (nie ein
+ * falsches Negativ) — ein "false positive" hier kostet nur ein wenig Budget
+ * in den beiden Rollouts, ein falsches Negativ würde einen echten Kill
+ * verpassen.
+ */
+function mightBeLethalThisTurn(pool: CardPool, state: GameState, player: PlayerId, legal: PlayerAction[]): boolean {
+  const opponent = otherPlayerId(player);
+  const life = state.players[opponent].life;
+  if (life <= 0) return true;
+  if (potentialAttackPower(pool, state, player) >= life) return true;
+  return legal.some((action) => actionMightDealFaceDamage(pool, state, action));
+}
+
+/** Effekte eines KONKRETEN Cast-/Activate-Kandidaten (Modus bereits gewählt, falls modal); undefined = kein Cast/Activate oder Modus noch offen. */
+function candidateEffects(pool: CardPool, state: GameState, action: PlayerAction): Effect[] | undefined {
+  if (action.kind === "castSpell") {
+    const card = state.cards[action.cardInstanceId];
+    const def = card && pool[card.definitionId];
+    if (!def || def.type !== "spell") return undefined;
+    if (def.modes && def.modes.length > 0) {
+      if (action.chosenMode === undefined) return undefined;
+      return def.modes[action.chosenMode]?.effects ?? [];
+    }
+    return def.effects ?? [];
+  }
+  if (action.kind === "activateAbility") {
+    const ability = abilitiesOf(pool, state, action.sourceInstanceId)[action.abilityIndex];
+    if (!ability || ability.kind !== "activated") return undefined;
+    if (ability.modes && ability.modes.length > 0) {
+      if (action.chosenMode === undefined) return undefined;
+      return ability.modes[action.chosenMode]?.effects ?? [];
+    }
+    return ability.effects ?? [];
+  }
+  return undefined;
+}
+
+/** Zielt ein KONKRETER Cast-/Activate-Kandidat (chosenTargets bereits belegt) mit dealDamage/loseLife auf den Gegner-SPIELER (Face)? */
+function dealsFaceDamageToOpponent(pool: CardPool, state: GameState, opponent: PlayerId, action: PlayerAction): boolean {
+  const effects = candidateEffects(pool, state, action);
+  if (!effects) return false;
+  const chosenTargets = action.kind === "castSpell" || action.kind === "activateAbility" ? action.chosenTargets : [];
+  return effects.some((effect) => {
+    if (effect.kind !== "dealDamage" && effect.kind !== "loseLife") return false;
+    const recipient = effect.kind === "dealDamage" ? effect.to : effect.who;
+    if (recipient === "opponent" || recipient === "eachOpponent") return true;
+    if (typeof recipient === "object" && "target" in recipient) {
+      const target = chosenTargets[recipient.target];
+      return target?.kind === "player" && target.playerId === opponent;
+    }
+    return false;
+  });
+}
+
+/** Erster (Modus-vervollständigter, falls nötig) Face-Damage-Kandidat aus `legal` — analog zum Modal-Muster in chooseBestCastOrActivateHard. */
+function bestFaceDamageCandidate(
+  engine: RulesEngine,
+  pool: CardPool,
+  state: GameState,
+  opponent: PlayerId,
+  legal: PlayerAction[],
+): PlayerAction | undefined {
+  for (const action of legal) {
+    if (action.kind !== "castSpell" && action.kind !== "activateAbility") continue;
+    if (action.chosenMode === undefined) {
+      const completions = expandModalCandidate(engine, pool, state, action);
+      if (completions !== undefined) {
+        const hit = completions.find((c) => dealsFaceDamageToOpponent(pool, state, opponent, c));
+        if (hit) return hit;
+        continue;
+      }
+    }
+    if (dealsFaceDamageToOpponent(pool, state, opponent, action)) return action;
+  }
+  return undefined;
+}
+
+function isManaAbilityCandidate(
+  pool: CardPool,
+  state: GameState,
+  action: Extract<PlayerAction, { kind: "activateAbility" }>,
+): boolean {
+  const ability = abilitiesOf(pool, state, action.sourceInstanceId)[action.abilityIndex];
+  return ability?.kind === "activated" && !!ability.isManaAbility;
+}
+
+/**
+ * Simuliert EINE "Alles-rein"-Reihenfolge vollständig (bis Sieg/Niederlage,
+ * Rundenende des Spielers, Budget- oder Schritt-Erschöpfung) und liefert den
+ * ERSTEN darin tatsächlich angewendeten Schritt plus ob die Probe lethal
+ * endete. "burnFirst": bei jedem eigenen Priority-Fenster zuerst versuchen,
+ * einen Face-Damage-Kandidaten zu casten/aktivieren bzw. dafür Mana zu
+ * tappen; erst wenn nichts mehr geht, weiterpassen (das bringt die Probe zum
+ * declareAttackers-Fenster). "attackFirst": vor dem Alpha-Strike NICHT
+ * casten (nur weiterpassen), danach genau wie "burnFirst" (deckt den Fall
+ * ab, dass ein Angreifer z.B. selbst eine benötigte Mana-Fähigkeit hat und
+ * das Tappen zum Angreifen ihn sonst verbraucht hätte — hier bewusst
+ * zweitrangig, aber billig genug, um als zweite Probe mitzunehmen).
+ */
+function simulateLethalRollout(
+  engine: RulesEngine,
+  pool: CardPool,
+  state: GameState,
+  player: PlayerId,
+  ordering: "burnFirst" | "attackFirst",
+  budget: SimBudget,
+): { firstAction: PlayerAction; lethal: boolean } | undefined {
+  const opponent = otherPlayerId(player);
+  let current = state;
+  let firstAction: PlayerAction | undefined;
+  let attackedThisCombat = false;
+
+  const apply = (action: PlayerAction): boolean => {
+    if (budget.remaining <= 0) return false;
+    budget.remaining -= 1;
+    const result = safeApplyForSim(engine, current, action);
+    if (result.error) return false;
+    if (firstAction === undefined) firstAction = action;
+    current = result.state;
+    return true;
+  };
+
+  for (let step = 0; step < LETHAL_MAX_PLAN_STEPS; step++) {
+    if (current.winner !== undefined) break;
+    if (current.players[opponent].life <= 0) break;
+    if (current.activePlayer !== player) break; // Zugwechsel -> "diesen Zug lethal" ist erledigt/gescheitert
+    if (current.step === "cleanup") break; // nichts mehr zu entscheiden diesen Zug
+
+    if (current.pendingDecision) {
+      const decision = current.pendingDecision;
+      const candidates = engine
+        .getLegalActions(current, decision.player)
+        .filter((a): a is Extract<PlayerAction, { kind: "resolveDecision" }> => a.kind === "resolveDecision");
+      if (candidates.length === 0) break;
+      if (!apply(pickDecisionForSim(pool, current, decision, candidates))) break;
+      continue;
+    }
+
+    if (current.priorityPlayer === undefined) {
+      if (current.step === "declareAttackers" && current.activePlayer === player && !attackedThisCombat) {
+        const attackerIds = engine
+          .getLegalActions(current, player)
+          .filter((a): a is Extract<PlayerAction, { kind: "declareAttackers" }> => a.kind === "declareAttackers")
+          .flatMap((a) => a.attackers);
+        attackedThisCombat = true;
+        if (!apply({ kind: "declareAttackers", player, attackers: attackerIds })) break;
+        continue;
+      }
+      if (current.step === "declareBlockers" && current.activePlayer === player) {
+        // Verteidigungsmodell "Gegner blockt gut" (dieselbe Heuristik wie das
+        // "bestBlocks"-Gegnermodell in chooseAttackActionHard) — ein hier
+        // gefundener Kill soll NICHT auf optimistischem Nicht-Blocken beruhen.
+        if (budget.remaining <= 0) break;
+        budget.remaining -= 1;
+        const result = engine.applyAction(current, heuristicBlockAction(pool, current, opponent));
+        if (result.error) break;
+        current = result.state;
+        continue;
+      }
+      break; // kein bekanntes Aktionsfenster mehr -> Probe hier beenden
+    }
+
+    if (current.priorityPlayer !== player) {
+      // Kein Instant-Speed-Gegenspiel modelliert (Moduldoku/rules-engine.md 9.1) -> weiterpassen.
+      if (!apply({ kind: "passPriority", player: current.priorityPlayer })) break;
+      continue;
+    }
+
+    const ownLegal = engine.getLegalActions(current, player);
+    const wantBurnNow = ordering === "burnFirst" || attackedThisCombat;
+    if (wantBurnNow) {
+      const burnCandidate = bestFaceDamageCandidate(engine, pool, current, opponent, ownLegal);
+      if (burnCandidate) {
+        if (apply(burnCandidate)) continue;
+        break;
+      }
+      if (handHasPotentialFaceDamageSpell(pool, current, player)) {
+        const manaTap = ownLegal.find(
+          (a): a is Extract<PlayerAction, { kind: "activateAbility" }> =>
+            a.kind === "activateAbility" && isManaAbilityCandidate(pool, current, a),
+        );
+        if (manaTap) {
+          if (apply(manaTap)) continue;
+          break;
+        }
+      }
+    }
+    if (!apply({ kind: "passPriority", player })) break;
+  }
+
+  if (firstAction === undefined) return undefined;
+  const lethal = current.winner === player || current.players[opponent].life <= 0;
+  return { firstAction, lethal };
+}
+
+/**
+ * Öffentlicher Einstieg des Lethal-Checks (siehe Abschnittsdoku oben). Nur
+ * im eigenen Zug relevant (Alpha-Strike-Kombos ergeben nur dort Sinn); alle
+ * anderen Rückgaben `undefined` bedeuten "kein Lethal-Plan gefunden/versucht
+ * -> normale 1-Ply-Wahl entscheidet unverändert weiter".
+ */
+function findLethalAction(
+  engine: RulesEngine,
+  pool: CardPool,
+  state: GameState,
+  legal: PlayerAction[],
+  player: PlayerId,
+  budget: SimBudget,
+): PlayerAction | undefined {
+  if (state.activePlayer !== player) return undefined;
+  if (state.pendingDecision) return undefined; // eigene Top-Level-Decisions sind bereits vorher behandelt
+  if (budget.remaining < LETHAL_MIN_BUDGET) return undefined;
+  const opponent = otherPlayerId(player);
+  if (state.players[opponent].life <= 0 || state.winner !== undefined) return undefined;
+  if (!mightBeLethalThisTurn(pool, state, player, legal)) return undefined;
+
+  const burnFirst = simulateLethalRollout(engine, pool, state, player, "burnFirst", budget);
+  if (burnFirst?.lethal) return burnFirst.firstAction;
+  const attackFirst = simulateLethalRollout(engine, pool, state, player, "attackFirst", budget);
+  if (attackFirst?.lethal) return attackFirst.firstAction;
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------

@@ -913,6 +913,16 @@ body {
   opacity: 0.9;
 }
 
+/* Nutzer-Feedback 2026-08-02: zweiter Button "Weiter bis was passiert" (s.
+   components/decisionSpotlight.ts) - eigener Wrapper, damit beide Buttons bei
+   schmalen Breiten (s. @media unten) sauber untereinander umbrechen, statt
+   sich mit `.decision-spotlight-text` ein Flex-Item zu teilen. */
+.decision-spotlight-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
 .decision-spotlight-skip-btn {
   flex: 0 0 auto;
   font-weight: 700;
@@ -920,6 +930,12 @@ body {
   background: var(--good);
   border-color: var(--good);
   color: #0d2415;
+}
+
+.decision-spotlight-skip-until-btn {
+  flex: 0 0 auto;
+  font-weight: 700;
+  padding: 8px 18px;
 }
 
 @keyframes decision-spotlight-pulse {

@@ -1,6 +1,21 @@
 # Frontend-Status
 
-Status: v0.1.33 (frontend-engineer) — 2026-07-22
+Status: v0.1.34 (frontend-engineer) — 2026-08-02
+**documenter-Hinweis 2026-08-02:** bis einschließlich v0.1.33 ließ sich die
+komplette `src/ui/__tests__/`-Suite in dieser Umgebung offenbar zeitweise gar
+nicht ausführen — `jsdom@29.1.1` zog `html-encoding-sniffer@6.0.0` (CJS), das
+wiederum das reine ESM-Paket `@exodus/bytes` per `require()` einband (ESM/CJS-
+Interop-Fehler). v0.1.34 (Teil 2, s. eigener Abschnitt unten) pinnt `jsdom`
+jetzt exakt auf `26.1.0` in `package.json` und behebt das. Ein echter
+`npx vitest run` lieferte danach **44 von 45 Testdateien / 213 von 214
+Einzeltests grün** (1 Testdatei weiterhin bewusst per `describe.skip`
+übersprungen: `color-balance.analysis.test.ts`, unverändert) — diese Zahl
+ersetzt die zuvor in den v0.1.17-v0.1.33-Abschnitten dokumentierten „177
+Tests grün"-Angaben als aktuellen Gesamtstand; ob/wann genau die jsdom-Suite
+zwischen dem v0.1.33-Sweep (2026-07-22) und jetzt tatsächlich unausführbar
+wurde, konnte dieser Sweep mangels eigenem Shell-Zugriff zum damaligen
+Zeitpunkt nicht rekonstruieren — die älteren Abschnitte bleiben als
+historischer Stand unverändert stehen.
 Grundlage: `docs/rules-engine.md` (v0.3.3, Entscheidungen 9.10-9.15 —
 **documenter-Korrektur 2026-07-20:** hier stand zuvor veraltet „v0.3.1,
 Entscheidungen 9.10-9.13 + Nachtrag"; die beiden zusätzlichen Entscheidungen
@@ -23,6 +38,30 @@ Stufen `easy`/`medium`/`hard`; `chooseAction` (`src/ai/simpleBot.ts`, v1 =
 Stufe "medium") bleibt weiterhin exportiert; **seit v0.1.17** liefert
 `src/ai/difficulty.ts` zusätzlich `BOT_DISPLAY_NAMES` — erfundene
 Tavernen-Namen der drei Bot-Stufen fürs UI, s. dortiger Abschnitt).
+
+**v0.1.34 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
+zwei unabhängige Teile. **Teil 1 — Nutzer-Feedback** „muss bei JEDEM
+Priority-Fenster einzeln passen, nur weil eine Handkarte theoretisch castbar
+bleibt, die gerade gar nicht gespielt werden soll": neuer, zusätzlicher
+Button „Weiter bis was passiert" neben dem bestehenden „Überspringen"-Button
+im Entscheidungs-Spotlight-Banner (`components/decisionSpotlight.ts`,
+verdrahtet über `store.ts#passUntilSomethingHappens`). Passt für den
+auslösenden Spieler automatisch mehrfach hintereinander, bis entweder dessen
+eigene nächste Hauptphase (main1/main2) erreicht ist oder ein neues
+Stack-Objekt auftaucht, das vorher nicht da war (`store.ts#
+shouldContinuePassingUntilSomethingHappens`) — ein einmaliger, bewusst
+ausgelöster Vorgang, kein dauerhafter „immer automatisch passen"-Modus.
+Ändert **nichts** an `hasRealPriorityChoice`/`isRealPriorityCandidate` selbst
+(ein castbarer Zauber bleibt weiterhin für immer eine „echte Wahl" — sonst
+würde z. B. das Spotlight-Banner selbst nie mehr erscheinen); das bestehende
+Sicherheitslimit gegen Endlosschleifen (`MAX_AUTO_HUMAN_ACTIONS_PER_CYCLE`)
+greift unverändert auch für diesen Vorgang. **Teil 2 — Test-Infrastruktur:**
+`jsdom` in `package.json` exakt auf `26.1.0` gepinnt (behebt einen
+ESM/CJS-Interop-Fehler mit neueren `jsdom`-Versionen, der die komplette
+`src/ui/__tests__/`-Suite unausführbar gemacht hatte, s. Kopfzeilen-Hinweis
+oben), plus ein von 15000ms auf 25000ms erhöhtes Test-Timeout in
+`battlefield-grouping.test.ts` (unter voller Suite-Last beobachtete Laufzeit
+~21,5s statt ~12s isoliert — Ressourcen-Kontention, kein Bug).
 
 **v0.1.33 auf einen Blick** (Details im gleichnamigen Abschnitt unten):
 Nutzer-Auftrag „die aktuelle Spielphase soll deutlicher hervorgehoben werden"
@@ -617,7 +656,7 @@ passierbar bleibt).
 | `components/mainMenu.ts` | **Neu in v0.1.17**: Hauptmenü/Titelbildschirm (`mainMenuScreen`), vier Optionen („Neues Spiel"/„Deck Builder"/„Tutorial"/„Anleitung") + direkt gegen den Store verdrahtete Musik-/SFX-Umschalter (analog zu `deckBuilder.ts`) |
 | `components/opponentSelect.ts` | **Neu in v0.1.17**: Gegner-Auswahl (`opponentSelectScreen`) zwischen „Neues Spiel" und dem eigentlichen Deckbau — eine der drei KI-Schwierigkeitsstufen (`BOT_DIFFICULTIES`) oder „2 Spieler" (Hotseat) |
 | `components/rulesGuidePanel.ts` | **Neu in v0.1.17**: „Anleitung"-Panel (Kartentypen, eingebettetes Keyword-Glossar via `keywordGlossaryPanel.ts#keywordGlossaryList`, Spiel-/Deckbau-Tipps) — reines Popover-Overlay über dem Hauptmenü, kein eigener `AppPhase`-Screen |
-| `components/decisionSpotlight.ts` | **Neu in v0.1.18**: `decisionSpotlightBanner` — auffälliges, nicht-blockierendes Banner für echte Priority-Entscheidungen (s. eigener Abschnitt unten) |
+| `components/decisionSpotlight.ts` | **Neu in v0.1.18**: `decisionSpotlightBanner` — auffälliges, nicht-blockierendes Banner für echte Priority-Entscheidungen (s. eigener Abschnitt unten); **seit v0.1.34** zusätzlicher vierter Parameter `onSkipUntilSomethingHappens`, neuer Button `.decision-spotlight-skip-until-btn` neben dem bisherigen `.decision-spotlight-skip-btn` (s. eigener Abschnitt unten) |
 | `components/sceneArt.ts` | **Neu in v0.1.17**: `initBoardBackdrop()` (viewport-breites, body-eigenes `<img>` für den Taverne-Hintergrund), `botAvatarImg(difficulty)` (großformatiges Porträt) — gleiches Lade-/Fallback-Muster wie `cardArt.ts`, s. `docs/scene-art-brief.md`; **seit v0.1.22** zusätzlich `humanAvatarPlaceholder(displayName)` (CSS-only-Platzhalter für einen menschlich gesteuerten aktiven Spieler, kein Bild-Asset, s. eigener Abschnitt unten) — `botAvatarImg` wird jetzt für JEDEN bot-gesteuerten aktiven Spieler aufgerufen, nicht mehr nur für player2 |
 | `components/turnFlowPanel.ts` | **Neu in v0.1.22** (s. eigener Abschnitt unten): `turnFlowPanel(props)` — vertikale 6-Phasen-Schritt-Kette (gruppiert aus den 12 rohen `TurnStep`-Werten) + Zugnummer/aktiver Spieler/Priority, ersetzt die bisherigen reinen Info-Texte der `.status-bar` |
 | `musicPlayer.ts` | **Neu in v0.1.17** (fest verdrahtete Einzeldatei), **umgebaut in v0.1.18** (Auto-Discovery-Playlist über `/music/index.json`): eigenes Singleton-`<audio>`-Element auf Body-Ebene (überlebt jeden `render()`-Rebuild), abonniert sich per `store.ts#subscribe`, startet auf die erste Nutzerinteraktion (Browser-Autoplay-Policy) |
@@ -627,7 +666,7 @@ passierbar bleibt).
 | `components/savedDecksPanel.ts` | **Neu in v0.1.20** (Commit `9b81338`, s. eigener Abschnitt unten): `saveDeckForm`/`loadDeckPanel` — benannte Deck-Speicherfunktion (Name + optionale Beschreibung, beliebig viele Slots) |
 | `components/deckAnalysis.ts` | **Neu in v0.1.20** (Commit `9b81338`, s. eigener Abschnitt unten): `deckAnalysisPanel` — Mana-Kurve/Farb-/Typverteilung der aktuellen Deckliste, reine CSS-Balken |
 | `aiDecks.ts` | **Neu in v0.1.21** (Commit `5654ec1`, s. eigener Abschnitt unten): `AI_DECKS` — 7 vom card-designer kuratierte Archetyp-Decklisten (je 60 Karten, echte Kopienzahlen/Kurve statt Zufall) + `pickRandomAiDeck()`, reine Daten/Auswahlfunktion ohne Engine-Bezug |
-| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten); **seit v0.1.9** zusätzlich `botDifficulty: Record<PlayerId, BotDifficulty>` + `getBotDifficulty`/`setBotDifficulty` (Persistenz analog zu `isBotControlled`), `runBotStep` ruft jetzt `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])` (aus `../ai`) statt des bisherigen `chooseAction`; **seit v0.1.11** zusätzlich der komplette Tutorial-Zustand (s. eigener Abschnitt unten): `startTutorial()` (fixe Decks aus `tutorialDeck.ts` + fixer Seed, markiert Spieler 2 bot-gesteuert auf "medium", merkt sich dessen vorherige Bot-Einstellung), `isTutorialActive`/`getTutorialPendingTip`/`dismissTutorialTip`/`isTutorialHelpOpen`/`toggleTutorialHelp`/`closeTutorialHelp`, `maybeQueueTutorialTips` (nach jeder Zustandsänderung während einer Tutorial-Partie: erkennt Schlüsselmomente rein aus der bereits ausgeführten `PlayerAction`/dem Folge-`GameState`, keine neue Regellogik), `scheduleBotStepIfNeeded` pausiert zusätzlich, solange eine Tutorial-Sprechblase aussteht; `backToDeckbuilder()` beendet den Tutorial-Modus sauber (stellt Spieler 2s vorherige Bot-Einstellung wieder her); **seit v0.1.17** komplett umbenannt/erweitert zu `backToMainMenu()` (führt IMMER zum Hauptmenü, s. eigener Abschnitt unten) + neue Hauptmenü-Navigation `startNewGameFlow`/`openDeckBuilderStandalone`/`chooseOpponentBot`/`chooseOpponentHotseat`, zusätzlich `isMusicEnabled`/`toggleMusicEnabled`/`isSfxEnabled`/`toggleSfxEnabled` (Persistenz analog zu den Decklisten); **seit v0.1.18** zusätzlich `setMusicTracks`/`getMusicCurrentTrack`/`getMusicRepeatMode`/`selectMusicTrack`/`advanceToNextMusicTrack` (Playlist-Zustand, s. `musicPlayer.ts`) sowie der komplette Auto-Pass-Mechanismus (`advanceAutomation`/`autoResolvableActionFor`/`applyAutomaticAction`/`hasRealPriorityChoice`/`isRealPriorityCandidate`, s. eigener Abschnitt unten); **seit v0.1.19** `isRealPriorityCandidate` schließt reine Mana-Fähigkeiten aus (Bugfix, s. eigener Abschnitt unten); **seit v0.1.20** zusätzlich die benannte Deck-Persistenz (`SavedDeck`/`saveDeckAs`/`loadSavedDeck`/`deleteSavedDeck`/`listSavedDecks`) und der Deck-Analyse-Panel-Zustand (`isDeckAnalysisPanelOpen`/`toggleDeckAnalysisPanel`); **seit v0.1.21 unverändert** — `pickRandomAiDeck()` (`aiDecks.ts`) wird direkt von `render.ts` aufgerufen, kein eigener Store-Zustand nötig (s. eigener Abschnitt unten) |
+| `store.ts` | Einzige Engine-Instanz (`createRulesEngine(starterSet)`), hält `GameState` + UI-Modus, kapselt `dispatch`/`legalActions`, Event→Log-Übersetzung; **seit v0.1.5** zusätzlich die App-Ebene-Phase (`AppPhase`: Deckbau vs. Spiel, s.u.) + gesammelte Decklisten, `initGame(deckP1, deckP2, seed?)` nimmt jetzt zwei Decklisten entgegen statt intern immer `buildDemoDeck` zu rufen; **seit v0.1.7** zusätzlich die KI-Anbindung: `isBotControlled`/`setBotControlled` (`Set<PlayerId>`, s. eigener Abschnitt unten), ein automatischer Zug-Loop (`triggerBotLoop`/`scheduleBotStepIfNeeded`/`runBotStep`), der nach jeder menschlichen `dispatch()`-Aktion und nach `initGame()` prüft, ob der aktuelle Akteur (`actingPlayer`, spiegelt exakt `render.ts#autoEnterForcedModes`/`src/ai/__tests__/simpleBot.test.ts#actingPlayer`) bot-gesteuert ist, sowie `isBotThinking()`/`setBotMoveDelayMs()` für Sichtbarkeit/Timing/Tests; **seit v0.1.8** speichert `confirmDeck()` die bestätigte Deckliste zusätzlich per `localStorage.setItem` (defensiv try/catch, s. eigener Abschnitt unten) und der Start-Wert von `decklists` lädt per `localStorage.getItem` als Fallback, falls der In-Memory-Zustand (frisch nach einem Modul-/Seiten-Reload) leer ist — `concede` selbst brauchte KEINE Store-Änderung (die Aktion existierte schon, s. Abschnitt unten); **seit v0.1.9** zusätzlich `botDifficulty: Record<PlayerId, BotDifficulty>` + `getBotDifficulty`/`setBotDifficulty` (Persistenz analog zu `isBotControlled`), `runBotStep` ruft jetzt `chooseActionForDifficulty(engine, pool, state, actor, botDifficulty[actor])` (aus `../ai`) statt des bisherigen `chooseAction`; **seit v0.1.11** zusätzlich der komplette Tutorial-Zustand (s. eigener Abschnitt unten): `startTutorial()` (fixe Decks aus `tutorialDeck.ts` + fixer Seed, markiert Spieler 2 bot-gesteuert auf "medium", merkt sich dessen vorherige Bot-Einstellung), `isTutorialActive`/`getTutorialPendingTip`/`dismissTutorialTip`/`isTutorialHelpOpen`/`toggleTutorialHelp`/`closeTutorialHelp`, `maybeQueueTutorialTips` (nach jeder Zustandsänderung während einer Tutorial-Partie: erkennt Schlüsselmomente rein aus der bereits ausgeführten `PlayerAction`/dem Folge-`GameState`, keine neue Regellogik), `scheduleBotStepIfNeeded` pausiert zusätzlich, solange eine Tutorial-Sprechblase aussteht; `backToDeckbuilder()` beendet den Tutorial-Modus sauber (stellt Spieler 2s vorherige Bot-Einstellung wieder her); **seit v0.1.17** komplett umbenannt/erweitert zu `backToMainMenu()` (führt IMMER zum Hauptmenü, s. eigener Abschnitt unten) + neue Hauptmenü-Navigation `startNewGameFlow`/`openDeckBuilderStandalone`/`chooseOpponentBot`/`chooseOpponentHotseat`, zusätzlich `isMusicEnabled`/`toggleMusicEnabled`/`isSfxEnabled`/`toggleSfxEnabled` (Persistenz analog zu den Decklisten); **seit v0.1.18** zusätzlich `setMusicTracks`/`getMusicCurrentTrack`/`getMusicRepeatMode`/`selectMusicTrack`/`advanceToNextMusicTrack` (Playlist-Zustand, s. `musicPlayer.ts`) sowie der komplette Auto-Pass-Mechanismus (`advanceAutomation`/`autoResolvableActionFor`/`applyAutomaticAction`/`hasRealPriorityChoice`/`isRealPriorityCandidate`, s. eigener Abschnitt unten); **seit v0.1.19** `isRealPriorityCandidate` schließt reine Mana-Fähigkeiten aus (Bugfix, s. eigener Abschnitt unten); **seit v0.1.20** zusätzlich die benannte Deck-Persistenz (`SavedDeck`/`saveDeckAs`/`loadSavedDeck`/`deleteSavedDeck`/`listSavedDecks`) und der Deck-Analyse-Panel-Zustand (`isDeckAnalysisPanelOpen`/`toggleDeckAnalysisPanel`); **seit v0.1.21 unverändert** — `pickRandomAiDeck()` (`aiDecks.ts`) wird direkt von `render.ts` aufgerufen, kein eigener Store-Zustand nötig (s. eigener Abschnitt unten); **seit v0.1.34** zusätzlich `passUntilSomethingHappens(player)` (exportiert) + interne `shouldContinuePassingUntilSomethingHappens`/`passUntilSomethingHappensRun` für den neuen „Weiter bis was passiert"-Button, konsultiert von `autoResolvableActionFor` (s. eigener Abschnitt unten) — ändert NICHTS an `hasRealPriorityChoice`/`isRealPriorityCandidate` selbst |
 | `types.ts` | `UiMode`-Union (rein UI-intern, kein Teil des `GameState`); **seit v0.1.5** zusätzlich `AppPhase` (Deckbau vs. Spiel, App-Ebene, ebenfalls kein Teil der Engine); **seit v0.1.6** neuer `CastSource`-Typ (spell/ability) + `UiMode`-Zweige `modeSelect`/verallgemeinerte `xInput`/`xTarget` (s. eigener Abschnitt unten); **seit v0.1.7 unverändert** — die KI-Zuordnung lebt bewusst nur in `store.ts` (s. dortige Begründung im Code-Kommentar, analog zur v0.1.5-`AppPhase`-Entscheidung); **seit v0.1.17** `AppPhase` komplett umgebaut auf vier Werte `mainMenu`/`opponentSelect`/`deckbuild`/`playing` (statt bisher nur Deckbau/Spiel), `deckbuild` trägt zusätzlich `mode: "newGame" | "standalone"` (s. eigener Abschnitt unten für den vollständigen Ablauf) |
 | `deck.ts` | `buildDemoDeck`: baut eine zufällige Demo-Deckliste aus dem `CardPool` (reine Daten); **seit v0.1.5** nicht mehr automatischer Partiestart, sondern der „Zufällig füllen"-Button im Deckbau-Screen; **seit v0.1.7 bis v0.1.20** zusätzlich Basis für „Zufälliges KI-Deck + weiter" im Deckbau-Screen von Spieler 2; **seit v0.1.21 überholt**: für BEIDE bot-gesteuerten Anwendungsfälle (Hauptmenü-Schnellstart UND „Zufälliges KI-Deck + weiter") liefert jetzt `aiDecks.ts#pickRandomAiDeck()` die Decklist, `buildDemoDeck` bedient nur noch den „Zufällig füllen"-Button des menschlichen Deckbaus |
 | `deckValidation.ts` | **Neu in v0.1.5**: reine UI-Validierung einer Deckliste (min. 40 Karten, max. 4 Kopien pro Nicht-Terrain-id, s. `src/model/cards.ts#Decklist`-Kommentar) — die Engine validiert das selbst nicht |
@@ -638,8 +677,8 @@ passierbar bleibt).
 | `h.ts` | Winziger Hyperscript-Helfer (kein Framework) |
 | `render.ts` | Zentrale Render-Funktion + Interaktionsverdrahtung (Klicks → `dispatch`/`setUiMode`); **seit v0.1.5** verzweigt `render()` zuerst nach `AppPhase` (Deckbau-Screen vs. `renderGameBoard`); **seit v0.1.6** neue `pendingDecision`-Zweige `mulligan`/`chooseMode`, neuer `modeSelect`-Zweig, verallgemeinerter `xInput`/`xTarget`-Zweig (spell + ability), neue Battlefield-Erkennung für modale/X-Kosten-Fähigkeiten; **seit v0.1.7** reicht `renderDeckBuilder` die neuen KI-Umschalter-Callbacks an `deckBuilderScreen` durch und `playerArea` reicht `isBotControlled(playerId)` an `playerPanel` durch (KI-Badge); **seit v0.1.8** reicht `playerArea` zusätzlich `onConcede` an `playerPanel` durch — `undefined`, solange `state.winner`/`hasLost`/`isBotControlled(playerId)` das verbieten (s. eigener Abschnitt unten), sonst ein Klick-Handler mit `window.confirm`-Bestätigung + `dispatch({ kind: "concede", player })`; **seit v0.1.9** reicht `renderDeckBuilder` zusätzlich `getBotDifficulty`/`setBotDifficulty` an `deckBuilderScreen` durch und `playerArea` reicht `botDifficultyLabel` (nur gesetzt, wenn `isBotControlled(playerId)`) an `playerPanel` durch; **seit v0.1.11** reicht `renderDeckBuilder` zusätzlich `onStartTutorial` (nur für player1 gesetzt) an `deckBuilderScreen` durch, `renderGameBoard` rendert bei aktivem Tutorial-Modus zusätzlich die aktuell anstehende Tutorial-Sprechblase (`tutorialTipBubble`, ganz oben) sowie bei Bedarf das Hilfe-Panel (`tutorialHelpPanel`), `statusBar` zeigt im Tutorial-Modus zusätzlich einen "?"-Hilfe-Button und beschriftet den bisherigen "Neues Spiel"-Button dort als "Zurück zum Hauptmenü"; **seit v0.1.17** `render()` verzweigt zusätzlich nach `mainMenu`/`opponentSelect`, `playerDisplayName()` liefert den erfundenen Bot-Namen statt der rohen `PlayerId`, `handZone` stellt jede Nicht-„player1"-Hand nur noch verdeckt dar (`hiddenHandZone`), `boardSection` rendert bei aktivem Bot-Gegner zusätzlich `opponentAvatarColumn`, `render()` selbst verpackt Rebuilds innerhalb einer laufenden Partie optional in `document.startViewTransition()` (`supportsViewTransitions`/`prefersReducedMotion`-Fallback), `computeLifePulse` trackt Lebenspunkt-Änderungen für den Puls-Effekt, neue Rollen-Erkennung `decidingPlayer`/`decisionSpotlightPlayer` (Auto-Pass-bewusst, s. eigener Abschnitt unten); **seit v0.1.18** `actionBanner` zeigt bei `decisionSpotlightPlayer(state, mode) !== undefined` das neue `decisionSpotlightBanner` statt/zusätzlich zum bisherigen kleinen „Priorität passen"-Button; **seit v0.1.21** beide Stellen, an denen automatisch ein Deck für einen bot-gesteuerten Spieler gebaut wird (`deckBuilderScreen`-`onConfirm`/`onAiQuickstart`), rufen `pickRandomAiDeck()` (`aiDecks.ts`) statt `buildDemoDeck` auf (s. eigener Abschnitt unten); **seit v0.1.22** `statusBar` zeigt die drei reinen Info-Texte ("Zug X · Step: Y"/"Aktiver Spieler: ..."/"Priority: ...") NICHT mehr, `boardSection` rendert die rechte Spalte jetzt IMMER (umbenannt von `opponentAvatarColumn` zu `turnFlowColumn`, s. eigener Abschnitt unten) mit dem Porträt/Platzhalter des `state.activePlayer` (statt fest player2) über dem neuen `turnFlowPanel` |
 | `components/*` | Einzelne Darstellungsbausteine (Kartenkacheln, Handkarten, Spieler-Panel, Stack, Log, Aktions-Banner); **seit v0.1.5** zusätzlich `deckBuilder.ts` (Deckbau-Screen); **seit v0.1.6** neue Panels in `actionPanels.ts` (`mulliganPanel`, `modeSelectPanel`, `chooseModeDecisionPanel`), `handCard.ts` mit neuem `offerModeFlow`/`onStartModeFlow`, `playerPanel.ts` mit `data-player`-Attribut (Testbarkeit); **seit v0.1.7** `deckBuilder.ts` mit KI-Umschalter (nur player2-Screen) + „Zufälliges KI-Deck + weiter"-Button, `playerPanel.ts` mit optionalem „KI"-Badge (`botControlled`-Option); **seit v0.1.8** `playerPanel.ts` mit optionalem „Aufgeben"-Button (`onConcede`-Option, `data-testid="concede-<player>"` für Tests); **seit v0.1.9** `deckBuilder.ts` mit Schwierigkeits-Dropdown (`.deckbuilder-ai-difficulty-select`, nur bei aktiver KI-Steuerung), `playerPanel.ts` mit optionalem zweiten Bot-Badge (`botDifficultyLabel`-Option, `.badge-bot-difficulty`); **seit v0.1.10** neuer gemeinsamer Baustein `manaCost.ts` (`manaCostBadge`, baut die Mana-Pip-Kopfzeile aus `cardInfo.ts#manaCostPips`), `handCard.ts`/`cardTile.ts`/`deckBuilder.ts` (`poolRow`) komplett auf das neue `card-frame-*`-Kartenrahmen-Layout umgebaut (s. eigener Abschnitt unten); **seit v0.1.11** `deckBuilder.ts` mit auffälligerer KI-Umschalter-Box (Überschrift + Hinweistext) und neuer "Tutorial starten"-Box (nur player1-Screen), neuer Baustein `tutorialOverlay.ts` (`tutorialTipBubble`, `tutorialHelpButton`, `tutorialHelpPanel`) für den Tutorial-Modus (s. eigener Abschnitt unten); **seit v0.1.17** neue Bausteine `mainMenu.ts`/`opponentSelect.ts`/`rulesGuidePanel.ts`/`sceneArt.ts`/`sfxToggle.ts` (s. eigene Tabellenzeilen oben), `deckBuilder.ts` bietet im `mode: "standalone"` statt „Weiter"/„Spiel starten" einen „Zurück zum Hauptmenü"-Button; **seit v0.1.18** neuer Baustein `decisionSpotlight.ts`, `musicPanel.ts` löst den bisherigen einfachen Mute-Button ab; **seit v0.1.20** `deckBuilder.ts` zusätzlich mit „Deck leeren"-Button sowie den neu eingebundenen Bausteinen `savedDecksPanel.ts`/`deckAnalysis.ts` (s. eigene Tabellenzeilen oben) |
-| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten); **seit v0.1.11** `.deckbuilder-footer` jetzt `position: sticky` (bleibt beim Pool-Scrollen sichtbar), größere/auffälligere `.deckbuilder-ai-toggle*`-Regeln (+ neue `-heading`/`-hint`-Klassen), neue `.deckbuilder-tutorial-box*` sowie `.tutorial-tip-bubble*`/`.tutorial-help-btn`/`.tutorial-help-backdrop`/`.tutorial-help-panel*` (s. eigener Abschnitt unten); **seit v0.1.17** großer Zuwachs: `.main-menu-*`/`.opponent-select-*`/`.rules-guide-*` (neue Screens), `.board-backdrop-img*` (viewport-breiter Taverne-Hintergrund), `.board-opponent-avatar*` (220px-Avatar-Spalte), `.board` selbst mit neuer Holzmaserungs-/Kerzenschein-Glow-Atmosphäre, `.hand-zone-hidden*` (verdeckte Gegner-Hand), `.player-area-deciding` (Rahmen-Hervorhebung), `player-panel`-Lebenspunkt-Puls-Keyframes, `.tutorial-glow` (Puls-Highlight); **seit v0.1.18** `.decision-spotlight-*`, `.music-panel-*` (löst `.music-toggle-btn`-Popover-losen Vorgänger ab); **seit v0.1.20** neue `.deckbuilder-save-deck-btn`/`.deckbuilder-load-deck-btn`/`.save-deck-*`/`.load-deck-*`/`.deckbuilder-analysis*`/`.deck-analysis-*`/`.deckbuilder-clear-btn`; **seit v0.1.22** `.board-opponent-avatar` aufgeteilt in `.board-turn-flow-column` (äußerer Wrapper, immer gerendert) + `.board-active-avatar` (Avatar-Box darin, umbenannt), neue `.board-active-avatar-human*` (Menschen-Platzhalter) und `.turn-flow-*` (Schritt-Kette/-Knoten/-Meta, s. eigener Abschnitt unten); die `max-width: 900px`-Media-Query blendet die rechte Spalte nicht mehr komplett aus, sondern stapelt sie unter `.board` |
-| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten); **seit v0.1.9** zusätzlich `vs-bot-difficulty.test.ts` (Schwierigkeitsstufen-Dropdown + komplette Partie mit Stufe „hard", s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `selectValue` (`<select>`-Interaktion); **seit v0.1.11** zusätzlich `tutorial.test.ts` (Tutorial-Start bis zur ersten wegklickbaren Sprechblase + Hilfe-Panel + Rückkehr zum Hauptmenü, s. eigener Abschnitt unten); **seit v0.1.17** die bisherige Golden-Path-Verifikation wurde als dauerhafte Datei `golden-path.test.ts` benannt und geht jetzt über das neue Hauptmenü statt direkt im Deckbau zu starten (`.main-menu-new-game-btn` → `.opponent-select-hotseat-btn`, s. eigener Abschnitt unten), neuer `main-menu.test.ts` (die drei neu hinzugekommenen Hauptmenü-Klickpfade: KI-Schnellstart über `opponentSelect`, eigenständiger „Deck Builder"-Modus, „Zurück zum Hauptmenü" aus einer laufenden Partie), neuer `rules-guide.test.ts`; `vs-bot.test.ts`/`vs-bot-difficulty.test.ts`/`tutorial.test.ts` decken weiterhin den bisherigen Ablauf NACH dem Hauptmenü ab, jetzt jeweils über „Neues Spiel" → „2 Spieler"/KI-Wahl erreicht |
+| `style.css` | Funktionales Layout, dunkles Theme, Farbcodierung nach Manafarbe; **seit v0.1.6** `.mode-select-list`/`.mode-select-btn`; **seit v0.1.7** `.deckbuilder-ai-toggle`/`.deckbuilder-ai-toggle-label`/`.deckbuilder-ai-quickstart-btn`/`.badge-bot`; **seit v0.1.8** `.btn-concede`; **seit v0.1.9** `.badge-bot-difficulty`/`.deckbuilder-ai-difficulty-label`/`.deckbuilder-ai-difficulty-select`; **seit v0.1.10** komplett neues, gemeinsames Kartenrahmen-Layout (`.card-frame-header`/`-name`/`-cost`/`-frame`/`-art`/`-type`/`-text-box`/`-text`/`-status`/`-pt`, `.mana-pip`, neue dunkle `--mana-*-dark`-Variablen) für `.hand-card`/`.card-tile`/`.deck-pool-row` (s. eigener Abschnitt unten); **seit v0.1.11** `.deckbuilder-footer` jetzt `position: sticky` (bleibt beim Pool-Scrollen sichtbar), größere/auffälligere `.deckbuilder-ai-toggle*`-Regeln (+ neue `-heading`/`-hint`-Klassen), neue `.deckbuilder-tutorial-box*` sowie `.tutorial-tip-bubble*`/`.tutorial-help-btn`/`.tutorial-help-backdrop`/`.tutorial-help-panel*` (s. eigener Abschnitt unten); **seit v0.1.17** großer Zuwachs: `.main-menu-*`/`.opponent-select-*`/`.rules-guide-*` (neue Screens), `.board-backdrop-img*` (viewport-breiter Taverne-Hintergrund), `.board-opponent-avatar*` (220px-Avatar-Spalte), `.board` selbst mit neuer Holzmaserungs-/Kerzenschein-Glow-Atmosphäre, `.hand-zone-hidden*` (verdeckte Gegner-Hand), `.player-area-deciding` (Rahmen-Hervorhebung), `player-panel`-Lebenspunkt-Puls-Keyframes, `.tutorial-glow` (Puls-Highlight); **seit v0.1.18** `.decision-spotlight-*`, `.music-panel-*` (löst `.music-toggle-btn`-Popover-losen Vorgänger ab); **seit v0.1.20** neue `.deckbuilder-save-deck-btn`/`.deckbuilder-load-deck-btn`/`.save-deck-*`/`.load-deck-*`/`.deckbuilder-analysis*`/`.deck-analysis-*`/`.deckbuilder-clear-btn`; **seit v0.1.22** `.board-opponent-avatar` aufgeteilt in `.board-turn-flow-column` (äußerer Wrapper, immer gerendert) + `.board-active-avatar` (Avatar-Box darin, umbenannt), neue `.board-active-avatar-human*` (Menschen-Platzhalter) und `.turn-flow-*` (Schritt-Kette/-Knoten/-Meta, s. eigener Abschnitt unten); die `max-width: 900px`-Media-Query blendet die rechte Spalte nicht mehr komplett aus, sondern stapelt sie unter `.board`; **seit v0.1.34** neue `.decision-spotlight-actions`/`.decision-spotlight-skip-until-btn` (zweiter Spotlight-Button, s. eigener Abschnitt unten) |
+| `__tests__/*` | **Neu in v0.1.5**: dauerhafte Vitest+jsdom-Tests (bleiben im Repo, s. eigener Abschnitt unten); **seit v0.1.6** zusätzlich `mulligan.test.ts`, `modal-effects.test.ts`, `x-cost-ability.test.ts` + gemeinsame Test-Infrastruktur `testHelpers.ts` (Klick-/Deck-/Autopilot-Helfer, kein Produktionscode); **seit v0.1.7** zusätzlich `vs-bot.test.ts` (komplette Partie gegen den Bot, s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `setChecked` (Checkbox-Interaktion); **seit v0.1.8** zusätzlich `concede.test.ts` (Aufgeben-Button) und `deck-persistence.test.ts` (localStorage-Persistenz, s. eigener Abschnitt unten); **seit v0.1.9** zusätzlich `vs-bot-difficulty.test.ts` (Schwierigkeitsstufen-Dropdown + komplette Partie mit Stufe „hard", s. eigener Abschnitt unten) + neuer `testHelpers.ts`-Helfer `selectValue` (`<select>`-Interaktion); **seit v0.1.11** zusätzlich `tutorial.test.ts` (Tutorial-Start bis zur ersten wegklickbaren Sprechblase + Hilfe-Panel + Rückkehr zum Hauptmenü, s. eigener Abschnitt unten); **seit v0.1.17** die bisherige Golden-Path-Verifikation wurde als dauerhafte Datei `golden-path.test.ts` benannt und geht jetzt über das neue Hauptmenü statt direkt im Deckbau zu starten (`.main-menu-new-game-btn` → `.opponent-select-hotseat-btn`, s. eigener Abschnitt unten), neuer `main-menu.test.ts` (die drei neu hinzugekommenen Hauptmenü-Klickpfade: KI-Schnellstart über `opponentSelect`, eigenständiger „Deck Builder"-Modus, „Zurück zum Hauptmenü" aus einer laufenden Partie), neuer `rules-guide.test.ts`; `vs-bot.test.ts`/`vs-bot-difficulty.test.ts`/`tutorial.test.ts` decken weiterhin den bisherigen Ablauf NACH dem Hauptmenü ab, jetzt jeweils über „Neues Spiel" → „2 Spieler"/KI-Wahl erreicht; **seit v0.1.34** zusätzlich `pass-until-something-happens.test.ts` (neuer Button, s. eigener Abschnitt unten) — außerdem war die GESAMTE Suite bis einschließlich v0.1.33 zeitweise wegen eines jsdom/html-encoding-sniffer-ESM/CJS-Konflikts unausführbar, s. Kopfzeilen-Hinweis und v0.1.34-Abschnitt |
 
 ## Was funktioniert
 
@@ -672,7 +711,13 @@ passierbar bleibt).
      automatisch gepasst, ganz ohne Klick (`store.ts#advanceAutomation`, s.
      eigener Abschnitt unten); steht dagegen eine echte Wahl an, ersetzt/
      ergänzt ein auffälliges Spotlight-Banner (`decisionSpotlightBanner`) den
-     bisherigen unauffälligen Button.
+     bisherigen unauffälligen Button. **Seit v0.1.34 ergänzt**: ein zweiter
+     Banner-Button „Weiter bis was passiert"
+     (`store.ts#passUntilSomethingHappens`) passt für den auslösenden Spieler
+     automatisch mehrfach hintereinander weiter, bis dessen eigene nächste
+     Hauptphase erreicht ist oder ein neues Stack-Objekt auftaucht — ohne
+     `hasRealPriorityChoice` selbst zu ändern (ein castbarer Zauber bleibt
+     weiterhin dauerhaft eine „echte Wahl", s. eigener Abschnitt unten).
    - Aktivierte Fähigkeiten auf Battlefield-Permanents (inkl. Mana-
      Fähigkeiten, die laut Regelwerk sofort ohne Stack resolven — das
      Frontend unterscheidet hier nicht extra, das erledigt die Engine).
@@ -4325,6 +4370,134 @@ gegen die bestehenden, bereits visuell abgenommenen Vorbild-Muster
 unverändert (keine Logik-/Struktur-/Test-Selektor-Änderung). Keine Engine-/
 Modell-Änderung.
 
+## „Weiter bis was passiert"-Button + UI-Testsuite (jsdom) repariert (v0.1.34, 2026-08-02)
+
+Zwei unabhängige Änderungen derselben Session.
+
+### Teil 1: „Weiter bis was passiert"-Button
+
+Nutzer-Bericht: beim Spielen gegen die KI musste der Spieler bei JEDEM
+Priority-Fenster manuell „Überspringen" klicken, sobald er einen theoretisch
+castbaren (aber gerade nicht gewollten) Zauber in der Hand hatte — die
+bestehende Auto-Pass-Heuristik (`hasRealPriorityChoice`/
+`isRealPriorityCandidate`, s. v0.1.18/v0.1.19-Abschnitte oben) zählt einen
+castbaren Zauber unverändert immer als „echte Wahl", unabhängig vom
+tatsächlichen Spielerwunsch — das ist bewusst weiterhin so gewollt (siehe
+dortige Begründung), löst das hier beschriebene Bedürfnis aber nicht.
+
+**Lösung:** ein zweiter, zusätzlicher Button „Weiter bis was passiert" neben
+dem bestehenden „Überspringen"-Button im Entscheidungs-Spotlight-Banner
+(`.decision-spotlight-skip-until-btn`, `components/decisionSpotlight.ts`).
+
+- **`store.ts#passUntilSomethingHappens(player)`** (neu, exportiert): No-Op
+  außer wenn `player` gerade tatsächlich Priority UND keine `pendingDecision`
+  hat und nicht bot-gesteuert ist (dieselbe Bedingung, unter der
+  `render.ts#decisionSpotlightPlayer` das Banner überhaupt zeigt) — setzt
+  einen neuen transienten Modul-Zustand `passUntilSomethingHappensRun`
+  (`{ player, stackObjectIds, startTurnNumber, startStep }`, eine
+  „Momentaufnahme" zum Klickzeitpunkt, kein State-Klon) und stößt
+  `triggerAutomation()` an, exakt wie ein echter menschlicher
+  `dispatch()`-Aufruf (frische `MAX_AUTO_HUMAN_ACTIONS_PER_CYCLE`-Zählung).
+- **`store.ts#shouldContinuePassingUntilSomethingHappens(player)`** (neu,
+  intern): liefert `true`, solange für `player` ein Lauf aktiv ist UND
+  KEINE der zwei Haltebedingungen erreicht ist:
+  1. die EIGENE nächste Hauptphase ist erreicht (`main1`/`main2` mit
+     `activePlayer === player`, UND `(turnNumber, step)` unterscheidet sich
+     von der Momentaufnahme — verhindert sofortiges Anhalten, falls der
+     Klick selbst schon mitten in `main1`/`main2` erfolgte);
+  2. seit dem Klick ist ein NEUES Stack-Objekt aufgetaucht (ein Objekt-`id`,
+     das nicht in der Momentaufnahme `stackObjectIds` steckt) — ein reines
+     Kürzerwerden/Leerlaufen des Stacks zählt nicht als neue Situation.
+  Wird von `store.ts#autoResolvableActionFor` konsultiert: liefert dort
+  zusätzlich `{ kind: "passPriority", player }`, wenn
+  `hasRealPriorityChoice(player)` zwar `true` ist, aber ein passender Lauf
+  grünes Licht gibt — `hasRealPriorityChoice` selbst bleibt dabei
+  unverändert `true` (das Spotlight-Banner verschwindet dadurch NICHT, s.o.).
+  Echte `pendingDecision`s (Zielwahl, `orderBlockers`, Mulligan, `chooseMode`)
+  sowie Kampf-Deklarationsschritte mit echten Kandidaten brauchen hier keine
+  eigene Prüfung — `autoResolvableActionFor` liefert für diese Fälle ohnehin
+  bereits vorher `undefined`, der Lauf endet dann implizit (kein weiterer
+  automatischer Fortschritt, bis der Spieler die echte Entscheidung trifft).
+- **`components/decisionSpotlight.ts#decisionSpotlightBanner`**: neuer
+  vierter Parameter `onSkipUntilSomethingHappens: () => void`, neuer Button
+  `.decision-spotlight-skip-until-btn` (Label „Weiter bis was passiert",
+  Tooltip erklärt die Haltebedingungen) neben dem unveränderten
+  `.decision-spotlight-skip-btn`, beide jetzt in einem gemeinsamen
+  `.decision-spotlight-actions`-Wrapper.
+- **`render.ts`**: die Aufrufstelle von `decisionSpotlightBanner` reicht
+  zusätzlich `() => passUntilSomethingHappens(spotlightPlayer)` durch.
+- **`style.css`**: `.decision-spotlight-actions` (Flex-Wrapper, sauberer
+  Umbruch bei schmalen Breiten) + `.decision-spotlight-skip-until-btn`.
+- **Aufräumen**: `passUntilSomethingHappensRun` wird u. a. beim Erreichen
+  des Sicherheitslimits, sobald der auslösende Spieler selbst wieder eine
+  Aktion dispatcht, sowie bei `initGame`/`backToMainMenu` zurückgesetzt (kein
+  Datenleck über Partiegrenzen hinweg).
+
+**Regressionstest:** neue Datei
+`src/ui/__tests__/pass-until-something-happens.test.ts` — player1 hat 3
+ungetappte `core.void-rift`-Terrains und den `{2}{void}`-`core.hollowdusk-
+shrine` in der Hand (`hasRealPriorityChoice(player1)` ist dadurch `true`,
+hypothetisch über Mana-Tap castbar, obwohl der Manapool leer ist — exakt die
+im Bericht beschriebene „theoretisch castbar, aber gerade nicht gewollt"-
+Situation, dasselbe Ausgangs-Setup wie `priority-mana-tap.test.ts`). Ein
+Klick auf den neuen Button in `main1` springt synchron bis `main2` desselben
+Zuges (nicht des nächsten), ohne dass Mana getappt, ein Zauber gecastet oder
+ein zusätzliches Terrain gelegt wird; in `main2` erscheint dieselbe Situation
+erneut (kein Dauer-Modus). player2 hat im gesamten Test kein Permanent im
+Spiel und passt daher die ganze Zeit ohnehin schon automatisch (Auto-Pass aus
+v0.1.18), der Test bleibt dadurch deterministisch ohne Bot-Timer/
+Hotseat-Klicks für player2.
+
+### Teil 2: UI-Testsuite (jsdom) repariert
+
+Die komplette UI-Testsuite (`src/ui/__tests__/*`, 22 Dateien inkl. der neuen
+Datei aus Teil 1) ließ sich vorher NICHT ausführen: `jsdom@29.1.1` zog
+`html-encoding-sniffer@6.0.0` (CJS), das wiederum `@exodus/bytes` (reines
+ESM) per `require()` einband — ein ESM/CJS-Interop-Fehler, der jeden
+`@vitest-environment jsdom`-Test beim Setup crashen ließ.
+
+**Fix:** `package.json` pinnt `jsdom` jetzt exakt auf `26.1.0` (statt einer
+gelockerten Bereichsangabe) — die letzte Version vor dem Wechsel auf
+`html-encoding-sniffer` 6.x, nutzt stattdessen `whatwg-encoding` (kein
+ESM/CJS-Konflikt). Zusätzlich wurde in `battlefield-grouping.test.ts` das
+Test-Timeout von 15000ms auf 25000ms erhöht (unter voller Suite-Last
+beobachtete Laufzeit ~21,5s statt ~12s isoliert im vorherigen
+`v0.1.32`-Verifikationslauf — Ressourcen-Kontention unter der vollen Suite,
+kein eigener Bug in diesem Test).
+
+### Verifikation
+
+`npx vitest run` (über die lokale `.node20/`-Toolchain) lieferte nach dem Fix
+**44 von 45 Testdateien / 213 von 214 Einzeltests grün**, 1 Testdatei
+weiterhin bewusst per `describe.skip` übersprungen (`color-balance.analysis.
+test.ts`, unverändert wie vorher, s. `docs/ai-status.md`). `npm run build`
+(`tsc --noEmit`) sauber. **documenter-Gegenprobe (dieser Sweep, kein
+eigener Shell-Zugriff):** per Glob/Grep alle 45 Testdateien gegengezählt
+(19 Engine + 4 KI + 22 UI, exakt konsistent mit „45 Testdateien"); die
+statischen `it(`-Aufruforte über den gesamten Baum summieren sich auf ~203 —
+grob in derselben Größenordnung wie die gemeldeten 214 Einzeltests, die
+Differenz erklärt sich plausibel durch die Grenzen einer reinen
+Zeilen-Regex (z. B. mehrzeilige `it(`-Signaturen) gegenüber einem echten
+Testlauf; kein `it.skip`/`it.todo` im gesamten Baum gefunden (per Grep), d. h.
+alle 214 definierten Einzeltests sind entweder Teil der 44 laufenden Dateien
+(213 grün) oder Teil der einen bewusst übersprungenen `color-balance.
+analysis.test.ts`-Datei (die laut Grep genau 1 `it(`-Fall enthält — passt
+exakt zur Differenz 214−213=1). Der neue Button selbst wurde nur per
+Code-Lektüre + dem oben beschriebenen Regressionstest verifiziert, keine
+Browser-/Screenshot-Bestätigung der Optik (kein Browser-/Computer-Use-
+Werkzeug in dieser Session verfügbar, wie in allen vorigen Sweeps seit
+v0.1.17).
+
+**Ergebnis:** Geändert: `src/ui/store.ts` (`passUntilSomethingHappens`,
+`shouldContinuePassingUntilSomethingHappens`,
+`passUntilSomethingHappensRun`, Anpassung an `autoResolvableActionFor`),
+`src/ui/components/decisionSpotlight.ts` (neuer Button + Parameter),
+`src/ui/render.ts` (Verdrahtung), `src/ui/style.css` (neue Klassen),
+`package.json` (`jsdom` exakt `26.1.0`), `src/ui/__tests__/
+battlefield-grouping.test.ts` (Timeout). Neu: `src/ui/__tests__/
+pass-until-something-happens.test.ts`. Keine Engine-/Modell-/
+Kartenpool-Änderung.
+
 ## Nächste Schritte (Vorschläge)
 
 1. ~~**UI-Automatisierung**~~ **erledigt in v0.1.5** (s. eigener Abschnitt
@@ -4441,3 +4614,12 @@ Modell-Änderung.
     14-Züge-Testspiel (Gegner spielte konsequent nur einen Terrain-Typ, kein
     Archetyp-Name sichtbar); diese Session hatte kein Browser-/
     Computer-Use-Werkzeug zur Verfügung, um das selbst nachzuvollziehen.
+20. ~~**UI-Testsuite (`src/ui/__tests__/*`) zeitweise gar nicht ausführbar**~~
+    **erledigt in v0.1.34** (s. eigener Abschnitt oben) — `jsdom` in
+    `package.json` exakt auf `26.1.0` gepinnt, behebt einen
+    ESM/CJS-Interop-Fehler mit `html-encoding-sniffer`/`@exodus/bytes`. Ein
+    echter `npx vitest run` lief danach über die gesamte Suite (44/45
+    Testdateien, 213/214 Einzeltests grün) — bitte bei künftigen
+    `npm install`/Lockfile-Änderungen im Auge behalten, dass `jsdom` nicht
+    versehentlich wieder über den gepinnten Stand hinaus aktualisiert wird
+    (kein `^`-Bereich mehr, s. `package.json`).

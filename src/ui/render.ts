@@ -58,6 +58,7 @@ import {
   isTutorialHelpOpen,
   legalActions,
   openDeckBuilderStandalone,
+  passUntilSomethingHappens,
   resetUiMode,
   selectMusicTrack,
   setBotControlled,
@@ -554,12 +555,20 @@ function renderGameBoard(root: HTMLElement): void {
     // nicht) - Handkarten/Fähigkeiten bleiben normal klickbar, der
     // "Überspringen"-Button dispatcht dieselbe passPriority-Aktion wie der
     // Button in der Statusleiste (inkl. desselben Tutorial-Sperrgrunds).
+    // Nutzer-Feedback 2026-08-02: zusätzlicher "Weiter bis was
+    // passiert"-Button ruft store.ts#passUntilSomethingHappens auf (statt
+    // dispatch()) - das ist KEINE einzelne PlayerAction, sondern startet
+    // einen mehrschrittigen Automatik-Vorgang, der sich selbst an einer
+    // eigenen Haltebedingung wieder beendet (s. dortiger Kommentar).
     (() => {
       const spotlightPlayer = decisionSpotlightPlayer(state, mode);
       if (!spotlightPlayer) return undefined;
       const blockReason = getTutorialPassPriorityBlockReason(spotlightPlayer);
-      return decisionSpotlightBanner(playerDisplayName(spotlightPlayer), blockReason, () =>
-        dispatch({ kind: "passPriority", player: spotlightPlayer }),
+      return decisionSpotlightBanner(
+        playerDisplayName(spotlightPlayer),
+        blockReason,
+        () => dispatch({ kind: "passPriority", player: spotlightPlayer }),
+        () => passUntilSomethingHappens(spotlightPlayer),
       );
     })(),
     ...actionBanner(state, mode),

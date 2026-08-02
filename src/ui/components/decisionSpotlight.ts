@@ -16,6 +16,16 @@
  * hier dispatcht exakt dieselbe `passPriority`-Aktion wie der bestehende
  * Button in der Statusleiste (s. render.ts#statusBar) - kein zweiter
  * Mechanismus, nur eine auffälligere zusätzliche Einladung, sie zu nutzen.
+ *
+ * Nutzer-Feedback 2026-08-02 ("muss bei JEDEM Priority-Fenster einzeln
+ * passen, nur weil eine Handkarte theoretisch castbar bleibt, die gerade gar
+ * nicht gespielt werden soll"): zweiter, zusätzlicher Button "Weiter bis was
+ * passiert" (s. store.ts#passUntilSomethingHappens) - überspringt bewusst
+ * MEHRERE eigene Priority-Fenster hintereinander, bis entweder die eigene
+ * nächste Hauptphase erreicht ist oder sich etwas Neues ergibt (Reaktion des
+ * Gegners, eine echte Entscheidung), statt jedes einzelne Fenster manuell
+ * wegklicken zu müssen. Ein EINMALIGER, bewusst ausgelöster Vorgang - kein
+ * Dauer-Modus, kein Ersatz für den bestehenden "Überspringen"-Button.
  */
 
 import { h, text } from "../h";
@@ -24,6 +34,7 @@ export function decisionSpotlightBanner(
   playerLabel: string,
   disabledReason: string | undefined,
   onSkip: () => void,
+  onSkipUntilSomethingHappens: () => void,
 ): HTMLElement {
   return h("div", { class: "decision-spotlight-banner", "data-testid": "decision-spotlight" }, [
     h("div", { class: "decision-spotlight-icon" }, [text("★")]),
@@ -33,18 +44,35 @@ export function decisionSpotlightBanner(
         text("Spielt eine Karte/Fähigkeit aus - oder überspringt diesen Moment, wenn ihr nichts tun möchtet."),
       ]),
     ]),
-    h(
-      "button",
-      {
-        class: "btn btn-play decision-spotlight-skip-btn",
-        disabled: !!disabledReason,
-        title: disabledReason,
-        onclick: () => {
-          if (disabledReason) return;
-          onSkip();
+    h("div", { class: "decision-spotlight-actions" }, [
+      h(
+        "button",
+        {
+          class: "btn btn-play decision-spotlight-skip-btn",
+          disabled: !!disabledReason,
+          title: disabledReason,
+          onclick: () => {
+            if (disabledReason) return;
+            onSkip();
+          },
         },
-      },
-      [text("Überspringen")],
-    ),
+        [text("Überspringen")],
+      ),
+      h(
+        "button",
+        {
+          class: "btn btn-cancel decision-spotlight-skip-until-btn",
+          disabled: !!disabledReason,
+          title:
+            disabledReason ??
+            "Passt mehrfach hintereinander, bis eure nächste eigene Hauptphase erreicht ist oder etwas Neues passiert (z.B. eine Reaktion des Gegners).",
+          onclick: () => {
+            if (disabledReason) return;
+            onSkipUntilSomethingHappens();
+          },
+        },
+        [text("Weiter bis was passiert")],
+      ),
+    ]),
   ]);
 }

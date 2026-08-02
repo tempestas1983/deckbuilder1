@@ -1,11 +1,193 @@
 # Laufender Zwischenstand
 
-Datum: 2026-07-22
+Datum: 2026-08-02
 Zweck: Einziger Ort, an dem der Projektkontext ein `/clear` überlebt. Wird von
 `documenter` bei jedem finalen Sweep aktualisiert. Details/Begründungen stehen
 in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 `docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
 Dokument ist die Kurzfassung "wo stehen wir gerade".
+
+## Meilenstein: hard-Bot Lethal-Check (KI v2.2, NOCH NICHT committet)
+
+Kleine, fokussierte KI-only-Session (2026-08-02, im Anschluss an den
+v0.1.34-Sweep), keine Engine-/Model-/Kartenpool-/Frontend-Änderung. Gegen
+den tatsächlichen Code verifiziert (`src/ai/hardBot.ts`,
+`src/ai/__tests__/hardBot-lethal.test.ts`), nicht nur den
+Fertigstellungsbericht übernommen. **Zum Zeitpunkt dieses Sweeps im
+Arbeitsverzeichnis von `/home/steffen/deckbuilder1` noch uncommitted.**
+Details: `docs/ai-status.md` Abschnitt 11.
+
+- **Problem:** Das bestehende 1-Ply-Lookahead des `hard`-Bots
+  (`hardBot.ts#chooseActionHard`) bewertet jeden Cast-/Activate-/
+  Attack-Kandidaten nur isoliert. Ein Direktschaden-Zauber aufs gegnerische
+  Gesicht verliert diesen Einzelvergleich fast immer gegen eine größere
+  Kreatur (Unit-Wert-Gewicht 2.2 vs. Lebenspunkt-Gewicht 1.0 in
+  `boardEval.ts#EVAL_WEIGHTS`), selbst wenn Zauber **und** ein
+  anschließender Alpha-Strike zusammen diesen Zug gewinnen würden — `hard`
+  konnte dadurch offensichtliche „Lethal"-Züge übersehen.
+- **Fix:** neuer Dispatch-Schritt `findLethalAction`, zwischen Terrain-
+  Spielen und der normalen 1-Ply-Wahl eingehängt. Ein billiger, rein
+  strukturell arbeitender Vorfilter ohne jede Simulation
+  (`mightBeLethalThisTurn`/`potentialAttackPower`/
+  `actionMightDealFaceDamage`) filtert die übergroße Mehrheit der Züge
+  sofort heraus; nur wenn er anschlägt, werden genau zwei vollständig
+  durchsimulierte „Alles-rein"-Pläne geprüft (`simulateLethalRollout`):
+  `"burnFirst"` (erst alle bezahlbaren Face-Damage-Zauber, dann
+  Alpha-Strike, dann Rest) und `"attackFirst"` (erst Alpha-Strike, dann
+  verbliebene Face-Damage-Zauber) — mit einem „Gegner blockt gut"-
+  Blockmodell (`heuristicBlockAction`), nicht optimistisch. Bringt einer
+  der beiden Pläne den Gegner auf ≤ 0 Leben, wird dessen erster Schritt
+  gespielt; sonst bleibt das bisherige 1-Ply-Verhalten unverändert. Nur
+  `hard` betroffen, `easy`/`medium` bewusst unverändert. Bewusste Grenze
+  (analog zum bestehenden „X-Kosten/Mehrfach-Zielslots werden nicht
+  enumeriert"-Muster): X-Kosten-Zauber und Modi mit ≥ 2 Zielslots fließen
+  in den Lethal-Check nicht ein.
+- **Neuer Test** `src/ai/__tests__/hardBot-lethal.test.ts`: baut eine
+  deterministische Falle nach (Gegner bei 5 Leben, genau 2 Mana, ein
+  isoliert „besser" bewerteter 3/3-Kreaturen-Cast vs. ein 3-Schaden-
+  Gesichtszauber, plus ein bereits vorhandener ungeblockter 3/3-Angreifer —
+  nur „Zauber + Angriff" ist lethal) — prüft sowohl die Einzelentscheidung
+  als auch den vollständigen Partieausgang. Per Code-Lektüre bestätigt, dass
+  der Test die beschriebene Falle exakt nachbaut.
+- **Performance-/Test-Zahlen — laut Bericht des ai-opponent-engineer, VOM
+  DOCUMENTER NICHT SELBST NACHGERECHNET** (kein Shell-Werkzeug in dieser
+  Sweep-Session, wie bei allen Sweeps seit 2026-07-18): hard-vs-hard über 11
+  Seeds/4534 Entscheidungen — Median-Entscheidungsdauer 0,011 ms → 0,015 ms,
+  Max 27,75 ms → 28,40 ms (weiterhin weit unter der 1000-ms-CI-Schranke).
+  `npx vitest run src/ai`: 22 Tests grün, 1 bewusst übersprungen
+  (unverändert das Farb-Balance-Analyse-Tool). Stärkevergleich
+  (`difficulty.test.ts`): hard schlägt medium 25:15 (deckungsgleich mit der
+  in `docs/ai-status.md` Abschnitt 10.4 dokumentierten v2.1-Baseline), hard
+  schlägt easy 19:5 (weicht leicht von der dort dokumentierten
+  v2.1-Baseline 21:3 ab) — beide Zahlenpaare erfüllen weiterhin die
+  Test-Assertions „strikt mehr Siege" und „≥ 60 % der entschiedenen
+  Partien"; die Abweichung beim easy-Vergleich wurde zunächst als mögliche
+  Lethal-Check-Auswirkung geflaggt, dann per eigenem Testlauf aufgelöst: das
+  19:5-Tally stammt bereits aus dem jsdom-Fix-Testlauf VOR dem Lethal-Check
+  (derselbe Tag), ist also vorbestehende Doku-Drift der v2.1-Baseline und
+  keine Folge des Lethal-Checks (Details/Einordnung:
+  `docs/ai-status.md` Abschnitt 11.5).
+- **documenter (dieser Mini-Sweep, 2026-08-02):** `docs/ai-status.md` (neue
+  Kopfzeile, neuer Abschnitt 11 „v2.2: Lethal-Check für den hard-Bot",
+  präzisierte Schwäche 1 in Abschnitt 9.7), `docs/README.md` (Kopfzeile,
+  KI-Zeile der Statustabelle, neuer „Seit dem letzten Sweep"-Absatz,
+  „Weitere offene Punkte" Punkt 2 für den ai-opponent-engineer),
+  `docs/status.md` (dieser Eintrag) aktualisiert. `docs/rules-engine.md`,
+  `docs/engine-status.md`, `docs/frontend-status.md`,
+  `docs/cards/starter-set.md` waren NICHT Gegenstand dieses Mini-Sweeps
+  (keine Engine-/Model-/Kartenpool-/Frontend-Änderung in dieser Session).
+  Kein eigener `npm test`/`npx vitest run`-Lauf möglich (kein
+  Shell-Werkzeug) — alle Test-/Performance-Zahlen stammen aus dem Bericht
+  des ai-opponent-engineer; die einzige gefundene, dokumentierungswürdige
+  Abweichung (hard-vs-easy-Tally 19:5 statt der zuvor dokumentierten 21:3)
+  wurde oben transparent gemacht statt stillschweigend übernommen.
+
+## Meilenstein: „Weiter bis was passiert"-Button + UI-Testsuite (jsdom) repariert (v0.1.34)
+
+Kleine, fokussierte Session (2026-08-02) mit zwei voneinander unabhängigen
+Änderungen im Frontend, keine Engine-/Model-/Kartenpool-/KI-Änderung. Beide
+gegen den tatsächlichen Code verifiziert (`src/ui/store.ts`,
+`src/ui/components/decisionSpotlight.ts`, `src/ui/render.ts`,
+`src/ui/style.css`, `package.json`, den neuen Test), nicht nur den
+Fertigstellungsbericht übernommen.
+
+- **„Weiter bis was passiert"-Button.** Nutzer-Bericht: beim Spielen gegen
+  die KI musste der Spieler bei JEDEM Priority-Fenster manuell
+  „Überspringen" klicken, sobald er einen theoretisch castbaren (aber
+  gerade nicht gewollten) Zauber in der Hand hatte — die bestehende
+  Auto-Pass-Heuristik (`hasRealPriorityChoice`/`isRealPriorityCandidate`,
+  s. v0.1.18/v0.1.19 in `docs/frontend-status.md`) zählt einen castbaren
+  Zauber weiterhin IMMER als „echte Wahl", unabhängig vom tatsächlichen
+  Spielerwunsch — bewusst unverändert, um das Spotlight-Banner nicht
+  komplett verschwinden zu lassen. Lösung: ein zweiter, zusätzlicher Button
+  neben dem bestehenden „Überspringen"-Button im Entscheidungs-
+  Spotlight-Banner. `store.ts#passUntilSomethingHappens(player)` (neu,
+  exportiert) startet einen einmaligen, spielerausgelösten Vorgang; die neue
+  interne Funktion `shouldContinuePassingUntilSomethingHappens` hält ihn
+  GENAU DANN an, wenn entweder die eigene nächste Hauptphase (main1/main2)
+  erreicht ist ODER ein neues Stack-Objekt auftaucht, das vorher nicht da
+  war — beide Bedingungen anhand einer Momentaufnahme zum Klickzeitpunkt
+  (`stackObjectIds`/`startTurnNumber`/`startStep`, kein State-Klon).
+  Konsultiert von `autoResolvableActionFor`. Ändert **nichts** an
+  `hasRealPriorityChoice`/`isRealPriorityCandidate` selbst (unverändert,
+  ein castbarer Zauber bleibt für immer eine „echte Wahl"); das bestehende
+  Sicherheitslimit gegen Endlosschleifen (`MAX_AUTO_HUMAN_ACTIONS_PER_CYCLE`)
+  greift unverändert auch für diesen Vorgang. Geänderte/neue Dateien:
+  `src/ui/store.ts`, `src/ui/components/decisionSpotlight.ts` (neuer
+  vierter Parameter + `.decision-spotlight-skip-until-btn`), `src/ui/render.ts`
+  (Verdrahtung), `src/ui/style.css` (`.decision-spotlight-actions`/
+  `-skip-until-btn`), neuer Test `src/ui/__tests__/
+  pass-until-something-happens.test.ts` (per Code-Lektüre bestätigt: prüft
+  exakt das im Auftrag beschriebene Szenario — 3 ungetappte Terrains +
+  eine hypothetisch castbare Verzauberung bei leerem Manapool, ein Klick
+  springt synchron von main1 zu main2 desselben Zuges, ohne etwas zu tappen/
+  spielen, in main2 erscheint dieselbe Situation erneut, kein Dauer-Modus).
+- **UI-Testsuite (jsdom) repariert.** Die komplette UI-Testsuite (22 Dateien
+  unter `src/ui/__tests__/`, inkl. der neuen Datei oben) ließ sich vorher
+  NICHT ausführen: `jsdom@29.1.1` zog `html-encoding-sniffer@6.0.0` (CJS),
+  das wiederum `@exodus/bytes` (reines ESM) per `require()` einband — ein
+  Interop-Bug, der jeden `@vitest-environment jsdom`-Test beim Setup
+  crashen ließ. Fix: `package.json` pinnt `jsdom` jetzt exakt auf `26.1.0`
+  (letzte Version vor dem Wechsel auf `html-encoding-sniffer` 6.x; nutzt
+  stattdessen `whatwg-encoding`, kein ESM/CJS-Konflikt). Zusätzlich wurde in
+  `src/ui/__tests__/battlefield-grouping.test.ts` das Test-Timeout von
+  15000ms auf 25000ms erhöht (unter voller Suite-Last beobachtet: ~21,5s
+  statt ~12s isoliert — kein Bug, nur Ressourcen-Kontention). **Ergebnis
+  nach dem Fix, laut Bericht tatsächlich verifiziert (`npx vitest run` über
+  die lokale `.node20/`-Toolchain):** 44 von 45 Testdateien / 213 von 214
+  Einzeltests bestanden, 1 Testdatei bewusst per `describe.skip`
+  übersprungen (`color-balance.analysis.test.ts`, unverändert wie vorher).
+  Diese Zahl ersetzt die bisher dokumentierten „177 Tests grün + 1
+  übersprungen" als aktuellen Gesamtstand — Engine-Testzahl bleibt
+  unverändert bei **131** (keine Engine-Session in diesem Zeitraum).
+- **documenter-Gegenprobe (kein eigener Shell-Zugriff in dieser Sweep-
+  Session, wie bei allen Sweeps seit 2026-07-18):** per `Glob` alle
+  Testdateien gegengezählt — exakt **45** (19 unter `src/engine/__tests__/`,
+  4 unter `src/ai/__tests__/`, 22 unter `src/ui/__tests__/`), passt zu „44
+  von 45". Kein einziges `it.skip`/`it.todo` irgendwo im Baum gefunden (per
+  Grep) — die einzige übersprungene Einheit ist die komplette, unveränderte
+  `color-balance.analysis.test.ts`, die laut Grep genau 1 `it(`-Fall
+  enthält, passt exakt zur Differenz 214 − 213 = 1. Statische
+  `it(`-Aufruforte über den gesamten Baum summieren sich per Grep auf ~203 —
+  grob dieselbe Größenordnung wie 214 Einzeltests (Differenz plausibel durch
+  die Grenzen einer reinen Zeilen-Regex, z. B. mehrzeilige `it(`-Signaturen,
+  erklärbar), kein eigener `npx vitest run` in dieser Session möglich, um
+  das exakt zu bestätigen.
+- **Wichtiger, geprüfter und NICHT übernommener Bericht-Fehler:** der
+  Auftrag behauptete, `src/cards/starter-set.ts` enthalte inzwischen **4**
+  Karten mit `isToken: true`, während die Doku an mindestens einer Stelle
+  noch „3" nenne, und bat um Korrektur auf 4. Per `Grep` gegen den
+  tatsächlichen Code (`grep -c 'isToken: true'` und händisch gegengelesen,
+  Zeilen 129/144/158 in `src/cards/starter-set.ts`, ein vierter
+  Grep-Treffer bei „isToken:true" ist nur der erklärende Code-Kommentar
+  eine Zeile darüber, kein echtes Feld) bestätigt: es sind weiterhin
+  **genau 3** Token-Karten (`core.sprout-token`/`core.spirit-token`/
+  `core.skeleton-token`), macht weiterhin 300 reguläre Karten bei 303
+  `id: "core.…"`-Einträgen insgesamt — exakt wie bereits beim Sweep vom
+  2026-07-18 verifiziert (s. Meilenstein weiter unten). Alle drei
+  tatsächlich geprüften Doku-Stellen (`docs/README.md`,
+  `docs/frontend-status.md`, `docs/cards/starter-set.md`) nannten bereits
+  korrekt „3 Token-Definitionen" — **keine dieser Dateien wurde wegen dieses
+  Punkts geändert**, der Bericht war in diesem Punkt schlicht falsch.
+- **documenter (dieser Sweep, 2026-08-02):** `docs/README.md`
+  (Statustabelle, Kopfzeile, „Nächste Schritte"-Intro, neuer „Seit dem
+  letzten Sweep (2026-07-22)"-Absatz, „Weitere offene Punkte" für
+  frontend-engineer) und `docs/frontend-status.md` (Kopfzeile inkl.
+  jsdom-Hinweis, neue „v0.1.34 auf einen Blick"-Kurzfassung, vollständiger
+  neuer Detail-Abschnitt mit Teil 1/Teil 2/Verifikation, Struktur-Tabelle,
+  „Was funktioniert", „Nächste Schritte" Punkt 20) auf den neuen Stand
+  gehoben. `docs/status.md` (dieses Dokument) um diesen Eintrag ergänzt.
+  `docs/rules-engine.md`, `docs/engine-status.md`, `docs/ai-status.md`,
+  `docs/cards/starter-set.md` waren NICHT Gegenstand dieses Sweeps (keine
+  Engine-/Model-/Kartenpool-/KI-Änderung in dieser Session, und die einzige
+  geprüfte `starter-set.md`-Behauptung erwies sich als bereits korrekt, s.
+  oben). Kein Code-/Test-Change durch den documenter selbst — reine
+  Dokumentationsarbeit, kein eigener `npm test`/`npm run build`/
+  `npx vitest run`-Lauf in dieser Sweep-Session (kein Shell-Werkzeug
+  verfügbar) — alle Zahlen stammen aus dem im Auftrag beschriebenen
+  echten Testlauf, per `Glob`/`Grep`-Gegenprobe stichprobenartig verifiziert
+  (s. oben), keine Abweichung gefunden außer dem einen, oben dokumentierten
+  Token-Zahl-Fehler im Bericht selbst.
 
 ## Meilenstein: Zwölf Frontend-Iterationen (v0.1.22-v0.1.33) + ein Engine-Bugfix (v0.3.6)
 

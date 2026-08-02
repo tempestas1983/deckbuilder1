@@ -1,6 +1,15 @@
 # KI-Gegner-Status
 
-Status: **v2.1 — Legalitäts-Fixes fürs 300-Karten-Set + Farb-Balance-Analyse**
+Status: **v2.2 — Lethal-Check für den hard-Bot** (ai-opponent-engineer,
+fable-5) — 2026-08-02 (Details: Abschnitt 11). **Stand documenter-Sweep
+2026-08-02: Diese Änderung war zum Zeitpunkt der Doku-Aktualisierung noch
+NICHT committet (uncommitted im Arbeitsverzeichnis, nur `src/ai/hardBot.ts` +
+neue Testdatei betroffen) — gegen den tatsächlichen Code verifiziert, nicht
+nur den Fertigstellungsbericht übernommen; kein eigener `npm test`-Lauf
+möglich (kein Shell-Werkzeug in dieser documenter-Session), die in Abschnitt
+11 genannten Test-/Performance-Zahlen stammen aus dem Bericht des
+ai-opponent-engineer.**
+v2.1 — Legalitäts-Fixes fürs 300-Karten-Set + Farb-Balance-Analyse
 (ai-opponent-engineer, fable-5) — 2026-07-11 (Details: Abschnitt 10).
 v2 — Schwierigkeitsstufen (ai-opponent-engineer, fable-5) — 2026-07-10.
 (v1-Basis: engine-engineer — 2026-07-09; die v1-Abschnitte 1–8 unten gelten
@@ -506,7 +515,15 @@ firstStrike-Runde eines Mehrkampfs".
 
 1. **Kein echtes Multi-Ply-Minimax/MCTS** — das Lookahead ist 1-Ply mit
    Kampf-Sonderbehandlung. Die Infrastruktur (Budget, safeApply, evaluateState)
-   ist dafür vorbereitet.
+   ist dafür vorbereitet. **UPDATE v2.2 (Abschnitt 11): Präzisierung, kein
+   Widerspruch.** Der 1-Ply-Kern selbst ist unverändert (weiterhin kein
+   allgemeines Mehr-Ply-Lookahead) — neu ist aber ein gezielter, billig
+   vorgefilterter LETHAL-SONDERFALL (`findLethalAction`), der genau zwei
+   vollständig durchsimulierte „Alles-rein"-Pläne prüft (Face-Damage-Zauber +
+   Alpha-Strike in beiden Reihenfolgen) und damit die konkrete, isolierte
+   1-Ply-Schwäche „Kombination aus Zauber + Angriff wäre lethal, jede
+   Einzelaktion isoliert bewertet aber schlechter" schließt (Details:
+   Abschnitt 11) — kein allgemeiner Ersatz für echtes Minimax/MCTS.
 2. **Kein Instant-Speed-Spiel** (v1-Schwäche 4 besteht in allen Stufen fort):
    Mana wird nie im gegnerischen Zug offen gehalten. Da kein Bot Instant-Speed
    spielt, ist die "beide passen"-Simulationsannahme von hard aktuell exakt.
@@ -650,3 +667,152 @@ Empfehlung an den card-designer dokumentiert.
 - Die Balance-Empfehlungen (wild-3-Drops) liegen beim card-designer; nach
   einem etwaigen Rebalancing kann das Analyse-Tool unverändert erneut
   laufen (deterministische Seeds -> direkt vergleichbare Zahlen).
+
+---
+
+# v2.2: Lethal-Check für den hard-Bot
+
+Status: v2.2 (ai-opponent-engineer, fable-5) — 2026-08-02.
+**Zum Zeitpunkt dieses Doku-Sweeps NOCH NICHT committet** (uncommitted im
+Arbeitsverzeichnis von `/home/steffen/deckbuilder1`): geändert nur
+`src/ai/hardBot.ts`, neu `src/ai/__tests__/hardBot-lethal.test.ts` — keine
+Engine-/Model-/Kartenpool-/Frontend-Datei betroffen.
+
+## 11.1 Motivation
+
+Das budgetierte 1-Ply-Lookahead von `hard` (Abschnitt 9.4) bewertet jeden
+Cast-/Activate-/Attack-Kandidaten **isoliert** und vergleicht ausschließlich
+die resultierenden Einzel-`evaluateState`-Werte. Ein Direktschaden-Zauber
+aufs gegnerische Gesicht verliert diesen Einzelvergleich fast immer gegen das
+Spielen einer größeren Kreatur, weil `boardEval.ts#EVAL_WEIGHTS` Unit-Wert
+deutlich höher gewichtet als einen einzelnen Lebenspunkt — selbst wenn Zauber
+**und** ein anschließender Alpha-Strike zusammen den Gegner in genau diesem
+Zug auf 0 Leben brächten. `hard` konnte dadurch offensichtliche „Lethal"-Züge
+übersehen und stattdessen z. B. eine Kreatur spielen.
+
+## 11.2 Implementierung (`src/ai/hardBot.ts`)
+
+Neuer Dispatch-Schritt `findLethalAction`, in `chooseActionHard` zwischen dem
+bestehenden Schritt 2 (Terrain spielen) und Schritt 3 (normale
+1-Ply-Cast/Activate-Wahl) eingehängt — sticht die normale Wahl nur, wenn er
+tatsächlich einen lethalen Plan findet, sonst bleibt Schritt 3 unverändert
+die nächste Instanz:
+
+1. **Billiger Vorfilter ohne jede Simulation** (`mightBeLethalThisTurn`):
+   greift nur, wenn entweder das rein optimistische (Blocker ignorierende)
+   Angriffs-Schadenspotenzial (`potentialAttackPower`) allein schon reicht,
+   oder mindestens ein aktuell legaler Cast-/Activate-Kandidat strukturell
+   Face-Damage auf den Gegner auslösen könnte (`actionMightDealFaceDamage`,
+   rein strukturelle `dealDamage`/`loseLife`-Effekt-Prüfung ohne konkretes
+   Ziel/Betrag). Bewusst optimistisch (kein falsches Negativ): kostet im
+   schlimmsten Fall etwas Budget in den beiden Proben unten, ein falsches
+   Negativ würde dagegen einen echten Kill verpassen. Zusätzliche Sperre:
+   unter `LETHAL_MIN_BUDGET` (30) verbleibendem Simulationsbudget wird der
+   Check gar nicht erst versucht (spart das Restbudget fürs normale
+   1-Ply-Fallback).
+2. **Nur wenn der Vorfilter anschlägt**, werden genau zwei vollständige
+   „Alles-rein"-Pläne bis zu `LETHAL_MAX_PLAN_STEPS` (24) Top-Level-Schritte
+   durchsimuliert (`simulateLethalRollout`, gleiche
+   `safeApplyForSim`/`pickDecisionForSim`-Infrastruktur wie das übrige
+   Modul):
+   - `"burnFirst"`: bei jedem eigenen Priority-Fenster zuerst einen
+     Face-Damage-Kandidaten casten/aktivieren (inkl. dafür nötigem
+     Mana-Tappen), erst wenn nichts mehr geht weiterpassen (bringt die Probe
+     zum eigenen `declareAttackers`-Fenster); dort wird mit ALLEN legalen
+     Angreifern (Alpha-Strike) angegriffen, danach werden noch verbliebene
+     Face-Damage-Kandidaten nachgeschossen.
+   - `"attackFirst"`: vor dem Alpha-Strike NICHT casten (nur weiterpassen),
+     danach wie `"burnFirst"` — deckt den Fall ab, dass ein Angreifer selbst
+     eine benötigte Mana-Fähigkeit trägt, die das vorherige Tappen verbraucht
+     hätte.
+   - Der Kampf innerhalb der Probe nutzt bewusst ein „Gegner blockt gut"-
+     Blockmodell (`heuristicBlockAction`, dieselbe Heuristik wie beim
+     regulären Angriffs-Lookahead) statt einer optimistischen
+     „Gegner blockt nicht"-Annahme — ein hier gefundener Kill beruht damit
+     nicht auf einer zu günstigen Gegner-Annahme.
+3. Endet einer der beiden Pläne mit Gegner-Leben `<= 0`, wird dessen
+   **erster** angewendeter Schritt zurückgegeben — alle weiteren Planschritte
+   werden NICHT vorab committet, sondern bei den folgenden
+   `chooseActionHard`-Aufrufen aus dem dann echten Folgezustand neu
+   hergeleitet (gleiches zustandsloses Nachrechnen wie im übrigen Modul).
+   Findet keiner der beiden Pläne einen Kill, bleibt die normale isolierte
+   1-Ply-Wahl (Schritt 3) unverändert die Entscheidung.
+4. **Nur `hard` betroffen** — `easy` (`easyBot.ts`) und `medium`
+   (`simpleBot.ts`) sind bewusst unverändert und bleiben absichtlich
+   simpler/fehlerhaft (`easy` sogar mit Absicht, s. Abschnitt 9.2).
+5. **Bewusste Grenze** (analog zum bestehenden „X-Kosten/Mehrfach-Zielslots
+   werden nicht enumeriert"-Muster, Abschnitt 9.7 Punkt 3): X-Kosten-Zauber
+   und Modi mit ≥ 2 Zielslots fließen in den Lethal-Check nicht ein, weil
+   `getLegalActions` sie generell nicht enumeriert — dieselbe Grenze wie beim
+   Rest des Moduls, keine neue Einschränkung.
+
+## 11.3 Neuer Test
+
+`src/ai/__tests__/hardBot-lethal.test.ts` — baut eine deterministische
+„Falle" nach: Gegner bei 5 Leben, der Bot hat genau 2 Mana (reicht für genau
+eine von zwei 2-Mana-Karten), eine 3-Schaden-Face-Damage-Karte und eine
+isoliert wertvollere 3/3-Kreatur ohne Fähigkeiten stehen beide zur Auswahl,
+plus ein bereits im Spiel stehender, ungeblockter 3/3-Angreifer. Isoliert
+bewertet ist die Kreatur für die 1-Ply-Heuristik klar attraktiver
+(Board-Wert) als der Schadenszauber (nur Lebenspunkte) — nur „Zauber +
+Angriff" (3 + 3 = 6 ≥ 5) gewinnt aber diesen Zug, „Kreatur + Angriff" nicht
+(nur 3 Schaden, Gegner bleibt bei 2 Leben). Zwei Testfälle: (1) der Bot
+castet den Zauber, nicht die Kreatur; (2) eine vollständig durchgespielte
+Partie gewinnt tatsächlich noch in diesem Zug. **Per Code-Lektüre bestätigt**
+(`documenter`, gegen den tatsächlichen Testcode gelesen, nicht nur den
+Bericht übernommen) — die Falle ist so konstruiert, dass sie die 1-Ply-only-
+Schwäche aus Abschnitt 11.1 exakt trifft; laut Bericht des
+ai-opponent-engineer wurde zusätzlich manuell verifiziert, dass der Test bei
+deaktiviertem Lethal-Check korrekt fehlschlägt (Gegenprobe, dass der Test die
+Logik wirklich prüft und nicht zufällig grün ist) — diese Gegenprobe selbst
+ist nicht als eigener, dauerhaft eingecheckter Testfall sichtbar, sondern ein
+einmaliger Bau-Zeit-Check laut Bericht.
+
+## 11.4 Performance-Auswirkung (laut Bericht des ai-opponent-engineer)
+
+Gemessen hard-vs-hard, 11 Seeds, 4534 Entscheidungen, echter Kartenpool
+(`starterSet`) — **nicht vom documenter selbst nachgerechnet** (kein
+Shell-Werkzeug in dieser Sweep-Session):
+
+| | ohne Lethal-Check | mit Lethal-Check |
+|---|---|---|
+| Mittelwert | 0.375 ms | 0.524 ms |
+| Median | 0.011 ms | 0.015 ms |
+| p95 | 2.08 ms | 3.51 ms |
+| p99 | 9.74 ms | 11.28 ms |
+| Max | 27.75 ms | 28.40 ms |
+
+Bleibt weit unter der bestehenden CI-Schranke aus Abschnitt 9.4 Punkt 5
+(< 1000 ms je Einzelentscheidung).
+
+## 11.5 Verifikation
+
+Laut Bericht des ai-opponent-engineer: `npx vitest run src/ai` liefert 22
+Tests grün, 1 bewusst übersprungen (das Farb-Balance-Analyse-Tool,
+unverändert) — die bestehenden Stärkevergleichs-Tests (`difficulty.test.ts`,
+Abschnitt 9.5) bleiben laut Bericht ohne Regression: hard schlägt medium
+25:15, hard schlägt easy 19:5 (beide erfüllen weiterhin die
+Test-Assertions „strikt mehr Siege" und „≥ 60 % der entschiedenen Partien").
+**Nachträglich mit Shell-Zugriff aufgelöst:** die frühere, in Abschnitt 10.4
+dokumentierte v2.1-Baseline für dieselbe Paarung lautete „hard:medium 25:15,
+hard:easy 21:3". Das „19:5 statt 21:3"-Tally war zunächst als mögliche
+Lethal-Check-Auswirkung vermutet worden — tatsächlich stammt es aber schon
+aus einem Testlauf VOR der Lethal-Check-Implementierung (im Rahmen des
+UI-Testsuite-jsdom-Fixes am selben Tag, deutlich vor dem hard-Bot-Auftrag),
+also aus vorbestehender Doku-Drift in Abschnitt 10.4, nicht aus dem
+Lethal-Check selbst. `hard`s Stärkevorsprung gegenüber `easy` ist durch den
+Lethal-Check also nicht messbar kleiner geworden — die 19:5-Zahl war schon
+vorher die tatsächliche Baseline, nur in Abschnitt 10.4 nie nachgeführt.
+
+## 11.6 Bewusste Grenzen / offene Punkte
+
+- X-Kosten-Zauber und Modi mit ≥ 2 Zielslots bleiben außerhalb des
+  Lethal-Checks (s. 11.2 Punkt 5) — unverändert Abschnitt 9.7 Punkt 3.
+- Der Lethal-Check ist ein gezielter Sonderfall, kein allgemeines Mehr-Ply-
+  Lookahead (s. präzisierte Schwäche 1 in Abschnitt 9.7) — z. B. werden
+  KEINE mehrzügigen Kombinationen geprüft, nur „lethal in diesem einen Zug".
+- Wie der Rest von `hard` geht der Check von „kein Instant-Speed-Gegenspiel"
+  aus (Abschnitt 9.7 Punkt 2) — ein Gegner mit offenem Instant-Speed-Removal
+  könnte einen als „lethal" erkannten Plan in der Realität durchkreuzen; für
+  den aktuellen Bot-/Kartenpool-Stand (kein Bot spielt Instant-Speed) ist das
+  konsistent mit der restlichen Modul-Annahme.

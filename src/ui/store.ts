@@ -11,7 +11,20 @@ import { createRulesEngine } from "../engine";
 import { starterSet } from "../cards/starter-set";
 import { chooseActionForDifficulty, DEFAULT_BOT_DIFFICULTY, type BotDifficulty } from "../ai";
 import { playSfx } from "./sfxPlayer";
-import type { Ability, CardPool, GameEvent, GameState, InstanceId, Keyword, ManaPool, PlayerAction, PlayerId, RulesEngine } from "../model";
+import type {
+  Ability,
+  CardPool,
+  GameEvent,
+  GameState,
+  InstanceId,
+  Keyword,
+  ManaPool,
+  PlayerAction,
+  PlayerId,
+  RulesEngine,
+  StackObjectId,
+  TurnStep,
+} from "../model";
 import type { AppPhase, UiMode } from "./types";
 import {
   TUTORIAL_STEPS,
@@ -1494,7 +1507,10 @@ function advanceAutomation(): void {
   // Schritts pausiert NICHTS (s. isTutorialModalBubbleShowing-Kommentar).
   if (isTutorialModalBubbleShowing()) return;
   const actor = actingPlayer(state);
-  if (!actor) return;
+  if (!actor) {
+    passUntilSomethingHappensRun = undefined; // s. Kommentar dort: nichts mehr, wofür der Lauf noch aktiv bleiben müsste
+    return;
+  }
   if (isBotControlled(actor)) {
     scheduleBotStepIfNeeded();
     return;
@@ -1505,12 +1521,116 @@ function advanceAutomation(): void {
       `Auto-Pass-Sicherheitslimit erreicht (${MAX_AUTO_HUMAN_ACTIONS_PER_CYCLE} automatische Aktionen ohne echte ` +
         "menschliche Zwischenaktion) - automatisches Weiterspielen angehalten. Das ist ein Hinweis auf einen Bug, kein normaler Spielverlauf.",
     );
+    passUntilSomethingHappensRun = undefined; // dasselbe Sicherheitsnetz greift auch für einen laufenden "Weiter bis was passiert"-Vorgang, s.u.
     return;
   }
   const auto = autoResolvableActionFor(actor);
-  if (!auto) return; // echte Entscheidung nötig - hier stehenbleiben, s. render.ts
+  if (!auto) {
+    // Ein laufender "Weiter bis was passiert"-Vorgang (s.u.) endet GENAU HIER,
+    // sobald für seinen eigenen Spieler keine automatische Aktion mehr
+    // geliefert wird (echte PendingDecision, Kampf-Deklaration mit echten
+    // Kandidaten, oder Priority ohne Fortsetzungs-Freigabe durch
+    // shouldContinuePassingUntilSomethingHappens) - der Vorgang war laut
+    // Auftrag ohnehin nur "bis hierhin", ein explizites Aufräumen verhindert
+    // lediglich, dass die Momentaufnahme (stackObjectIds/startStep) über
+    // diesen Anhaltepunkt hinaus im Speicher hängen bleibt.
+    if (passUntilSomethingHappensRun?.player === actor) passUntilSomethingHappensRun = undefined;
+    return; // echte Entscheidung nötig - hier stehenbleiben, s. render.ts
+  }
   autoHumanCycleGuard++;
   applyAutomaticAction(auto);
+}
+
+/**
+ * Vom Spieler bewusst ausgelöster "Weiter bis was passiert"-Vorgang (Nutzer-
+ * Feedback 2026-08-02: "muss bei JEDEM Priority-Fenster manuell passen, nur
+ * weil eine Handkarte theoretisch castbar bleibt, die er gerade gar nicht
+ * spielen will") - `undefined`, solange kein solcher Vorgang aktiv ist.
+ *
+ * Bewusst KEIN dauerhafter Einstellungs-Schalter (kein "immer automatisch
+ * passen"-Modus) und KEINE Änderung an `hasRealPriorityChoice`/
+ * `isRealPriorityCandidate` (s.o.): ein castbarer Zauber bleibt dort für
+ * IMMER eine "echte Wahl" - das ist bewusst richtig so (sonst würde z.B. das
+ * Spotlight-Banner selbst verschwinden). Dieser Vorgang überstimmt diese
+ * Einstufung nur TEMPORÄR und NUR für exakt den einen Spieler, der ihn
+ * gestartet hat (s. shouldContinuePassingUntilSomethingHappens/
+ * autoResolvableActionFor unten) - ausgelöst über einen eigenen Button neben
+ * dem bestehenden "Überspringen"-Button im Spotlight-Banner (s.
+ * components/decisionSpotlight.ts), der die bisherige Funktion des dortigen
+ * Buttons unverändert lässt.
+ *
+ * `stackObjectIds`/`startTurnNumber`/`startStep` sind die "Momentaufnahme"
+ * zum Klickzeitpunkt, anhand derer `shouldContinuePassingUntilSomethingHappens`
+ * unten erkennt, ob seither etwas WESENTLICH Neues passiert ist (s. dortiger
+ * Kommentar) - kein State-Klon, nur die drei dafür nötigen Vergleichswerte.
+ */
+interface PassUntilSomethingHappensRun {
+  readonly player: PlayerId;
+  readonly stackObjectIds: ReadonlySet<StackObjectId>;
+  readonly startTurnNumber: number;
+  readonly startStep: TurnStep;
+}
+let passUntilSomethingHappensRun: PassUntilSomethingHappensRun | undefined;
+
+/**
+ * true, GENAU DANN, wenn für `player` gerade ein per
+ * `passUntilSomethingHappens` gestarteter Vorgang läuft UND weder einer der
+ * beiden vom Auftrag verlangten Haltebedingungen bereits erreicht ist -
+ * konsultiert von `autoResolvableActionFor` unten, um ein Priority-Fenster
+ * trotz `hasRealPriorityChoice(player) === true` automatisch zu verlassen.
+ *
+ * Zwei unabhängige Haltebedingungen:
+ * - Die EIGENE nächste Hauptphase ist erreicht (`main1`/`main2` mit
+ *   `activePlayer === player`) - ein natürlicher, immer sinnvoller
+ *   Anhaltepunkt, an dem der Spieler typischerweise wieder etwas entscheiden
+ *   will. Absichtlich anhand von `(startTurnNumber, startStep)` von der
+ *   Hauptphase unterschieden, in der der Vorgang selbst gestartet wurde -
+ *   sonst würde ein Klick MITTEN in der eigenen Hauptphase (der übliche Fall:
+ *   "ich habe hier einen castbaren Zauber, will ihn aber gerade nicht
+ *   spielen") sofort wieder anhalten, OHNE auch nur einen einzigen Schritt
+ *   voranzukommen.
+ * - Seit dem Klick ist ein NEUES Stack-Objekt hinzugekommen (z.B. eine
+ *   Reaktion des Gegners) - genau die Art Situation, vor der laut Auftrag
+ *   nicht stillschweigend hinweggegangen werden soll. Ein reines Auflösen
+ *   bereits vorhandener Objekte (Stack wird kürzer/leer) zählt NICHT als neue
+ *   Situation. `pendingDecision`/Kampf-Deklarationen mit echten Kandidaten
+ *   brauchen HIER keine eigene Prüfung: `autoResolvableActionFor` liefert für
+ *   diese Fälle ohnehin schon `undefined`, bevor diese Funktion überhaupt
+ *   befragt wird (s. dortige Struktur) - der Vorgang endet dann automatisch
+ *   über das Aufräumen in `advanceAutomation`.
+ */
+function shouldContinuePassingUntilSomethingHappens(player: PlayerId): boolean {
+  const run = passUntilSomethingHappensRun;
+  if (!run || run.player !== player) return false;
+  const reachedOwnMainPhase =
+    (state.step === "main1" || state.step === "main2") &&
+    state.activePlayer === player &&
+    (state.turnNumber !== run.startTurnNumber || state.step !== run.startStep);
+  if (reachedOwnMainPhase) return false;
+  if (state.stack.some((obj) => !run.stackObjectIds.has(obj.id))) return false;
+  return true;
+}
+
+/**
+ * Startet den obigen Vorgang für `player` (Klick auf den neuen Button im
+ * Spotlight-Banner) - nur sinnvoll auszulösen, wenn `player` GERADE
+ * tatsächlich eine echte Priority-Wahl hat (exakt die Bedingung, unter der
+ * render.ts#decisionSpotlightPlayer das Banner überhaupt zeigt); andernfalls
+ * ein No-Op. Setzt die Momentaufnahme und stößt `triggerAutomation()` an -
+ * dieselbe Behandlung wie ein echter menschlicher `dispatch()`-Aufruf (frische
+ * Sicherheitszähler, s. MAX_AUTO_HUMAN_ACTIONS_PER_CYCLE oben), weil dieser
+ * Klick selbst die bewusste menschliche Aktion ist, die den neuen Zyklus
+ * eröffnet.
+ */
+export function passUntilSomethingHappens(player: PlayerId): void {
+  if (state.priorityPlayer !== player || state.pendingDecision || isBotControlled(player)) return;
+  passUntilSomethingHappensRun = {
+    player,
+    stackObjectIds: new Set(state.stack.map((obj) => obj.id)),
+    startTurnNumber: state.turnNumber,
+    startStep: state.step,
+  };
+  triggerAutomation();
 }
 
 /**
@@ -1542,12 +1662,23 @@ function advanceAutomation(): void {
  *   Sonderfall, s. legal-actions.ts-Dateikommentar), ist das bewusst KEINE
  *   automatisch lösbare Situation (eine echte, nur nicht enumerierbare
  *   Entscheidung) - hier wird NICHT automatisch entschieden.
+ *
+ * Zusätzlich (Auftrag "Weiter bis was passiert", s.o.): liefert im
+ * Priority-Fenster AUCH DANN `passPriority`, wenn `hasRealPriorityChoice`
+ * `true` ist, aber gerade ein passender, vom Spieler selbst gestarteter
+ * `passUntilSomethingHappensRun` läuft UND
+ * `shouldContinuePassingUntilSomethingHappens` dafür grünes Licht gibt - s.
+ * dortige Kommentare. Ändert NICHTS an `hasRealPriorityChoice` selbst (bleibt
+ * weiterhin `true`, ein castbarer Zauber ist und bleibt eine "echte Wahl" -
+ * render.ts#decisionSpotlightPlayer zeigt das Banner z.B. unverändert an,
+ * solange KEIN solcher Vorgang aktiv ist).
  */
 function autoResolvableActionFor(player: PlayerId): PlayerAction | undefined {
   if (isBotControlled(player)) return undefined;
   if (state.pendingDecision) return undefined; // Mulligan/chooseMode/orderBlockers/Zielwahl: nie automatisch
   if (state.priorityPlayer === player) {
-    return hasRealPriorityChoice(player) ? undefined : { kind: "passPriority", player };
+    if (!hasRealPriorityChoice(player)) return { kind: "passPriority", player };
+    return shouldContinuePassingUntilSomethingHappens(player) ? { kind: "passPriority", player } : undefined;
   }
   if (state.step === "declareAttackers" && state.activePlayer === player) {
     const attackerActions = legalActions(player).filter(
@@ -1910,6 +2041,9 @@ export function initGame(
   // modul-scoped `state` arbeitet) - erst stoppen, dann den neuen State
   // setzen, danach ggf. frisch planen (unten).
   stopBotLoop();
+  // s. dispatch()-Kommentar: gehört zur VORHERIGEN Partie, darf nicht gegen
+  // die neue weiterlaufen.
+  passUntilSomethingHappensRun = undefined;
   const { state: s, events } = engine.createGame({
     decks: { player1: deckP1, player2: deckP2 },
     seed,
@@ -2101,6 +2235,16 @@ export function hasRealPriorityChoice(player: PlayerId): boolean {
  * wäre; der Haupt-Unterschied ist `triggerAutomation()` am Ende, s.u.).
  */
 export function dispatch(action: PlayerAction): void {
+  // Ein laufender "Weiter bis was passiert"-Vorgang (s.o.) ist laut Auftrag
+  // ein EINMALIGER, bewusst ausgelöster Vorgang - jede ECHTE weitere
+  // menschliche Aktion (jeder normale Klick über dispatch(), inkl. des
+  // gewöhnlichen "Priorität passen"-Buttons) beendet ihn, statt ihn
+  // stillschweigend weiterlaufen zu lassen. Reines Sicherheitsnetz für den
+  // seltenen Fall, dass der Spieler während einer laufenden (asynchronen,
+  // s. scheduleBotStepIfNeeded) Bot-Wartezeit noch etwas anderes anklickt -
+  // im Normalfall hat `advanceAutomation` den Vorgang an seiner eigenen
+  // Haltebedingung ohnehin längst selbst beendet.
+  passUntilSomethingHappensRun = undefined;
   const result = engine.applyAction(state, action);
   if (result.error) {
     lastError = result.error;

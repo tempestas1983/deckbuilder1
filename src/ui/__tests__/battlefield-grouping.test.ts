@@ -271,6 +271,9 @@ describe("Battlefield-Gruppierung + Aura-Overlay + Action-Glow (Nutzer-Auftrag, 
     // lassen, bevor der eigentliche Action-Glow-Nachweis geprüft wird -
     // zusätzlich zu den ohnehin mehrsekündigen Deck-/Turn-Vorbereitungs-
     // schritten braucht dieser Test spürbar mehr Luft als der Default.
-    15000,
+    // 15000ms reichte isoliert, aber nicht mehr wenn die volle Suite parallel
+    // läuft (beobachtet: ~21.5s unter Last vs. ~12s isoliert) - daher mit
+    // Puffer auf 25000ms angehoben.
+    25000,
   );
 });
