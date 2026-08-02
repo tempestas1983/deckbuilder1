@@ -7,6 +7,114 @@ in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 `docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
 Dokument ist die Kurzfassung "wo stehen wir gerade".
 
+## Meilenstein: hard-Bot Mana-Zurückhalten + 2-Ply gegen billige Gegenantwort (KI v2.3, NOCH NICHT committet)
+
+Kleine, fokussierte KI-only-Session (2026-08-02, im Anschluss an den
+KI-v2.2-Lethal-Check und den v0.1.35-Frontend-Sweep), keine
+Engine-/Model-/Kartenpool-/Frontend-Änderung. Gegen den tatsächlichen Code
+verifiziert (`src/ai/hardBot.ts` vollständig gelesen,
+`src/ai/__tests__/hardBot-mana-hold-back.test.ts` +
+`src/ai/__tests__/hardBot-cast-reply.test.ts` Zeile für Zeile gegen die
+behaupteten „Fallen" abgeglichen), nicht nur den Fertigstellungsbericht
+übernommen. **Zum Zeitpunkt dieses Sweeps im Arbeitsverzeichnis von
+`/home/steffen/deckbuilder1` noch uncommitted** (dieselbe uncommittete
+`hardBot.ts`-Arbeitskopie wie der vorige KI-v2.2-Meilenstein — der
+Lethal-Check aus v2.2 ist Teil desselben Diffs). Details:
+`docs/ai-status.md` Abschnitt 12.
+
+- **1. Mana-Zurückhalten** (`shouldHoldManaBack`, `untappedManaSourceCount`,
+  `isTypicallyReactiveHandCard`, neue Konstante
+  `MANA_HOLD_BACK_GAIN_CEILING = 1.0`): `hard` tappte im eigenen
+  Main-Phase-Fenster bisher proaktiv jede verfügbare Manaquelle, sobald die
+  Hand irgendeine Nicht-Terrain-Karte enthielt — auch wenn dadurch eine
+  bezahlbare, „typischerweise reaktive" `fast`-Karte (Removal/Direktschaden,
+  dieselben `HARMFUL_EFFECT_KINDS` wie beim Lethal-Check) für den
+  gegnerischen Zug unbezahlbar wurde. Fix: greift nur im exakten Grenzfall
+  „Anzahl ungetappter eigener Manaquellen == Kosten einer bezahlbaren
+  reaktiven Handkarte" UND nur, wenn die dadurch verdrängte eigene Option
+  ohnehin nur marginal war (Eval-Gewinn < `MANA_HOLD_BACK_GAIN_CEILING`) —
+  unterdrückt dann sowohl den bestehenden proaktiven „weitere Quelle
+  tappen"-Fallback als auch die Wahl eines nur marginalen Cast-/Activate-
+  Kandidaten. Klar lohnende Optionen werden weiterhin immer gespielt.
+  Kartenpool-Fakt: 62 von 72 Spells sind `fast` — spielerisch relevanter
+  Mechanismus, kein Randfall.
+- **2. Mittelweg-2-Ply für Cast/Activate** (`evaluateCastCandidateEnd`,
+  `opponentCheapResponseCandidates`, neue Konstante
+  `CAST_REPLY_MIN_BUDGET = 20`): Die bereits vorhandene Top-K-Shortlist in
+  `chooseBestCastOrActivateHard` bewertete jeden Cast-/Activate-Kandidaten
+  bisher nur isoliert (1-Ply). Hat nach dem eigenen simulierten Zug
+  tatsächlich der GEGNER Priorität (typischer Fall: der Bot castet reaktiv
+  während der gegnerischen Zugphase), werden jetzt zusätzlich bis zu zwei
+  billige, statisch bestimmte Gegenantworten simuliert („Passen" + die
+  statisch beste gegnerische Cast-/Activate-Option, gleiches
+  `staticCastScore`/`staticActivateScore`-Ranking wie sonst im Modul, aus
+  Gegnersicht, KEIN eigenes Lookahead für die Gegenantwort selbst) und die
+  für den Bot schlechtere der beiden Optionen statt der rohen
+  1-Ply-Bewertung verwendet. Kein rekursiver Baum: Kosten bleiben bei
+  K × (1-2) statt einer vollen K × N-Suche über alle gegnerischen Optionen.
+- Beide Heuristiken NUR für `hard` — `easy`/`medium` bewusst unverändert.
+- **Neue Tests** `src/ai/__tests__/hardBot-mana-hold-back.test.ts` (2 Fälle,
+  inkl. Gegenprobe: kostet die reaktive Karte mehr, als selbst alle Quellen
+  zusammen decken könnten, tappt der Bot ganz normal weiter — Zurückhalten
+  wäre für diese Karte ohnehin nutzlos) und
+  `src/ai/__tests__/hardBot-cast-reply.test.ts` (2 Fälle, deterministische
+  Falle: eine isoliert höher bewertete Option — „Verbannung" — wäre nach
+  einer gegnerischen Gegenantwort tödlich riskant, während eine isoliert
+  schwächer bewertete Option — „Kleiner Blitz" — den Gegenschlag überlebt;
+  die 2-Ply-Bewertung erkennt das und wählt die sicherere Option — inkl.
+  Gegenprobe, die per direktem Nachrechnen der isolierten 1-Ply-Scores
+  beweist, dass die reine 1-Ply-Bewertung ohne die neue Logik tatsächlich in
+  die Falle tappen würde). Beide Testdateien vom documenter vollständig
+  gelesen und mit der beschriebenen Falle abgeglichen — stimmen exakt
+  überein.
+- **Performance-/Test-Zahlen — laut Bericht des ai-opponent-engineer, VOM
+  DOCUMENTER NICHT SELBST NACHGERECHNET** (kein Shell-Werkzeug in dieser
+  Sweep-Session, wie bei allen Sweeps seit 2026-07-18): hard-vs-hard über 20
+  Seeds, gemessen mit einem für diesen Zweck erst um Zauber ergänzten
+  Testdeck (das bestehende `buildDeterministicDeck` in den Performance-Tests
+  enthielt laut Bericht bislang keine Zauber, ohne diese Ergänzung hätten
+  beide neuen Codepfade in der Messung nie getriggert):
+
+  | | Median | p95 | p99 | Max |
+  |---|---|---|---|---|
+  | vorher | 0,019 ms | 2,88 ms | 11,15 ms | 31,9 ms |
+  | nachher | 0,020 ms | 2,26 ms | 9,67 ms | 33,8 ms |
+
+  Laut Bericht keine relevante Regression (p99 sogar leicht besser); per
+  Instrumentierung griff `shouldHoldManaBack` laut Bericht 447-mal und der
+  2-Ply-Antwortzweig 30-mal über die Messreihe — beide Heuristiken wurden
+  also tatsächlich ausgeübt, nicht nur theoretisch vorhanden. Stärkevergleich
+  (`difficulty.test.ts`, unveränderte Seeds): identisch zur v2.2-Baseline —
+  hard schlägt medium 25:15, hard schlägt easy 19:5; dieser Test nutzt
+  weiterhin ein reines Kreaturen-Deck ohne Zauber, die beiden neuen
+  Heuristiken greifen dort also gar nicht (Eigenschaft des Test-Decks, keine
+  Einschränkung der neuen Logik selbst).
+- **Nachträglich per eigenem Testlauf aufgelöst:** ein früherer Sweep hatte
+  die Berichtsangabe „26 Testdateien grün" als Ungereimtheit markiert (das
+  Verzeichnis `src/ai/__tests__/` hat nur 7 Dateien). Tatsächlicher Lauf von
+  `npx vitest run src/ai`: 6 Testdateien grün + 1 bewusst übersprungen (7
+  gesamt), **26 Tests grün + 1 übersprungen = 27 Tests gesamt**, 0
+  fehlgeschlagen — die „26" war schlicht korrekt, bezog sich aber auf
+  einzelne Tests, nicht auf Testdateien (Formulierung im ursprünglichen
+  Bericht war irreführend). Die frühere „50 Testdateien projektweit"-Theorie
+  war eine Überkorrektur.
+- **documenter (dieser Mini-Sweep, 2026-08-02):** `docs/ai-status.md` (neue
+  Kopfzeile, neuer Abschnitt 12 „v2.3: Mana-Zurückhalten + 2-Ply gegen
+  billige Gegenantwort", präzisierte Schwächen 1+2 in Abschnitt 9.7),
+  `docs/README.md` (Kopfzeile, KI-Zeile der Statustabelle, neuer „Seit dem
+  letzten Sweep"-Absatz, „Weitere offene Punkte" Punkte 2+3 für den
+  ai-opponent-engineer), `docs/status.md` (dieser Eintrag) aktualisiert.
+  `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
+  `docs/cards/starter-set.md` waren NICHT Gegenstand dieses Mini-Sweeps
+  (keine Engine-/Model-/Kartenpool-/Frontend-Änderung in dieser Session).
+  Kein eigener `npm test`/`npx vitest run`-Lauf möglich (kein
+  Shell-Werkzeug) — alle Performance-/Stärkevergleichszahlen stammen aus dem
+  Bericht des ai-opponent-engineer; die einzige gefundene,
+  dokumentierungswürdige Abweichung (die „26 Testdateien"-Behauptung) wurde
+  oben transparent gemacht statt stillschweigend übernommen, analog zum
+  Vorgehen beim vorigen KI-v2.2-Meilenstein (dort die 19:5-vs-21:3-Tally-
+  Abweichung).
+
 ## Meilenstein: Fünf unabhängige Frontend-Features (Frontend v0.1.35, NOCH NICHT committet)
 
 Fünf voneinander unabhängige Frontend-Änderungen derselben Session

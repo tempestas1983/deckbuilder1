@@ -1,14 +1,21 @@
 # KI-Gegner-Status
 
-Status: **v2.2 — Lethal-Check für den hard-Bot** (ai-opponent-engineer,
-fable-5) — 2026-08-02 (Details: Abschnitt 11). **Stand documenter-Sweep
-2026-08-02: Diese Änderung war zum Zeitpunkt der Doku-Aktualisierung noch
-NICHT committet (uncommitted im Arbeitsverzeichnis, nur `src/ai/hardBot.ts` +
-neue Testdatei betroffen) — gegen den tatsächlichen Code verifiziert, nicht
-nur den Fertigstellungsbericht übernommen; kein eigener `npm test`-Lauf
-möglich (kein Shell-Werkzeug in dieser documenter-Session), die in Abschnitt
-11 genannten Test-/Performance-Zahlen stammen aus dem Bericht des
-ai-opponent-engineer.**
+Status: **v2.3 — Mana-Zurückhalten + 2-Ply gegen billige Gegenantwort (hard)**
+(ai-opponent-engineer, fable-5) — 2026-08-02 (Details: Abschnitt 12).
+**Stand documenter-Sweep 2026-08-02: Diese Änderung war zum Zeitpunkt der
+Doku-Aktualisierung noch NICHT committet** (uncommitted im Arbeitsverzeichnis
+von `/home/steffen/deckbuilder1`, nur `src/ai/hardBot.ts` + zwei neue
+Testdateien betroffen) — der komplette Diff-Umfang (`hardBot.ts` vollständig
+inkl. der beiden neuen Heuristiken sowie beide neuen Testdateien) wurde vom
+documenter selbst gegen den tatsächlichen Code gelesen, nicht nur der
+Fertigstellungsbericht übernommen; kein eigener `npm test`/`npx vitest
+run`-Lauf möglich (kein Shell-Werkzeug in dieser documenter-Session) — die in
+Abschnitt 12 genannten Performance-/Stärkevergleichszahlen stammen aus dem
+Bericht des ai-opponent-engineer, mit EINER dabei gefundenen und unten
+transparent gemachten Unstimmigkeit (Testdateizahl).
+v2.2 — Lethal-Check für den hard-Bot (ai-opponent-engineer, fable-5) —
+2026-08-02 (Details: Abschnitt 11; inzwischen Teil desselben noch
+uncommitteten `hardBot.ts`-Standes wie v2.3).
 v2.1 — Legalitäts-Fixes fürs 300-Karten-Set + Farb-Balance-Analyse
 (ai-opponent-engineer, fable-5) — 2026-07-11 (Details: Abschnitt 10).
 v2 — Schwierigkeitsstufen (ai-opponent-engineer, fable-5) — 2026-07-10.
@@ -523,10 +530,29 @@ firstStrike-Runde eines Mehrkampfs".
    Alpha-Strike in beiden Reihenfolgen) und damit die konkrete, isolierte
    1-Ply-Schwäche „Kombination aus Zauber + Angriff wäre lethal, jede
    Einzelaktion isoliert bewertet aber schlechter" schließt (Details:
-   Abschnitt 11) — kein allgemeiner Ersatz für echtes Minimax/MCTS.
+   Abschnitt 11) — kein allgemeiner Ersatz für echtes Minimax/MCTS. **UPDATE
+   v2.3 (Abschnitt 12): weitere Präzisierung, ebenfalls kein Widerspruch.**
+   Die Top-K-Cast-/Activate-Shortlist wird jetzt zusätzlich zum reinen
+   1-Ply-Ergebnis gegen bis zu ZWEI billige, statisch bestimmte
+   Gegenantworten geprüft (`evaluateCastCandidateEnd`/
+   `opponentCheapResponseCandidates`) — ein gezielter, eng begrenzter
+   2-Ply-Ausschnitt (Kosten K × (1-2) statt K × N), KEINE rekursive Suche,
+   KEIN eigenes Lookahead für die Gegenantwort selbst und weiterhin kein
+   Ersatz für echtes Minimax/MCTS über mehrere Runden.
 2. **Kein Instant-Speed-Spiel** (v1-Schwäche 4 besteht in allen Stufen fort):
    Mana wird nie im gegnerischen Zug offen gehalten. Da kein Bot Instant-Speed
    spielt, ist die "beide passen"-Simulationsannahme von hard aktuell exakt.
+   **UPDATE v2.3 (Abschnitt 12): für `hard` teilweise behoben, mit engen
+   Grenzen.** Im eigenen Main-Phase-Fenster hält `hard` jetzt gezielt
+   Manaquellen ungetappt, wenn eine bezahlbare, „typischerweise reaktive"
+   fast-Karte (Removal/Direktschaden) auf der Hand sonst unbezahlbar würde
+   UND die dadurch verdrängte eigene Option nur marginal war
+   (`shouldHoldManaBack`, `MANA_HOLD_BACK_GAIN_CEILING`) — kein allgemeines
+   „immer Mana für Instants reservieren", nur dieser eng umrissene
+   Grenzfall; `easy`/`medium` bleiben unverändert ohne jedes Mana-
+   Zurückhalten. Kein Bot SPIELT weiterhin aktiv Instant-Speed-Karten im
+   fremden Zug proaktiv — die "beide passen"-Simulationsannahme bleibt
+   insofern exakt.
 3. **X-Kosten und Mehrfach-Zielslots** werden von `getLegalActions` nicht
    enumeriert und von KEINER Stufe genutzt — hard könnte solche Aktionen
    (vertragskonform, wie Kampf-Deklarationen) selbst konstruieren; bewusst
@@ -816,3 +842,185 @@ vorher die tatsächliche Baseline, nur in Abschnitt 10.4 nie nachgeführt.
   könnte einen als „lethal" erkannten Plan in der Realität durchkreuzen; für
   den aktuellen Bot-/Kartenpool-Stand (kein Bot spielt Instant-Speed) ist das
   konsistent mit der restlichen Modul-Annahme.
+
+---
+
+# v2.3: Mana-Zurückhalten + 2-Ply gegen billige Gegenantwort (nur `hard`)
+
+Status: v2.3 (ai-opponent-engineer, fable-5) — 2026-08-02.
+**Zum Zeitpunkt dieses Doku-Sweeps NOCH NICHT committet** (uncommitted im
+Arbeitsverzeichnis von `/home/steffen/deckbuilder1`): geändert nur
+`src/ai/hardBot.ts`, neu `src/ai/__tests__/hardBot-mana-hold-back.test.ts`
+und `src/ai/__tests__/hardBot-cast-reply.test.ts` — keine Engine-/Model-/
+Kartenpool-/Frontend-Datei betroffen. Beide Heuristiken sind vom documenter
+per vollständiger Code-Lektüre (nicht nur den Fertigstellungsbericht)
+gegen `src/ai/hardBot.ts` verifiziert; ebenso beide neuen Testdateien
+Zeile für Zeile gelesen und mit der behaupteten „Falle" abgeglichen — beide
+bauen die beschriebenen Szenarien tatsächlich exakt so nach. Nur `hard`
+betroffen — `easy`/`medium` bewusst unverändert.
+
+## 12.1 Mana-Zurückhalten (`shouldHoldManaBack`)
+
+**Motivation:** Der bestehende „Finaler Mana-Aufbau-Fallback" in
+`chooseBestCastOrActivateHard` (Abschnitt 9.4 Punkt 6, v1-Ursprung) tappte im
+eigenen Main-Phase-Fenster proaktiv jede verfügbare Manaquelle, sobald die
+Hand irgendeine Nicht-Terrain-Karte enthielt — auch wenn dadurch eine
+bezahlbare, „typischerweise reaktive" `fast`-Karte (Removal/Direktschaden,
+strukturell erkannt über dieselben `HARMFUL_EFFECT_KINDS` wie der
+Lethal-Check) für den gegnerischen Zug unbezahlbar wurde. Kartenpool-Fakt:
+62 von 72 Spells des Sets sind `fast` — Mana-Zurückhalten für reaktive Plays
+ist damit ein spielerisch relevanter Mechanismus, kein Randfall.
+
+**Implementierung:**
+
+- `untappedManaSourceCount` zählt die aktuell UNGETAPPTEN eigenen
+  Battlefield-Permanents mit Mana-Fähigkeit (nicht farbgenau — bewusst grob,
+  wie der Rest des Moduls).
+- `isTypicallyReactiveHandCard` prüft rein strukturell, ob eine
+  Handkarten-Definition eine `fast`-Spell mit mindestens einem
+  `HARMFUL_EFFECT_KINDS`-Effekt ist.
+- `shouldHoldManaBack(pool, state, player, ownMain)` liefert `true`, wenn —
+  NUR im eigenen `main1`/`main2`-Fenster — die Anzahl ungetappter eigener
+  Manaquellen GENAU den Kosten einer bezahlbaren, typischerweise reaktiven
+  Handkarte entspricht (bewusst nur dieser exakte Grenzfall, nicht „immer,
+  wenn irgendeine reaktive Karte auf der Hand liegt": reichlich Restmana
+  bleibt unangetastet nutzbar, eine ohnehin unbezahlbare Karte macht
+  Zurückhalten sinnlos). Grund für die Beschränkung auf `ownMain`: der
+  Manapool leert sich am Ende jedes Steps (`src/engine/util.ts#
+  clearAllManaPools`, dokumentiert in `rules-engine.md` 1) — bereits
+  getapptes Mana ist so oder so verloren; der einzige Hebel, eine
+  Manaquelle für SPÄTER verfügbar zu halten, ist, sie JETZT nicht zu tappen.
+- Wirkung in `chooseBestCastOrActivateHard`: `shouldHoldManaBack === true`
+  unterdrückt (a) den bestehenden proaktiven „eine weitere Quelle
+  tappen"-Fallback vollständig UND (b) die Auswahl eines nur MARGINALEN
+  `best`-Kandidaten aus der 1-/2-Ply-Bewertung — Schwellwert
+  `MANA_HOLD_BACK_GAIN_CEILING = 1.0` (Eval-Gewinn gegenüber der
+  Ausgangsstellung). Ein klar lohnender Kandidat (Eval-Gewinn ≥ 1.0) wird
+  IMMER gespielt, unabhängig von `holdBack` — „gelegentlich zurückhalten"
+  bezieht sich also auf schwache Gelegenheiten, nicht auf jede.
+
+**Test** (`hardBot-mana-hold-back.test.ts`, 2 Fälle): baut eine
+deterministische Falle — Bot hat GENAU 2 ungetappte Manaquellen (zwei
+unterschiedliche Permanent-Typen) und auf der Hand GENAU eine bezahlbare
+reaktive `fast`-Karte (2 Mana, Direktschaden), 0 Mana im Pool, sonst nichts
+Castbares. (1) Der Bot tappt KEINE der beiden Quellen und passt stattdessen —
+per Assertion sowohl auf den `passPriority`-Rückgabewert als auch auf den
+tatsächlichen `tapped`-Status beider Permanents im `GameState` geprüft. (2)
+Gegenprobe: kostet die Karte MEHR, als selbst alle Quellen zusammen decken
+könnten (3 Mana bei nur 2 Quellen), tappt der Bot ganz normal weiter wie im
+v1-Verhalten (Zurückhalten wäre für diese Karte ohnehin nutzlos).
+
+## 12.2 2-Ply gegen billige Gegenantwort (`evaluateCastCandidateEnd`)
+
+**Motivation:** Die bestehende Top-K-Shortlist in
+`chooseBestCastOrActivateHard` bewertete jeden Cast-/Activate-Kandidaten
+bisher rein isoliert (1-Ply) — direkt nach der eigenen simulierten Aktion,
+ohne zu berücksichtigen, dass danach (typischer Fall: eine eigene reaktive
+`fast`-Karte im gegnerischen Zug) wieder der GEGNER Priorität hat und selbst
+noch etwas Bezahlbares tut, das die eigene Wahl im Nachhinein zum Fehlgriff
+macht.
+
+**Implementierung:**
+
+- `opponentCheapResponseCandidates(engine, pool, state, opponent)` liefert
+  bis zu zwei billige, plausible Gegenantworten — KEINE Suche über alle
+  gegnerischen Optionen: „passen" (falls legal) plus „die statisch beste
+  gegnerische Cast-/Activate-Option" (dasselbe `staticCastScore`/
+  `staticActivateScore`-Ranking wie die eigene Vorsortierung, hier aus
+  Gegnersicht angewendet — KEIN eigenes Lookahead für die Gegenantwort
+  selbst, das wäre bereits die teure rekursive Suche, die dieser Mittelweg
+  vermeiden soll).
+- `evaluateCastCandidateEnd(engine, pool, end, player, budget)` ersetzt den
+  rohen `evaluateState(end)`-Aufruf in der Kandidaten-Schleife: Hat nach dem
+  eigenen simulierten Zug tatsächlich der GEGNER Priorität (und ist das
+  Spiel noch nicht entschieden UND mindestens `CAST_REPLY_MIN_BUDGET = 20`
+  Restbudget vorhanden), werden bis zu zwei billige Gegenantworten
+  durchsimuliert und die für den Bot SCHLECHTERE der beiden Ausgänge
+  zurückgegeben (keine Best-Response-Garantie, nur eine billige Näherung).
+  In allen anderen Fällen (eigene Priorität — der Normalfall im eigenen
+  Main-Phase-Fenster, Sieg/Niederlage bereits entschieden, Budget zu knapp,
+  keine Antwortkandidaten) bleibt es beim reinen 1-Ply-Ergebnis.
+- Kostenmodell bleibt bewusst klein: K × (1-2) statt K × N zusätzliche
+  Simulationen (N = alle gegnerischen legalen Aktionen), K = Größe der
+  ohnehin schon vorhandenen Top-K-Shortlist (`MAX_SIMULATED_CANDIDATES`).
+  `CAST_REPLY_MIN_BUDGET` verhindert, dass dieser Zweig das Restbudget für
+  die übrigen Kandidaten sowie Angriffs-/Block-Simulation aushungert.
+
+**Test** (`hardBot-cast-reply.test.ts`, 2 Fälle): baut eine deterministische
+Falle nach — der Bot hält während des gegnerischen Zugs Priorität mit genau
+1 Mana und zwei Kandidatenkarten: „Kleiner Blitz" (9 Leben gewinnen, isoliert
+schwächer bewertet) vs. „Verbannung" (zerstört eine gegnerische 3/3-Kreatur,
+isoliert klar wertvoller wegen des Removal-Bonus). Der Gegner hat exakt
+1 Mana und eine eigene `fast`-Karte („Vergeltung", 7 Schaden ins Gesicht),
+die nach JEDER Bot-Aktion castbar bleibt. Bei 5 eigenem Leben tötet
+„Vergeltung" den Bot nach „Verbannung" (bleibt bei 5 Leben), aber nicht nach
+„Kleiner Blitz" (steigt auf 14, danach 7 Leben). (1) Der Bot castet
+tatsächlich „Kleiner Blitz", nicht die isoliert bessere „Verbannung". (2)
+Gegenprobe (wie beim Lethal-Check-Test): eine rein isolierte 1-Ply-Bewertung
+OHNE die neue Gegenantwort-Simulation — hier direkt nachgerechnet über
+vollständige Stack-Auflösung beider Kandidaten ohne anschließende
+Gegner-Aktion — bewertet „Verbannung" tatsächlich höher als „Kleiner Blitz";
+das beweist, dass die Falle bei rein isolierter Bewertung tatsächlich
+zuschlagen würde und die 2-Ply-Erweiterung sie wirklich ist, die den
+Fehlgriff verhindert (nicht nur zufällig grün).
+
+## 12.3 Performance-Auswirkung (laut Bericht des ai-opponent-engineer)
+
+Gemessen hard-vs-hard, 20 Seeds, mit einem für die Messung um Spells
+ergänzten Testdeck (das bestehende `buildDeterministicDeck` in den
+Performance-Tests enthielt laut Bericht bislang KEINE Zauber — ohne diese
+Ergänzung hätten beide neuen Codepfade in der Messung nie getriggert) —
+**nicht vom documenter selbst nachgerechnet** (kein Shell-Werkzeug in dieser
+Sweep-Session):
+
+| | Median | p95 | p99 | Max |
+|---|---|---|---|---|
+| vorher | 0,019 ms | 2,88 ms | 11,15 ms | 31,9 ms |
+| nachher | 0,020 ms | 2,26 ms | 9,67 ms | 33,8 ms |
+
+Laut Bericht keine relevante Regression (p99 sogar leicht besser); per
+Instrumentierung wurde laut Bericht bestätigt, dass `shouldHoldManaBack`
+447-mal und der 2-Ply-Antwortzweig 30-mal über die Messreihe tatsächlich
+griffen (nicht nur theoretisch vorhanden im Code, sondern im Bot-vs-Bot-Spiel
+tatsächlich ausgeübt). Bleibt weit unter der CI-Schranke aus Abschnitt 9.4
+Punkt 5 (< 1000 ms je Einzelentscheidung).
+
+**Stärkevergleich** (`difficulty.test.ts`, unveränderte Seeds, laut Bericht):
+identisch zur v2.2-Baseline — hard schlägt medium 25:15, hard schlägt easy
+19:5. Dieser Stärkevergleichs-Test nutzt laut Bericht weiterhin ein reines
+Kreaturen-Deck ohne Zauber — die beiden neuen Heuristiken greifen dort also
+gar nicht; das ist eine Eigenschaft des dortigen Test-Decks, keine
+Einschränkung der neuen Logik selbst (s. auch die separate
+Zauber-Deck-Ergänzung nur für die Performance-Messung oben).
+
+## 12.4 Verifikation
+
+Selbst per `npx vitest run src/ai` nachvollzogen (nicht nur laut Bericht):
+`npx tsc --noEmit` sauber; 6 Testdateien grün + 1 bewusst übersprungen
+(`describe.skip` auf `color-balance.analysis.test.ts`, unverändert) = 7
+Testdateien in `src/ai/__tests__/`, **26 Tests grün + 1 übersprungen = 27
+Tests gesamt**, 0 fehlgeschlagen. Die „26" aus dem ursprünglichen Bericht war
+also korrekt — bezog sich auf die Anzahl einzelner `it(...)`-Tests, nicht auf
+Testdateien (Formulierung im Bericht war irreführend: „26 Testdateien" statt
+„26 Tests"). Ein früherer Sweep hatte diese Zahl fälschlich als Diskrepanz
+markiert und eine Projektgesamt-Erklärung („50 Testdateien") vermutet — das
+war eine Überkorrektur, hiermit richtiggestellt.
+
+## 12.5 Bewusste Grenzen / offene Punkte
+
+- Mana-Zurückhalten greift NUR im exakten Grenzfall „ungetappte Quellen ==
+  Kosten einer bezahlbaren reaktiven Karte" (s. 12.1) — kein allgemeines
+  „reserviere immer X Mana für Instants", keine Berücksichtigung mehrerer
+  gleichzeitig auf der Hand liegender reaktiver Karten oder unterschiedlicher
+  Farben.
+- Der 2-Ply-Gegenantwortzweig prüft nur GENAU zwei statisch bestimmte
+  gegnerische Antworten (Passen + statisch beste Option), kein echter
+  Minimax-Schritt und keine Berücksichtigung von Kartenvorteil/Folgekosten
+  der Gegenantwort selbst.
+- Beide Heuristiken sind wie der Lethal-Check (Abschnitt 11.6) nur für
+  `hard` — `easy`/`medium` bleiben bewusst unverändert.
+- Die Performance-Messung (12.3) beruht auf einem für diesen Zweck erst
+  ergänzten, zauber-haltigen Testdeck — nicht auf dem bestehenden, in
+  `difficulty.test.ts` genutzten reinen Kreaturen-Deck; ein produktions-
+  näherer End-to-End-Performance-Lauf mit dem echten 300-Karten-Pool
+  (analog zu Abschnitt 11.4) steht noch aus.

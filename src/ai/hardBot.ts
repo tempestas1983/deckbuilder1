@@ -31,13 +31,36 @@
  *    Kombination: "alles rein" (Alpha-Strike + alle bezahlbaren
  *    Face-Damage-Zauber/-Fähigkeiten dieses Zugs) — findet er eine wirklich
  *    tödliche Reihenfolge, wird deren nächster Schritt bevorzugt gespielt.
+ * 5. MANA-ZURÜCKHALTEN (siehe chooseBestCastOrActivateHard, Funktion
+ *    shouldHoldManaBack): Im eigenen Main-Phase-Fenster tappt der Bot nicht
+ *    blind jede verfügbare Manaquelle für eine nur marginal wertvolle
+ *    Cast-/Activate-Option — hat er eine bezahlbare, "typischerweise
+ *    reaktive" fast-Karte (Removal/Direktschaden) auf der Hand UND würde das
+ *    nächste Tappen genau diese Karte für später (gegnerischer Zug,
+ *    Zugende) unbezahlbar machen, wird die marginale Option übersprungen
+ *    (Terrains bleiben ungetappt). Kartenpool-Fakt: 62 von 72 Spells sind
+ *    "fast" (jederzeit bei Priorität castbar) — Mana-Zurückhalten für
+ *    reaktive Plays ist damit ein spielerisch relevanter Mechanismus.
+ * 6. 2-PLY GEGEN BILLIGE GEGENANTWORT (siehe evaluateCastCandidateEnd): Die
+ *    bereits vorhandene Top-K-Shortlist (toSimulate) wird nicht mehr nur
+ *    isoliert (1-Ply) bewertet — hat NACH dem eigenen simulierten Zug
+ *    tatsächlich der GEGNER Priorität (typischer Fall: eine eigene reaktive
+ *    fast-Karte im gegnerischen Zug), wird zusätzlich EINE billige,
+ *    heuristisch plausible Gegenantwort (Gegners statisch bester Cast/
+ *    Activate ODER Passen — KEIN eigenes Lookahead, KEINE Suche über alle
+ *    gegnerischen Optionen) durchsimuliert und der für uns SCHLECHTERE der
+ *    beiden Ausgänge verwendet. Kein rekursiver Baum: Kosten bleiben bei
+ *    ca. K × (1-2) statt K × N (N = alle gegnerischen legalen Aktionen).
  *
  * PERFORMANCE-BUDGET (UI darf nicht einfrieren): pro chooseActionHard-Aufruf
  * werden höchstens MAX_SIMULATED_ACTIONS applyAction-Simulationen verbraucht
  * (structuredClone-basiert, siehe Engine); Kandidaten werden vorab statisch
  * vorsortiert und auf MAX_SIMULATED_CANDIDATES begrenzt. Ist das Budget
  * erschöpft, fällt die Wahl auf die statische Vorsortierung zurück (nie auf
- * eine illegale Aktion).
+ * eine illegale Aktion). Der 2-Ply-Gegenantwort-Zweig (Punkt 6) hat einen
+ * eigenen Mindest-Restbudget-Schwellwert (CAST_REPLY_MIN_BUDGET), unterhalb
+ * dessen er gar nicht erst versucht wird — er darf das Budget für die
+ * restlichen Kandidaten sowie Angriffs-/Block-Simulation nicht aushungern.
  *
  * ARCHITEKTUR-VORGABE (wie simpleBot.ts): reiner Konsument der öffentlichen
  * RulesEngine-Schnittstelle (getLegalActions/applyAction) — keine
@@ -87,6 +110,10 @@ const MIN_EVAL_GAIN = 0.05;
 const LETHAL_MAX_PLAN_STEPS = 24;
 /** Unter diesem Rest-Budget wird der Lethal-Check gar nicht erst versucht (spart ihn fürs 1-Ply-Fallback auf). */
 const LETHAL_MIN_BUDGET = 30;
+/** Marginal-Schwelle (Aufgabe "Mana-zurückhalten"): unterhalb dieses Eval-Gewinns wird eine Cast-/Activate-Option zugunsten offenen Manas übersprungen. */
+const MANA_HOLD_BACK_GAIN_CEILING = 1.0;
+/** Unter diesem Rest-Budget wird der 2-Ply-Gegenantwort-Zweig (siehe evaluateCastCandidateEnd) gar nicht erst versucht. */
+const CAST_REPLY_MIN_BUDGET = 20;
 
 interface SimBudget {
   remaining: number;
@@ -500,6 +527,13 @@ function chooseBestCastOrActivateHard(
   // v1-Verhalten geblieben.
   const ownMain = state.activePlayer === player && (state.step === "main1" || state.step === "main2");
 
+  // Mana-Zurückhalten (Moduldoku Punkt 5, Funktion shouldHoldManaBack): true
+  // heißt "das nächste Tappen JETZT würde eine bezahlbare reaktive fast-Karte
+  // auf der Hand für später unbezahlbar machen" — gilt nur im eigenen
+  // Main-Phase-Fenster (im reaktiven Fenster selbst soll ganz normal
+  // gecastet/aktiviert werden).
+  const holdBack = shouldHoldManaBack(pool, state, player, ownMain);
+
   if (candidates.length > 0) {
     candidates.sort((a, b) => b.staticScore - a.staticScore);
     const toSimulate = candidates.slice(0, MAX_SIMULATED_CANDIDATES);
@@ -512,28 +546,41 @@ function chooseBestCastOrActivateHard(
       const end = simulateToQuiescence(engine, pool, state, action, budget);
       if (!end) continue;
       simulatedAny = true;
-      const score = evaluateState(pool, end, player);
+      // 2-Ply gegen billige Gegenantwort (Moduldoku Punkt 6) statt reinem
+      // 1-Ply evaluateState(end) — s. evaluateCastCandidateEnd.
+      const score = evaluateCastCandidateEnd(engine, pool, end, player, budget);
       if (score > bestEval) {
         bestEval = score;
         best = action;
       }
     }
-    if (best) return best;
+    if (best) {
+      // Mana-Zurückhalten: nur eine WIRKLICH marginale eigene Option wird zu
+      // Gunsten offenen Manas übersprungen (s. shouldHoldManaBack) — ein
+      // klar lohnender Kandidat wird immer gespielt, "gelegentlich" bezieht
+      // sich also auf schwache Optionen, nicht auf jede Gelegenheit.
+      if (!(holdBack && bestEval - baseline < MANA_HOLD_BACK_GAIN_CEILING)) return best;
+    }
     if (!simulatedAny) {
       // Budget erschöpft, bevor irgendetwas simuliert werden konnte: statischer
       // Fallback wie v1 (bester vorsortierter Kandidat, wenn er nach v1-Maßstab
       // klar lohnend aussieht — Removal/Unit-Cast haben staticScore > 1).
       const top = candidates[0];
-      if (top && top.staticScore > 1) return top.action;
+      if (top && top.staticScore > 1 && !holdBack) return top.action;
     }
   }
 
   // Finaler Mana-Aufbau-Fallback (wie v1): Wenn kein Kandidat lohnt, aber die
   // Hand Nicht-Terrains enthält, weiter Manaquellen tappen — deckt auch den
   // Fall ab, dass der Pool zwar groß genug, aber farblich falsch gefüllt ist
-  // (inkrementelles Tappen erfasst nach und nach alle Quellen).
+  // (inkrementelles Tappen erfasst nach und nach alle Quellen). Mana-
+  // Zurückhalten (holdBack) unterdrückt genau DIESEN proaktiven Tap-Schritt
+  // — das ist der Mechanismus, der Terrains tatsächlich ungetappt lässt
+  // (bereits getappte/im Pool liegende Mana ist ohnehin verloren, sobald der
+  // Step endet, s. shouldHoldManaBack-Doku).
   if (
     ownMain &&
+    !holdBack &&
     manaAbilityCandidates.length > 0 &&
     state.players[player].hand.some((id) => {
       const card = state.cards[id];
@@ -596,6 +643,172 @@ function staticRemovalScore(
   if (!targetCard || targetCard.controller === player) return undefined;
   if (pool[targetCard.definitionId]?.type !== "unit") return undefined;
   return unitValue(pool, state, target.instanceId);
+}
+
+// ---------------------------------------------------------------------------
+// Mana-Zurückhalten (Moduldoku Punkt 5): eigenes Main-Phase-Fenster hält
+// gelegentlich Manaquellen ungetappt, um im gegnerischen Zug (oder am
+// eigenen Zugende) auf eine "fast"-Karte reagieren zu können, statt jede
+// marginale eigene Option sofort zu spielen.
+// ---------------------------------------------------------------------------
+//
+// Engine-Fakt (rules-engine.md 1, s. src/engine/util.ts#clearAllManaPools):
+// "Der Manapool leert sich am Ende jedes Steps und jeder Phase" — bereits
+// GETAPPTE Manaquellen (bzw. bereits im Pool liegendes Mana) sind beim
+// nächsten Schritt ohnehin verloren, ob sie diesen Step noch für eine
+// marginale eigene Option ausgegeben werden oder nicht. Der einzige Hebel,
+// der eine Manaquelle tatsächlich für SPÄTER (gegnerischer Zug, eigenes
+// Zugende) verfügbar hält, ist deshalb, sie JETZT NICHT zu tappen — d.h.
+// den proaktiven "Finalen Mana-Aufbau-Fallback" (unten in
+// chooseBestCastOrActivateHard) für eine schwache Gelegenheit zu
+// unterdrücken. shouldHoldManaBack gate't zusätzlich das Casten einer
+// selbst nur marginal wertvollen Option (Kartenvorteil: die Karte bleibt
+// verfügbar, statt auf ein schwaches Ziel verschwendet zu werden).
+
+/** Ist `definitionId` eine "typischerweise reaktive" fast-Karte (Removal/Direktschaden — dieselben Effekt-Arten wie HARMFUL_EFFECT_KINDS)? Rein strukturell, wie die Lethal-Check-Vorfilter unten. */
+function isTypicallyReactiveHandCard(pool: CardPool, definitionId: string): boolean {
+  const def = pool[definitionId];
+  if (!def || def.type !== "spell" || def.speed !== "fast") return false;
+  const modes = cardEffectModes(pool, definitionId);
+  if (!modes) return false;
+  return modes.some(({ effects }) => effects.some((e) => HARMFUL_EFFECT_KINDS.has(e.kind)));
+}
+
+/** Anzahl UNGETAPPTER eigener Permanents mit Mana-Fähigkeit (nicht farbgenau — bewusst grob, wie der Rest des Moduls). */
+function untappedManaSourceCount(pool: CardPool, state: GameState, player: PlayerId): number {
+  let count = 0;
+  for (const instanceId of state.players[player].battlefield) {
+    const card = state.cards[instanceId];
+    if (!card?.permanentState || card.permanentState.tapped) continue;
+    if (abilitiesOf(pool, state, instanceId).some((a) => a.kind === "activated" && a.isManaAbility)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * true, wenn der Bot GENAU noch so viele ungetappte Manaquellen hat, wie
+ * eine bezahlbare, typischerweise reaktive fast-Karte auf der Hand kostet —
+ * jedes weitere Tappen JETZT würde diese Karte für später unbezahlbar
+ * machen. Bewusst NUR dieser exakte Grenzfall (nicht "immer, wenn
+ * irgendeine reaktive Karte auf der Hand liegt"): reichlich Restmana bleibt
+ * unangetastet nutzbar; ist die Karte ohnehin unbezahlbar (zu wenige Quellen
+ * insgesamt), lohnt Zurückhalten nicht. Nur im EIGENEN Main-Phase-Fenster
+ * relevant (ownMain) — im reaktiven Fenster selbst soll der Bot ganz normal
+ * spielen (das übernimmt weiterhin die normale 1-Ply/2-Ply-Wahl oben).
+ */
+function shouldHoldManaBack(pool: CardPool, state: GameState, player: PlayerId, ownMain: boolean): boolean {
+  if (!ownMain) return false;
+  const untapped = untappedManaSourceCount(pool, state, player);
+  if (untapped <= 0) return false;
+  return state.players[player].hand.some((instanceId) => {
+    const card = state.cards[instanceId];
+    if (!card || !isTypicallyReactiveHandCard(pool, card.definitionId)) return false;
+    const def = pool[card.definitionId];
+    const cost = def && "cost" in def ? manaCostTotal(def.cost) : 0;
+    return cost > 0 && cost === untapped;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 2-Ply gegen billige Gegenantwort (Moduldoku Punkt 6): erweitert die
+// Top-K-Shortlist-Bewertung in chooseBestCastOrActivateHard um EINE billige
+// Gegenantwort, statt jeden Kandidaten nur isoliert (1-Ply) zu bewerten.
+// ---------------------------------------------------------------------------
+
+/**
+ * Billige "Gegenantwort"-Kandidaten für evaluateCastCandidateEnd: KEINE
+ * Suche über alle gegnerischen Optionen — nur zwei plausible, billig
+ * bestimmbare Antworten: "passen" (Status quo) und "die statisch beste
+ * eigene Cast-/Activate-Option casten" (dieselbe staticCastScore/
+ * staticActivateScore-Vorsortierung wie oben, hier aus GEGNERSICHT — KEIN
+ * eigenes Lookahead für die Gegenantwort selbst, das wäre bereits die teure
+ * rekursive Suche, die dieser Mittelweg vermeiden soll).
+ */
+function opponentCheapResponseCandidates(
+  engine: RulesEngine,
+  pool: CardPool,
+  state: GameState,
+  opponent: PlayerId,
+): PlayerAction[] {
+  const legal = engine.getLegalActions(state, opponent);
+  const responses: PlayerAction[] = [];
+  const passAction = legal.find((a) => a.kind === "passPriority");
+  if (passAction) responses.push(passAction);
+
+  let best: PlayerAction | undefined;
+  let bestScore = -Infinity;
+  for (const action of legal) {
+    if (action.kind === "castSpell") {
+      const options = expandModalCandidate(engine, pool, state, action) ?? [action];
+      for (const option of options) {
+        if (option.kind !== "castSpell") continue;
+        const score = staticCastScore(pool, state, opponent, option);
+        if (score > bestScore) {
+          bestScore = score;
+          best = option;
+        }
+      }
+      continue;
+    }
+    if (action.kind === "activateAbility") {
+      const ability = abilitiesOf(pool, state, action.sourceInstanceId)[action.abilityIndex];
+      if (ability?.kind === "activated" && ability.isManaAbility) continue;
+      const options = expandModalCandidate(engine, pool, state, action) ?? [action];
+      for (const option of options) {
+        if (option.kind !== "activateAbility") continue;
+        const score = staticActivateScore(pool, state, opponent, option, ability);
+        if (score > bestScore) {
+          bestScore = score;
+          best = option;
+        }
+      }
+    }
+  }
+  if (best) responses.push(best);
+  return responses;
+}
+
+/**
+ * Bewertet den Endzustand NACH dem eigenen simulierten Cast-/Activate-
+ * Kandidaten (siehe Moduldoku Punkt 6). Hat nach der eigenen Aktion
+ * (Stack-Abwicklung bis zur Ruhe) tatsächlich der GEGNER Priorität —
+ * typischer Fall: eine eigene reaktive fast-Karte im gegnerischen Zug, nach
+ * deren Auflösung die Priorität wieder an den (aktiven) Gegner zurückfällt —
+ * wird zusätzlich EINE der billigen Gegenantworten (s.
+ * opponentCheapResponseCandidates) durchsimuliert und der für uns
+ * SCHLECHTERE der geprüften Ausgänge zurückgegeben (der Gegner sucht sich
+ * unter den paar billig geprüften Antworten die für uns ungünstigste aus —
+ * kein Best-Response-Beweis, nur eine billige Näherung). In allen anderen
+ * Fällen (eigene Priorität — der Normalfall im eigenen Main-Phase-Fenster,
+ * Sieg/Niederlage bereits entschieden, Budget zu knapp, keine
+ * Antwortkandidaten) bleibt es beim reinen 1-Ply-Ergebnis.
+ */
+function evaluateCastCandidateEnd(
+  engine: RulesEngine,
+  pool: CardPool,
+  end: GameState,
+  player: PlayerId,
+  budget: SimBudget,
+): number {
+  const base = evaluateState(pool, end, player);
+  const opponent = otherPlayerId(player);
+  if (end.winner !== undefined || end.priorityPlayer !== opponent || budget.remaining < CAST_REPLY_MIN_BUDGET) {
+    return base;
+  }
+  const responses = opponentCheapResponseCandidates(engine, pool, end, opponent);
+  if (responses.length === 0) return base;
+
+  let worst = base; // Fallback bleibt der 1-Ply-Wert, falls keine Antwort simulierbar ist.
+  let anySimulated = false;
+  for (const response of responses) {
+    if (budget.remaining <= 0) break;
+    const after = simulateToQuiescence(engine, pool, end, response, budget);
+    if (!after) continue;
+    const score = evaluateState(pool, after, player);
+    if (!anySimulated || score < worst) worst = score;
+    anySimulated = true;
+  }
+  return worst;
 }
 
 // ---------------------------------------------------------------------------
