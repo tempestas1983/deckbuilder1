@@ -65,6 +65,7 @@ import {
   openStats,
   passUntilSomethingHappens,
   resetUiMode,
+  resumeSavedGame,
   selectMusicTrack,
   setBotControlled,
   setBotDifficulty,
@@ -416,6 +417,7 @@ function renderRoot(root: HTMLElement): void {
         onDeckBuilder: () => openDeckBuilderStandalone(),
         onTutorial: () => startTutorial(),
         onStats: () => openStats(),
+        onResumeGame: () => resumeSavedGame(),
       }),
     );
     return;

@@ -820,6 +820,234 @@ function recordGameHistoryForEvent(e: GameEvent): void {
   persistGameHistory(gameHistory);
 }
 
+// ---------------------------------------------------------------------------
+// Spielstand-Speicherung ("Spielspeicher in der Partie", Nutzer-Auftrag: eine
+// laufende Partie verlassen und später fortsetzen können) - EIN einzelner
+// Autosave-Slot (kein Mehrfach-Speicherstand-System), dauerhaft in
+// localStorage, der automatisch nach jeder state-verändernden Aktion
+// aktualisiert wird - kein expliziter "Speichern"-Button nötig. Gleiches
+// defensives Persistenz-Muster wie überall in dieser Datei (try/catch um
+// jeden localStorage-Zugriff, Laufzeit-Shape-Prüfung vor JSON.parse-Vertrauen,
+// s. SavedDeck-/GameHistoryEntry-Abschnitte oben).
+//
+// Hook-Punkt: EXAKT dasselbe Event-Batch-Muster wie `recordGameHistoryForEvent`/
+// `applyJuiceForEvent` oben (aus `processEvents` heraus, pro Event des gerade
+// verarbeiteten `applyAction`/`createGame`-Ergebnisses aufgerufen) - bewusst
+// eine EIGENE, getrennte Funktion (`autosaveGameForEvent`), nicht in eine der
+// beiden bestehenden Funktionen gemischt (gleicher Grund wie beim
+// game-history-Abschnitt: getrennte Zuständigkeiten). Tutorial-Partien werden
+// - wie schon bei recordGameHistoryForEvent - bewusst NICHT autogesichert
+// (feste geskriptete Beispielpartie, kein "echtes" fortsetzbares Spiel). Auf
+// "gameEnded" wird der Autosave sofort gelöscht (eine abgeschlossene Partie
+// hat nichts mehr fortzusetzen). Ein neuer Partiestart über den normalen
+// Gegner-Auswahl/Deckbau-Ablauf (initGame, s.u.) löscht ihn zusätzlich
+// explizit VOR dem eigentlichen createGame-Aufruf - der Slot ist bewusst EIN
+// durchgehender, kein verwaltetes Mehrfach-Speichersystem, daher ohne
+// Bestätigungsdialog beim Überschreiben. BEWUSST NICHT für den Tutorial-Pfad
+// (s. initGame-Kommentar): ein Tutorial-Abstecher soll eine pausierte ECHTE
+// Partie nicht wegwerfen.
+//
+// Persistiert wird der komplette GameState (laut Engine-Vertrag die einzige
+// Wahrheit, rules-engine.md Kernentscheidung 1) PLUS alles, was store.ts
+// AUSSERHALB des GameState hält, aber zur vollständigen Rekonstruktion der
+// Sitzung nötig ist (botControlledPlayers/botDifficulty, s. Abschnitte oben).
+// Geprüft (s. Auftrag): `RulesEngine` (src/engine/engine.ts) ist eine reine
+// state-in/state-out-Schnittstelle - `createGame(config)` liefert einen
+// GameState-Wert, `applyAction(state, action)`/`getLegalActions(state,
+// player)` nehmen ihn entgegen und geben einen neuen zurück; die
+// Factory-Closure hält nur den unveränderlichen CardPool, sonst KEINEN
+// eigenen internen Zustand. Der gespeicherte GameState-Wert (+ die beiden
+// UI-seitigen Bot-Variablen) reicht daher aus, um eine Partie exakt an
+// derselben Stelle fortzusetzen, ohne `createGame` erneut aufzurufen (das
+// würde eine NEUE Partie erzeugen).
+// ---------------------------------------------------------------------------
+
+/** Formatversion der Payload - aktuell immer 1 (s. isSavedGamePayloadShape); ermöglicht künftige, bewusst inkompatible Änderungen zu erkennen statt eine veraltete Payload fälschlich als gültig zu akzeptieren. */
+export type SavedGamePayloadVersion = 1;
+
+export interface SavedGamePayload {
+  version: SavedGamePayloadVersion;
+  /** ISO-Zeitstempel (new Date().toISOString()) - gleiche Konvention wie SavedDeck#savedAt/GameHistoryEntry#playedAt. */
+  savedAt: string;
+  /** Voller Engine-GameState zum Zeitpunkt des Speicherns (s. Abschnittskommentar: die einzige "Wahrheit"). */
+  state: GameState;
+  /** s. botControlledPlayers-Abschnitt oben - als Array serialisiert (Set ist nicht JSON-fähig). */
+  botControlledPlayers: PlayerId[];
+  /** s. botDifficulty-Abschnitt oben. */
+  botDifficulty: Record<PlayerId, BotDifficulty>;
+  /** Für die Menü-Vorschau (s. getSavedGameSummary/components/mainMenu.ts) - dieselbe Form wie GameHistoryEntry#opponent oben, aus player2s Bot-Status abgeleitet (gleiche player1-ist-immer-der-lokale-Mensch-Konvention). */
+  opponent: GameHistoryOpponent;
+}
+
+const SAVED_GAME_STORAGE_KEY = "deckbuilder1.savedGame";
+
+function isPlayerIdShape(value: unknown): value is PlayerId {
+  return value === "player1" || value === "player2";
+}
+
+function isBotDifficultyShape(value: unknown): value is BotDifficulty {
+  return value === "easy" || value === "medium" || value === "hard";
+}
+
+/**
+ * Bewusst NUR eine flache Feldprüfung (Typ/Vorhandensein der Top-Level-
+ * GameState-Felder), keine tiefe Rekursion durch jede Karteninstanz/jedes
+ * Stack-Objekt - exakt der gleiche Detailgrad wie `isSavedDeckShape`/
+ * `isGameHistoryEntryShape` oben (die `decklist`/`opponent` auch nicht Feld
+ * für Feld durchleuchten). Ziel ist, offensichtlich kaputte/fremde
+ * localStorage-Inhalte abzufangen, nicht jede denkbare Inkonsistenz.
+ */
+function isGameStateShape(value: unknown): value is GameState {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (!v.cards || typeof v.cards !== "object") return false;
+  if (!v.players || typeof v.players !== "object") return false;
+  const players = v.players as Record<string, unknown>;
+  if (!players.player1 || typeof players.player1 !== "object") return false;
+  if (!players.player2 || typeof players.player2 !== "object") return false;
+  if (!isPlayerIdShape(v.activePlayer)) return false;
+  if (typeof v.turnNumber !== "number") return false;
+  if (typeof v.step !== "string") return false;
+  if (!Array.isArray(v.consecutivePasses)) return false;
+  if (!Array.isArray(v.stack)) return false;
+  if (!Array.isArray(v.pendingTriggers)) return false;
+  if (!v.rngState || typeof v.rngState !== "object") return false;
+  const rngState = v.rngState as Record<string, unknown>;
+  if (typeof rngState.seed !== "number" || typeof rngState.counter !== "number") return false;
+  if (typeof v.nextTimestamp !== "number") return false;
+  if (typeof v.nextObjectNumber !== "number") return false;
+  return true;
+}
+
+function isSavedGamePayloadShape(value: unknown): value is SavedGamePayload {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.version === 1 &&
+    typeof v.savedAt === "string" &&
+    isGameStateShape(v.state) &&
+    Array.isArray(v.botControlledPlayers) &&
+    v.botControlledPlayers.every(isPlayerIdShape) &&
+    !!v.botDifficulty &&
+    typeof v.botDifficulty === "object" &&
+    isBotDifficultyShape((v.botDifficulty as Record<string, unknown>).player1) &&
+    isBotDifficultyShape((v.botDifficulty as Record<string, unknown>).player2) &&
+    isGameHistoryOpponentShape(v.opponent)
+  );
+}
+
+/** Defensiv wie loadGameHistoryFromLocalStorage: ungültige/fehlende Daten -> kein Autosave statt Absturz. */
+function loadSavedGameFromLocalStorage(): SavedGamePayload | undefined {
+  try {
+    const raw = window.localStorage.getItem(SAVED_GAME_STORAGE_KEY);
+    if (!raw) return undefined;
+    const parsed: unknown = JSON.parse(raw);
+    return isSavedGamePayloadShape(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function persistSavedGame(next: SavedGamePayload | undefined): void {
+  try {
+    if (next) window.localStorage.setItem(SAVED_GAME_STORAGE_KEY, JSON.stringify(next));
+    else window.localStorage.removeItem(SAVED_GAME_STORAGE_KEY);
+  } catch {
+    // localStorage nicht verfügbar/voll/deaktiviert - einfach ignorieren (s.o.).
+  }
+}
+
+let savedGame: SavedGamePayload | undefined = loadSavedGameFromLocalStorage();
+
+function buildSavedGamePayload(): SavedGamePayload {
+  const opponent: GameHistoryOpponent = isBotControlled("player2")
+    ? { kind: "bot", difficulty: getBotDifficulty("player2") }
+    : { kind: "human" };
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    state,
+    botControlledPlayers: Array.from(botControlledPlayers),
+    botDifficulty: { ...botDifficulty },
+    opponent,
+  };
+}
+
+/** Löscht einen evtl. vorhandenen Autosave (gameEnded ODER Start einer neuen Partie, s.u.) - kein Bestätigungsdialog, s. Abschnittskommentar. */
+function clearSavedGame(): void {
+  savedGame = undefined;
+  persistSavedGame(undefined);
+}
+
+/**
+ * Aktualisiert den Autosave nach JEDEM Event eines gerade verarbeiteten
+ * Batches (identischer Aufrufort wie `recordGameHistoryForEvent`/
+ * `applyJuiceForEvent`, s. `processEvents` unten). `state` ist zu diesem
+ * Zeitpunkt bereits auf das Ergebnis des Batches gesetzt (s.
+ * processEvents-Kommentar), ein mehrfaches Schreiben desselben finalen
+ * Zustands innerhalb eines Batches mit mehreren Events ist dadurch harmlos
+ * (nur unnötig, kein Korrektheitsproblem) - der Speicherstand ist am Ende
+ * jedes Batches so oder so aktuell.
+ */
+function autosaveGameForEvent(e: GameEvent): void {
+  if (tutorialActive) return;
+  if (e.kind === "gameEnded") {
+    clearSavedGame();
+    return;
+  }
+  savedGame = buildSavedGamePayload();
+  persistSavedGame(savedGame);
+}
+
+/** true, wenn ein automatisch gespeicherter Spielstand zum Fortsetzen bereitliegt (s. components/mainMenu.ts "Weiter spielen"). */
+export function hasSavedGame(): boolean {
+  return savedGame !== undefined;
+}
+
+/** Reine Anzeige-Vorschau für den "Weiter spielen"-Button - `undefined`, falls kein Autosave vorliegt. */
+export interface SavedGameSummary {
+  turnNumber: number;
+  opponent: GameHistoryOpponent;
+  /** ISO-Zeitstempel, s. SavedGamePayload#savedAt. */
+  savedAt: string;
+}
+
+export function getSavedGameSummary(): SavedGameSummary | undefined {
+  if (!savedGame) return undefined;
+  return { turnNumber: savedGame.state.turnNumber, opponent: savedGame.opponent, savedAt: savedGame.savedAt };
+}
+
+/**
+ * Setzt die zuletzt automatisch gespeicherte Partie fort - OHNE `createGame`
+ * erneut aufzurufen (das würde eine NEUE Partie erzeugen, s.
+ * Abschnittskommentar zum bestätigten state-in/state-out-Vertrag der
+ * RulesEngine). Rekonstruiert dieselben Modulvariablen, die `initGame` nach
+ * `createGame` setzt (state, botControlledPlayers/botDifficulty, div.
+ * Reset-Aufrufe), nur eben aus der gespeicherten Payload statt aus einem
+ * frischen createGame-Ergebnis. No-op, falls kein Autosave vorliegt (das UI
+ * zeigt den "Weiter spielen"-Button ohnehin nur, wenn `hasSavedGame()` true
+ * ist).
+ */
+export function resumeSavedGame(): void {
+  if (!savedGame) return;
+  // Gleiche Begründung wie in initGame: eine evtl. noch geplante KI-Aktion
+  // der vorherigen Sitzung darf nicht mehr gegen den neuen State feuern.
+  stopBotLoop();
+  passUntilSomethingHappensRun = undefined;
+  state = savedGame.state;
+  botControlledPlayers = new Set(savedGame.botControlledPlayers);
+  botDifficulty = { ...savedGame.botDifficulty };
+  log = [`Fortgesetzt: Zug ${state.turnNumber}`];
+  lastError = undefined;
+  uiMode = { kind: "idle" };
+  combatSummaryTracker.reset();
+  resetRecentActionGlow();
+  resetJuiceEffects();
+  appPhase = { kind: "playing" };
+  notify();
+  triggerAutomation();
+}
+
 // "Deck speichern"-Formular und "Deck laden"-Liste sind zwei getrennte
 // Popover-Panels (s. components/savedDecksPanel.ts) - reiner Anzeige-Zustand,
 // analog zu isMusicPanelOpen/isKeywordGlossaryPanelOpen oben. Öffnet eines der
@@ -2347,6 +2575,7 @@ function processEvents(events: GameEvent[], opts: { suppressCardDrawn: boolean }
     applyJuiceForEvent(e);
     combatSummaryTracker.record(e);
     recordGameHistoryForEvent(e);
+    autosaveGameForEvent(e);
   }
   if (log.length > 300) log = log.slice(-300);
   markRecentAction(glowIds);
@@ -2374,6 +2603,19 @@ export function initGame(
   // s. dispatch()-Kommentar: gehört zur VORHERIGEN Partie, darf nicht gegen
   // die neue weiterlaufen.
   passUntilSomethingHappensRun = undefined;
+  // Ein neuer Partiestart über den normalen Gegner-Auswahl/Deckbau-Ablauf
+  // (Auftrag: "Starten einer neuen Partie überschreibt/löscht den Autosave
+  // still") macht einen evtl. noch vorhandenen Autosave ungültig - der Slot
+  // ist bewusst EIN durchgehender Speicherstand, kein Mehrfach-
+  // Speichersystem (s. Abschnittskommentar bei clearSavedGame), daher
+  // stilles Überschreiben ohne Bestätigungsdialog. BEWUSST NICHT für den
+  // Tutorial-Pfad (`startTutorial` setzt `tutorialActive` bereits VOR diesem
+  // Aufruf): ein "nur mal reingucken"-Tutorial-Abstecher soll eine evtl.
+  // pausierte ECHTE Partie nicht wegwerfen - Tutorial-Partien werden ohnehin
+  // nie selbst autogesichert (s. autosaveGameForEvent). `resumeSavedGame`
+  // (s.d.) ruft `initGame` NICHT auf und ist von diesem Löschen daher
+  // ebenfalls nicht betroffen.
+  if (!tutorialActive) clearSavedGame();
   const { state: s, events } = engine.createGame({
     decks: { player1: deckP1, player2: deckP2 },
     seed,

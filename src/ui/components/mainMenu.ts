@@ -28,6 +28,8 @@ import {
   getMusicCurrentTrack,
   getMusicRepeatMode,
   getMusicTracks,
+  getSavedGameSummary,
+  hasSavedGame,
   isMusicEnabled,
   isMusicPanelOpen,
   isRulesGuideOpen,
@@ -42,6 +44,7 @@ import {
 import { musicPanel, musicPanelButton } from "./musicPanel";
 import { rulesGuidePanel } from "./rulesGuidePanel";
 import { sfxToggleButton } from "./sfxToggle";
+import { opponentLabel } from "./statsScreen";
 
 export interface MainMenuOptions {
   /** "Neues Spiel" - führt zur Gegner-Auswahl (opponentSelect), NICHT direkt in den Deckbau (s. store.ts#startNewGameFlow). */
@@ -52,6 +55,33 @@ export interface MainMenuOptions {
   onTutorial: () => void;
   /** "Statistik" - zeigt den Spielverlauf-Screen (s. store.ts#openStats/types.ts#AppPhase "stats"). */
   onStats: () => void;
+  /** "Weiter spielen" - setzt den automatisch gespeicherten Spielstand fort (s. store.ts#resumeSavedGame). Nur relevant, wenn `hasSavedGame()` true ist (s.u.). */
+  onResumeGame: () => void;
+}
+
+/**
+ * "Weiter spielen" - nur sichtbar, wenn ein Autosave vorliegt (s.
+ * store.ts#hasSavedGame/getSavedGameSummary, "Spielspeicher in der Partie").
+ * Zeigt zusätzlich zum Label eine kleine Vorschauzeile (Zug-Nummer +
+ * Gegnertyp, gleiches Label wie im Statistik-Screen, s.
+ * components/statsScreen.ts#opponentLabel) - analog zu den `main-menu-btn-
+ * hint`-Untertiteln der übrigen Buttons, nur mit tatsächlichen Partiedaten
+ * statt einer statischen Beschreibung.
+ */
+function resumeGameButton(onResumeGame: () => void): HTMLElement | undefined {
+  if (!hasSavedGame()) return undefined;
+  const summary = getSavedGameSummary();
+  if (!summary) return undefined;
+  return h(
+    "button",
+    { class: "btn btn-play main-menu-btn main-menu-resume-game-btn", onclick: onResumeGame },
+    [
+      h("span", { class: "main-menu-btn-label" }, [text("Weiter spielen")]),
+      h("span", { class: "main-menu-btn-hint" }, [
+        text(`Zug ${summary.turnNumber} - Gegner: ${opponentLabel(summary.opponent)}`),
+      ]),
+    ],
+  );
 }
 
 export function mainMenuScreen(opts: MainMenuOptions): HTMLElement {
@@ -65,6 +95,7 @@ export function mainMenuScreen(opts: MainMenuOptions): HTMLElement {
       h("div", { class: "main-menu-subtitle" }, [text("Ein Kartenspiel für Zecher, Zauberer und Zocker")]),
     ]),
     h("div", { class: "main-menu-buttons" }, [
+      resumeGameButton(opts.onResumeGame),
       h(
         "button",
         { class: "btn btn-play main-menu-btn main-menu-new-game-btn", onclick: opts.onNewGame },

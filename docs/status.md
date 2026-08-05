@@ -1,11 +1,102 @@
 # Laufender Zwischenstand
 
-Datum: 2026-08-02
+Datum: 2026-08-05
 Zweck: Einziger Ort, an dem der Projektkontext ein `/clear` überlebt. Wird von
 `documenter` bei jedem finalen Sweep aktualisiert. Details/Begründungen stehen
 in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 `docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
 Dokument ist die Kurzfassung "wo stehen wir gerade".
+
+## Meilenstein: Spielspeicher in der Partie — Single-Slot-Autosave + Fortsetzen (Frontend v0.1.36, NOCH NICHT committet)
+
+Kleine, fokussierte Frontend-Session (2026-08-05, im Anschluss an den
+v0.1.35-Sweep), expliziter Nutzer-Auftrag „Spielspeicher in der Partie",
+keine Engine-/Model-/Kartenpool-/KI-Änderung. Gegen den tatsächlichen Code
+verifiziert (`src/ui/store.ts` vollständiger Autosave-Abschnitt inkl.
+`initGame`-Anpassung, `src/ui/components/mainMenu.ts`,
+`src/ui/components/statsScreen.ts` (`opponentLabel`-Export), neuer Test
+`src/ui/__tests__/game-save.test.ts` vollständig gelesen), nicht nur den
+Fertigstellungsbericht übernommen. Details: `docs/frontend-status.md`
+Abschnitt „Spielspeicher in der Partie: Autosave + Fortsetzen (v0.1.36)".
+
+- **Single-Slot-Autosave.** Neuer `localStorage`-Key
+  `deckbuilder1.savedGame` — bewusst EIN durchgehender Speicherstand statt
+  eines Mehrfach-Slot-Systems wie bei den benannten Deck-Speicherständen
+  (v0.1.20). `SavedGamePayload` (Version 1, mit Laufzeit-Shape-Prüfung vor
+  jedem `JSON.parse`-Vertrauen) trägt den kompletten `GameState` plus
+  `botControlledPlayers`/`botDifficulty` (leben außerhalb des `GameState`
+  in `store.ts`-Modulvariablen) plus ein `opponent`-Feld für die
+  Menü-Vorschau (gleiche Form wie `GameHistoryEntry#opponent`, v0.1.35).
+- **Hook-Punkt: `autosaveGameForEvent`.** Neue, eigenständige Funktion,
+  exakt dasselbe Aufruf-Muster wie `recordGameHistoryForEvent`/
+  `applyJuiceForEvent` (v0.1.35) — aus derselben zentralen
+  `processEvents`-Verarbeitung heraus, nach JEDEM state-verändernden Event
+  neu geschrieben. Tutorial-Partien bewusst ausgeschlossen (gleiche
+  Begründung wie beim Spielverlauf: feste geskriptete Beispielpartie, kein
+  „echtes" fortsetzbares Spiel). Bei `gameEnded` wird der Autosave sofort
+  gelöscht. `initGame` löscht einen evtl. vorhandenen Autosave zusätzlich
+  explizit beim Start einer neuen Partie über den normalen
+  Gegner-Auswahl-/Deckbau-Ablauf (außer im Tutorial-Pfad) — stilles
+  Überschreiben ohne Bestätigungsdialog, da bewusst nur EIN Slot.
+- **Fortsetzen ohne erneuten `createGame`-Aufruf.** Neue Store-Exporte
+  `hasSavedGame()`/`getSavedGameSummary()`/`resumeSavedGame()`. Letzteres
+  restauriert `state`/`botControlledPlayers`/`botDifficulty` DIREKT aus der
+  gespeicherten Payload. Explizit geprüft (Auftrag): die `RulesEngine`
+  (`src/engine/engine.ts`) ist eine reine state-in/state-out-Schnittstelle
+  ohne verstecktem internen Zustand jenseits des `CardPool` — direkte
+  Restauration des gespeicherten `GameState`-Werts ist daher korrekt, ohne
+  neuen Münzwurf/neue Starthände zu erzeugen, wie es ein erneuter
+  `createGame`-Aufruf täte. Kein neuer `AppPhase`-Kind nötig.
+- **Neue UI.** „Weiter spielen"-Button im Hauptmenü
+  (`components/mainMenu.ts#resumeGameButton`), nur sichtbar bei
+  vorhandenem Autosave, mit Zug-/Gegner-Untertitelzeile (reuse der jetzt
+  exportierten `statsScreen.ts#opponentLabel`, vorher modul-intern). Keine
+  neue CSS-Klasse (reine Wiederverwendung bestehender Hauptmenü-Button-
+  Klassen).
+- **Neuer Test** `src/ui/__tests__/game-save.test.ts` (4 Fälle: Roundtrip ab
+  echtem App-„Reload" via `vi.resetModules()` inkl. strukturellem
+  JSON-Vergleich des restaurierten `GameState`, Tutorial-Ausschluss, Löschen
+  bei `gameEnded`/Aufgeben, Bot-Steuerung/-Schwierigkeit-Rekonstruktion für
+  eine KI-Partie getrennt von Hotseat) — vom documenter vollständig gelesen
+  und gegen die beschriebene Funktionsweise abgeglichen, stimmt exakt
+  überein.
+- **Test-/Build-Zahlen — laut Auftrag, vom documenter per `Glob`/`Grep`
+  gegen den tatsächlichen Dateibaum gegengeprüft (kein Shell-Werkzeug in
+  dieser Sweep-Session für einen echten Testlauf):** `npx tsc --noEmit`
+  sauber, `npx vitest run` **51 Testdateien (50 grün + 1 bewusst
+  übersprungen), 229 Tests grün + 1 bewusst übersprungen (230 gesamt)**.
+  Per `Glob` bestätigt: exakt 51 Testdateien (19 Engine + 7 KI + 25 UI,
+  unverändert seit dem letzten Sweep bei Engine/KI-Dateizahl, die neue
+  `game-save.test.ts` ist die 25. UI-Datei), per Grep auf 4 `it(`-Fälle
+  gegengezählt (passt zum Bericht). Rechnerische Gegenprobe gegen den
+  vorherigen dokumentierten Stand: 221 (v0.1.35-Stand, 48 Dateien) + 2
+  (`hardBot-mana-hold-back.test.ts`) + 2 (`hardBot-cast-reply.test.ts`,
+  beide KI v2.3, bereits vorher dokumentiert, aber zum v0.1.35-Sweep noch
+  nicht in der Gesamtzahl enthalten) + 4 (`game-save.test.ts`) = 229 —
+  stimmt exakt mit der gemeldeten Zahl überein.
+- **Randbemerkung zur Zielgruppen-Framing (Auftrags-Hinweis, vom documenter
+  geprüft statt einfach übernommen):** in keiner der drei vom documenter
+  betreuten Dateien (`docs/README.md`, `docs/frontend-status.md`,
+  `docs/status.md`) findet sich eine „für Kinder"/kindgerecht-Framing des
+  Deckbuilders. Per Grep im gesamten `docs/`-Baum bestätigt: die einzigen
+  Treffer auf „Kinder" sind DOM-„Kinder" im Sinne von Kindelementen
+  (`docs/frontend-status.md`, mehrere Stellen), kein einziger
+  Zielgruppenbezug — daher bewusst keine „für Kinder"-Formulierung
+  eingeführt, wie im Auftrag verlangt.
+- **documenter (dieser Mini-Sweep, 2026-08-05):** `docs/frontend-status.md`
+  (neue Kopfzeile, neue „v0.1.36 auf einen Blick"-Kurzfassung,
+  vollständiger neuer Detail-Abschnitt, Struktur-Tabelle, „Was funktioniert"
+  Punkt 10, „Nächste Schritte" Punkt 25), `docs/README.md` (Kopfzeile,
+  Frontend-Zeile der Statustabelle, neuer „Seit dem letzten Sweep"-Absatz,
+  „Weitere offene Punkte" Punkt 14 für den frontend-engineer),
+  `docs/status.md` (dieser Eintrag) aktualisiert. `docs/rules-engine.md`,
+  `docs/engine-status.md`, `docs/ai-status.md`, `docs/cards/starter-set.md`
+  waren NICHT Gegenstand dieses Mini-Sweeps (keine Engine-/Model-/
+  Kartenpool-/KI-Änderung in dieser Session). Kein eigener `npm test`/
+  `npx vitest run`-Lauf möglich (kein Shell-Werkzeug) — alle Test-/
+  Build-Zahlen stammen aus dem im Auftrag beschriebenen echten Lauf, per
+  `Glob`/`Grep`-Gegenprobe wie oben beschrieben verifiziert, keine
+  Abweichung gefunden.
 
 ## Meilenstein: hard-Bot Mana-Zurückhalten + 2-Ply gegen billige Gegenantwort (KI v2.3, NOCH NICHT committet)
 

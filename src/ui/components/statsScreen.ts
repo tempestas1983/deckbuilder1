@@ -44,7 +44,8 @@ const RESULT_LABELS: Record<GameHistoryResult, string> = {
   draw: "Unentschieden",
 };
 
-function opponentLabel(opponent: GameHistoryOpponent): string {
+/** Auch von components/mainMenu.ts genutzt (Autosave-Vorschau, "Weiter spielen"-Button). */
+export function opponentLabel(opponent: GameHistoryOpponent): string {
   return opponent.kind === "human" ? "Mensch (Hotseat)" : `KI - ${BOT_DIFFICULTY_LABELS[opponent.difficulty]}`;
 }
 
