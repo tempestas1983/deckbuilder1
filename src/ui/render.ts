@@ -15,9 +15,11 @@ import type { ActivatedAbility, CardType, GameState, InstanceId, PlayerAction, P
 import {
   BOT_SPEED_LABELS,
   backToMainMenu,
+  castCandidatesForHandCard,
   chooseOpponentBot,
   chooseOpponentHotseat,
   closeBotSpeedPanel,
+  closeGraveyardPopover,
   closeKeywordGlossary,
   closeKeywordGlossaryPanel,
   closeMusicPanel,
@@ -39,6 +41,7 @@ import {
   getMusicTracks,
   getJuiceCardEffect,
   getJuicePlayerEffect,
+  getOpenGraveyardPopover,
   getOpenKeywordGlossary,
   getPool,
   getRecentActionInstanceIds,
@@ -78,6 +81,7 @@ import {
   startNewGameFlow,
   startTutorial,
   toggleBotSpeedPanel,
+  toggleGraveyardPopover,
   toggleJuiceEnabled,
   toggleKeywordGlossaryPanel,
   toggleMusicEnabled,
@@ -107,6 +111,7 @@ import { statsScreen } from "./components/statsScreen";
 import { buildDemoDeck } from "./deck";
 import { resolveAiDeck } from "./aiDecks";
 import { handCard, handCardDiscardToggle, hiddenHandStack } from "./components/handCard";
+import { graveyardPopoverPanel, graveyardStackTile } from "./components/graveyardStack";
 import { playerPanel } from "./components/playerPanel";
 import { botAvatarImg, humanAvatarPlaceholder } from "./components/sceneArt";
 import { turnFlowPanel } from "./components/turnFlowPanel";
@@ -614,6 +619,21 @@ function renderGameBoard(root: HTMLElement): void {
     // Partie erreichbar (nicht nur im Tutorial-Modus, anders als
     // tutorialHelpPanel oben) - eigener Zustand in store.ts.
     isKeywordGlossaryPanelOpen() ? keywordGlossaryPanel(() => closeKeywordGlossaryPanel()) : undefined,
+    // Feature "Friedhof einklappen": volles Popover für den zuletzt
+    // angeklickten Friedhof-Stapel (s. render.ts#graveyardZone/
+    // store.ts#getOpenGraveyardPopover) - exakt dasselbe Overlay-Muster wie
+    // das Keyword-Nachschlagewerk direkt darüber.
+    (() => {
+      const graveyardPopoverPlayer = getOpenGraveyardPopover();
+      if (!graveyardPopoverPlayer) return undefined;
+      return graveyardPopoverPanel(
+        state,
+        pool,
+        state.players[graveyardPopoverPlayer].graveyard,
+        `Friedhof von ${playerDisplayName(graveyardPopoverPlayer)}`,
+        () => closeGraveyardPopover(),
+      );
+    })(),
     // App-weite Hintergrundmusik (s. musicPlayer.ts): Titelauswahl +
     // Wiederholungsmodus, analog zum Keyword-Nachschlagewerk oben jederzeit
     // erreichbar, unabhängig vom Tutorial-Modus.
@@ -1312,7 +1332,12 @@ function handZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: 
     playerId === "player1" && isTutorialActive() ? getTutorialHighlight()?.handCardDefinitionIds : undefined;
   const tiles = hand.map((id) => {
     const def = cardDef(pool, state, id);
-    const castCandidates = candidates.filter((a) => a.kind === "castSpell" && a.cardInstanceId === id);
+    // Feature "Auto-Tap-Komfort": nicht nur JETZT (aus dem aktuellen Pool)
+    // bezahlbare Kandidaten, sondern auch solche, die es erst WÜRDEN, wenn
+    // beim Klick automatisch die eigenen ungetappten Mana-Fähigkeiten
+    // mitgetappt werden (s. store.ts#castCandidatesForHandCard/dispatch -
+    // das tatsächliche Tappen passiert dort, nicht hier).
+    const castCandidates = isActingPlayer ? castCandidatesForHandCard(playerId, id, candidates) : [];
     const playTerrainCandidate = candidates.find((a) => a.kind === "playTerrain" && a.cardInstanceId === id);
     const hasX = "cost" in def && !!def.cost.x;
     // v0.3 (Modal-Spells, 9.13): nur SpellCard trägt Top-Level "modes" -
@@ -1699,15 +1724,27 @@ function battlefieldZone(
   return h("div", { class: "battlefield-zone" }, slots);
 }
 
+/**
+ * Feature "Friedhof einklappen" (s. components/graveyardStack.ts): leerer
+ * Friedhof bleibt unverändert der bisherige Leer-Hinweis; ein nicht-leerer
+ * Friedhof zeigt seit diesem Auftrag NICHT mehr jede Karte einzeln, sondern
+ * NUR NOCH eine eingeklappte Stapel-Kachel (oberste/zuletzt hinzugekommene
+ * Karte + Zahl-Badge ab 2 Karten) - Klick öffnet das volle Popover (s.
+ * store.ts#toggleGraveyardPopover/getOpenGraveyardPopover, Verdrahtung des
+ * Popovers selbst in renderGameBoard, analog zu isKeywordGlossaryPanelOpen).
+ * Die "frisch verstorben"-Einblende-Animation (Juice-Feature) bleibt an der
+ * eingeklappten Kachel erhalten, solange die zuletzt hinzugekommene Karte
+ * genau die oberste ist (Normalfall - die einzige Ausnahme wäre ein Effekt,
+ * der eine ANDERE als die zuletzt bewegte Karte im Friedhof anfasst, was es
+ * aktuell nicht gibt).
+ */
 function graveyardZone(state: GameState, pool: ReturnType<typeof getPool>, playerId: PlayerId): HTMLElement {
-  const cards = state.players[playerId].graveyard.map((id) => {
-    const tile = cardTile(state, pool, id);
-    // "Mehr Juice" (s. store.ts#applyJuiceForEvent-Dateikommentar):
-    // frisch im Friedhof angekommene Karte kurz einblenden statt einfach
-    // kommentarlos zu erscheinen (s. dortiger Kommentar, warum die Animation
-    // hier statt an der ehemaligen Battlefield-Position spielt).
-    if (getJuiceCardEffect(id) === "death") tile.classList.add("juice-death-fade");
-    return tile;
-  });
-  return h("div", { class: "graveyard-zone" }, cards.length ? cards : [h("div", { class: "empty-hint" }, [text("(leer)")])]);
+  const graveyard = state.players[playerId].graveyard;
+  if (graveyard.length === 0) {
+    return h("div", { class: "graveyard-zone" }, [h("div", { class: "empty-hint" }, [text("(leer)")])]);
+  }
+  const topId = graveyard[graveyard.length - 1]!;
+  const stackTile = graveyardStackTile(state, pool, topId, graveyard.length, () => toggleGraveyardPopover(playerId));
+  if (getJuiceCardEffect(topId) === "death") stackTile.classList.add("juice-death-fade");
+  return h("div", { class: "graveyard-zone" }, [stackTile]);
 }

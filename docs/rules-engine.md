@@ -606,7 +606,7 @@ MTGs 7-Schichten-System ist für unseren Umfang Overkill. **Entscheidung v0.1:**
 
 ### 9.5 Mana-Bezahlung
 
-v0.1: Spieler aktiviert Mana-Fähigkeiten explizit (kein Auto-Tap), Mana landet im Pool, Casten konsumiert aus dem Pool. Auto-Tap-Komfort ist ein reines Frontend-Feature auf Basis eines Engine-Hilfs-API („welche Tap-Kombination bezahlt Kosten X?") und kommt später.
+v0.1: Spieler aktiviert Mana-Fähigkeiten explizit (kein Auto-Tap), Mana landet im Pool, Casten konsumiert aus dem Pool. **Update (Frontend v0.1.37, 2026-08-06, s. `docs/frontend-status.md` Abschnitt „Auto-Tap-Komfort + Friedhof einklappen (v0.1.37)"):** Auto-Tap-Komfort ist inzwischen umgesetzt — bewusst als reines Frontend-Feature OHNE eigenes Engine-Hilfs-API (kein neues `RulesEngine`-Interface-Mitglied), sondern über eine rein clientseitige, hypothetische Wiederverwendung der bereits öffentlichen `getLegalActions`-Funktion (`store.ts#hypotheticalStateWithExtraMana`/`selectAutoTapSources`): vor einem Cast, der aus dem aktuellen Manapool allein noch nicht bezahlbar wäre, aber mit den eigenen ungetappten Mana-Fähigkeiten schon, tappt das Frontend automatisch genau die dafür nötigen Quellen (colored Pips zuerst pro Farbe, generische Kosten bevorzugt aus farblosen Quellen). Betrifft nur menschliche Spieler, keine Engine-/Model-Änderung; X-Kosten-Zauber bewusst ausgenommen (aktuell kein Kartenpool-Fall).
 
 ### 9.6 Engine-Konstruktion: CardPool per Factory (v0.2, Frage von engine-engineer)
 

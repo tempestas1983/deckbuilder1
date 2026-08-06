@@ -7,7 +7,7 @@
  * Observer-Muster; das eigentliche "Modell" bleibt ohnehin die Engine.
  */
 
-import { createRulesEngine } from "../engine";
+import { createRulesEngine, canPayCost, computeSpellCostDelta, totalGenericCost } from "../engine";
 import { starterSet } from "../cards/starter-set";
 import { chooseActionForDifficulty, DEFAULT_BOT_DIFFICULTY, type BotDifficulty } from "../ai";
 import { playSfx } from "./sfxPlayer";
@@ -18,6 +18,8 @@ import type {
   GameState,
   InstanceId,
   Keyword,
+  ManaColor,
+  ManaCost,
   ManaPool,
   PlayerAction,
   PlayerId,
@@ -519,6 +521,38 @@ export function toggleKeywordGlossaryPanel(): void {
 
 export function closeKeywordGlossaryPanel(): void {
   keywordGlossaryPanelOpen = false;
+  notify();
+}
+
+// ---------------------------------------------------------------------------
+// Friedhof einklappen (Auftrag "Friedhof-Kachel-Stapel"): der Friedhof zeigt
+// standardmäßig nur noch EINE eingeklappte Kachel (oberste/zuletzt
+// hinzugekommene Karte + Zahl-Badge, s. render.ts#graveyardZone) statt jede
+// Karte einzeln in voller Größe - Klick öffnet ein Popover mit der
+// vollständigen Liste (analog `keywordGlossaryPanelOpen` oben, nur PRO
+// SPIELER statt global: `undefined` = kein Popover offen, sonst die
+// `PlayerId`, deren Friedhof gerade als Popover angezeigt wird). Friedhof-
+// Karten sind öffentliche Information (anders als die verdeckte Hand) - die
+// eingeklappte Kachel zeigt deshalb bewusst das echte Kartenbild der obersten
+// Karte, keinen Kartenrücken.
+// ---------------------------------------------------------------------------
+
+let openGraveyardPopoverPlayer: PlayerId | undefined;
+
+/** Welcher Spieler-Friedhof gerade als volles Popover angezeigt wird, `undefined` = keiner. */
+export function getOpenGraveyardPopover(): PlayerId | undefined {
+  return openGraveyardPopoverPlayer;
+}
+
+/** Klick auf die eingeklappte Friedhof-Kachel - öffnet/schließt dessen Popover (Toggle). */
+export function toggleGraveyardPopover(playerId: PlayerId): void {
+  openGraveyardPopoverPlayer = openGraveyardPopoverPlayer === playerId ? undefined : playerId;
+  notify();
+}
+
+export function closeGraveyardPopover(): void {
+  if (openGraveyardPopoverPlayer === undefined) return;
+  openGraveyardPopoverPlayer = undefined;
   notify();
 }
 
@@ -1318,6 +1352,7 @@ export function backToMainMenu(): void {
   // nicht unsichtbar "offen" in den nächsten Deckbau-Screen durchschlagen.
   openKeywordPopover = undefined;
   keywordGlossaryPanelOpen = false;
+  openGraveyardPopoverPlayer = undefined;
   musicPanelOpen = false;
   saveDeckFormOpen = false;
   loadDeckPanelOpen = false;
@@ -2785,19 +2820,201 @@ export function hasRealPriorityChoice(player: PlayerId): boolean {
   const extraMana = hypotheticalManaYield(manaAbilityActions);
   if (Object.keys(extraMana).length === 0) return false;
 
+  const hypotheticalState = hypotheticalStateWithExtraMana(player, extraMana);
+  return engine.getLegalActions(hypotheticalState, player).some(isRealPriorityCandidate);
+}
+
+/**
+ * Klont `state` EINMAL mit einem lokal um `extraMana` erhöhten Manapool von
+ * `player` - reiner, seiteneffektfreier Hilfsklon für hypothetische
+ * `getLegalActions`-Aufrufe (nie persistiert). Gemeinsam genutzt von
+ * `hasRealPriorityChoice` oben (schätzt, ob getapptes Mana IRGENDetwas
+ * bezahlbar machen würde) und `castCandidatesForHandCard` unten (Feature
+ * "Auto-Tap-Komfort", schätzt, ob es GENAU DIESE Handkarte bezahlbar machen
+ * würde) - beide riefen zuvor identischen Klon-Code unabhängig auf.
+ */
+function hypotheticalStateWithExtraMana(player: PlayerId, extraMana: Partial<Record<keyof ManaPool, number>>): GameState {
   const currentPool = state.players[player].manaPool;
-  const hypotheticalPool: typeof currentPool = { ...currentPool };
+  const hypotheticalPool: ManaPool = { ...currentPool };
   for (const color of Object.keys(extraMana) as (keyof ManaPool)[]) {
     hypotheticalPool[color] = currentPool[color] + (extraMana[color] ?? 0);
   }
-  const hypotheticalState: GameState = {
+  return {
     ...state,
     players: {
       ...state.players,
       [player]: { ...state.players[player], manaPool: hypotheticalPool },
     },
   };
-  return engine.getLegalActions(hypotheticalState, player).some(isRealPriorityCandidate);
+}
+
+/**
+ * Feature "Auto-Tap-Komfort" (docs/rules-engine.md:609 "kommt später" -
+ * dieser Auftrag): liefert für eine Handkarte castSpell-Kandidaten, die
+ * ENTWEDER aus dem aktuellen Manapool SCHON bezahlbar sind (Normalfall,
+ * identisch zum bisherigen `candidates.filter(...)` in render.ts) ODER die es
+ * WÜRDEN, wenn zusätzlich alle eigenen gerade ungetappten Mana-Fähigkeiten
+ * aktiviert würden (gleiche hypothetische-Pool-Technik wie
+ * `hasRealPriorityChoice` oben, s. `hypotheticalStateWithExtraMana`) - reine
+ * Anzeige-Entscheidung OHNE Seiteneffekt (kein Tappen hier). `actions` ist die
+ * bereits vom Aufrufer für `player` geholte `legalActions`-Liste (spart einen
+ * erneuten `getLegalActions`-Aufruf im Normalfall, s. render.ts#handZone).
+ *
+ * Das tatsächliche Antippen passiert erst beim Klick auf den dadurch
+ * angebotenen "Spielen"-Button, in `dispatch()` (s. `autoTapActionsForCast`
+ * unten) - erst DORT ist bekannt, ob der Spieler wirklich casten will
+ * (Anzeigen allein tappt nichts).
+ */
+export function castCandidatesForHandCard(player: PlayerId, cardInstanceId: InstanceId, actions: PlayerAction[]): PlayerAction[] {
+  const real = actions.filter((a) => a.kind === "castSpell" && a.cardInstanceId === cardInstanceId);
+  if (real.length > 0) return real;
+
+  const manaAbilityActions = actions.filter(isManaAbilityAction);
+  if (manaAbilityActions.length === 0) return [];
+  const extraMana = hypotheticalManaYield(manaAbilityActions);
+  if (Object.keys(extraMana).length === 0) return [];
+
+  const hypotheticalState = hypotheticalStateWithExtraMana(player, extraMana);
+  return engine
+    .getLegalActions(hypotheticalState, player)
+    .filter((a) => a.kind === "castSpell" && a.cardInstanceId === cardInstanceId);
+}
+
+/** Feste Farbreihenfolge für deterministisches Auto-Tap (identisch zu engine/mana.ts' interner COLORS-Reihenfolge). */
+const AUTO_TAP_COLOR_ORDER: ManaColor[] = ["flame", "tide", "wild", "light", "void"];
+
+/**
+ * Produzierte Manafarbe einer (bereits als `legalActions`-Kandidat
+ * bestätigten) `activateAbility`-Aktion auf einer reinen Mana-Fähigkeit, oder
+ * `undefined`, wenn sich das nicht eindeutig bestimmen lässt (z.B. kein
+ * numerischer `amount`, s. `hypotheticalManaYield`-Kommentar oben - konservativ
+ * von der Auto-Tap-Auswahl ausgeschlossen statt geraten). `color: "any"`
+ * (aktuell kein Kartenpool-Eintrag, s. Auftrag) wird - identisch zur Engine
+ * selbst (effects.ts#addMana-Kommentar: "keine Aktion, mit der ein Spieler
+ * die Farbe wählt -> wird als colorless gutgeschrieben") - als `colorless`
+ * gewertet: das Tappen selbst löst dafür KEINE zusätzliche Entscheidung aus.
+ */
+function manaAbilityColor(action: PlayerAction): keyof ManaPool | undefined {
+  const ability = activatedAbilityFor(action);
+  const addManaEffect = ability?.effects.find((e) => e.kind === "addMana");
+  if (!addManaEffect || addManaEffect.kind !== "addMana" || typeof addManaEffect.amount !== "number") return undefined;
+  return addManaEffect.color === "any" ? "colorless" : addManaEffect.color;
+}
+
+/**
+ * Auto-Tap-Auswahlalgorithmus (Auftrag "Auto-tap mana sources when
+ * casting"): wählt deterministisch aus `manaAbilityActions` (bereits als
+ * `legalActions`-Kandidaten bestätigte, JETZT wirklich aktivierbare eigene
+ * Mana-Fähigkeiten, in Board-Reihenfolge - `legal-actions.ts#activateAbilityCandidates`
+ * iteriert `battlefield` in genau dieser Reihenfolge) aus, welche davon
+ * getappt werden müssen, um `cost` (abzüglich `currentPool`) zu decken.
+ * Mirrort bewusst das Prinzip aus engine/mana.ts#payCost ("generische Kosten
+ * zuerst aus Farblos, danach Farbe für Farbe in fester Reihenfolge"), nur
+ * rückwärts angewandt auf die Auswahl der zu tappenden QUELLEN statt auf den
+ * Verbrauch eines bereits gefüllten Pools:
+ *
+ * 1. Für jede farbige Anforderung, die der aktuelle Pool noch nicht deckt,
+ *    wird pro fehlendem Pip genau eine ungetappte Quelle DIESER Farbe
+ *    getappt (Reihenfolge unter gleichfarbigen Quellen = Board-Reihenfolge).
+ * 2. Für die verbleibenden generischen Kosten (nach Farb-Pips und nach dem
+ *    bereits im Pool vorhandenen Überschuss) werden zuerst ungetappte
+ *    FARBLOSE Quellen getappt, erst danach - falls nicht genug - beliebige
+ *    weitere Quellen in fester Farbreihenfolge (`AUTO_TAP_COLOR_ORDER`).
+ * 3. Jede Quelle produziert eine feste Farbe (kein flexibler Produzent im
+ *    aktuellen Kartenpool) - rein gierige Auswahl, keine kombinatorische Suche.
+ *
+ * Gibt `undefined` zurück, wenn selbst mit ALLEN verfügbaren Quellen (+
+ * aktuellem Pool) die Kosten nicht gedeckt wären - der Aufrufer (`dispatch()`)
+ * tappt dann bewusst NICHTS (kein halb getappter Zustand), was praktisch nie
+ * erreicht werden sollte, weil render.ts den "Spielen"-Button nur über
+ * `castCandidatesForHandCard` (das dieselbe Erreichbarkeit vorab hypothetisch
+ * prüft) überhaupt anbietet.
+ */
+function selectAutoTapSources(
+  cost: ManaCost,
+  costDelta: number,
+  currentPool: ManaPool,
+  manaAbilityActions: PlayerAction[],
+): PlayerAction[] | undefined {
+  const byColor = new Map<keyof ManaPool, PlayerAction[]>();
+  for (const action of manaAbilityActions) {
+    const color = manaAbilityColor(action);
+    if (!color) continue;
+    const bucket = byColor.get(color);
+    if (bucket) bucket.push(action);
+    else byColor.set(color, [action]);
+  }
+
+  const chosen: PlayerAction[] = [];
+  const tappedYield: ManaPool = { flame: 0, tide: 0, wild: 0, light: 0, void: 0, colorless: 0 };
+
+  const takeOne = (color: keyof ManaPool): boolean => {
+    const bucket = byColor.get(color);
+    const source = bucket?.shift();
+    if (!source) return false;
+    chosen.push(source);
+    tappedYield[color] += 1;
+    return true;
+  };
+
+  // 1) Farbige Pips: fehlenden Anteil je Farbe exakt aus gleichfarbigen Quellen decken.
+  for (const color of AUTO_TAP_COLOR_ORDER) {
+    const need = (cost[color] ?? 0) - currentPool[color];
+    for (let i = 0; i < need; i++) {
+      if (!takeOne(color)) return undefined;
+    }
+  }
+
+  // 2) Generische Kosten: Restbestand aus Pool + bereits gewählten Taps ermitteln
+  //    (identische Bilanz wie mana.ts#canPayCost: Summe aus (Poolfarbe - Kostenfarbe)
+  //    über alle Farben + Farblos).
+  const virtualPool: ManaPool = { ...currentPool };
+  for (const color of AUTO_TAP_COLOR_ORDER) virtualPool[color] += tappedYield[color];
+  virtualPool.colorless += tappedYield.colorless;
+
+  let leftover = virtualPool.colorless;
+  for (const color of AUTO_TAP_COLOR_ORDER) leftover += virtualPool[color] - (cost[color] ?? 0);
+
+  // totalGenericCost (engine/mana.ts, öffentlich re-exportiert): chosenX
+  // bewusst `undefined` - X-Kosten-Karten hat `autoTapActionsForCast` (der
+  // einzige Aufrufer) bereits vorher ausgeschlossen (s. Auftrag Punkt 5).
+  let genericNeed = totalGenericCost(cost, undefined, costDelta) - leftover;
+  while (genericNeed > 0 && takeOne("colorless")) genericNeed -= 1;
+  for (const color of AUTO_TAP_COLOR_ORDER) {
+    while (genericNeed > 0 && takeOne(color)) genericNeed -= 1;
+  }
+  if (genericNeed > 0) return undefined;
+
+  return chosen;
+}
+
+/**
+ * Feature "Auto-Tap-Komfort": berechnet für einen `castSpell`-Kandidaten
+ * eines MENSCHLICHEN Spielers die `activateAbility`-Aktionen auf eigenen
+ * Mana-Fähigkeiten, die VOR dem eigentlichen Cast automatisch ausgeführt
+ * werden müssen - [] (kein Auto-Tap nötig/möglich), wenn:
+ * - der aktuelle Pool die Kosten SCHON allein deckt (Normalfall: Spieler hat
+ *   manuell vorgetappt oder hatte ohnehin genug Mana übrig), oder
+ * - die Karte X-Kosten hat (s. Auftrag Punkt 5, aktuell kein Kartenpool-Fall), oder
+ * - selbst mit allen ungetappten Quellen nicht genug Mana zusammenkäme.
+ *
+ * Bot-Spieler sind NICHT betroffen: `dispatch()` (einziger Aufrufer) wird laut
+ * Funktionskommentar dort nur für menschliche Klicks verwendet - automatische
+ * KI-Züge laufen separat über `runBotStep`/`src/ai/*.ts` (eigene, unverändert
+ * gebliebene Tap-Entscheidungslogik dort).
+ */
+function autoTapActionsForCast(action: Extract<PlayerAction, { kind: "castSpell" }>): PlayerAction[] {
+  const def = cardDef(getPool(), state, action.cardInstanceId);
+  if (!("cost" in def)) return [];
+  const cost = def.cost;
+  if (cost.x) return []; // s. Auftrag Punkt 5: X-Kosten nicht unterstützt, kein aktueller Kartenpool-Fall.
+
+  const currentPool = state.players[action.player].manaPool;
+  const costDelta = computeSpellCostDelta(state, getPool(), action.player);
+  if (canPayCost(currentPool, cost, undefined, costDelta)) return []; // Pool allein reicht bereits.
+
+  const manaAbilityActions = legalActions(action.player).filter(isManaAbilityAction);
+  return selectAutoTapSources(cost, costDelta, currentPool, manaAbilityActions) ?? [];
 }
 
 /**
@@ -2819,6 +3036,34 @@ export function dispatch(action: PlayerAction): void {
   // im Normalfall hat `advanceAutomation` den Vorgang an seiner eigenen
   // Haltebedingung ohnehin längst selbst beendet.
   passUntilSomethingHappensRun = undefined;
+
+  // Feature "Auto-Tap-Komfort": ist `action` ein Cast, der aus dem aktuellen
+  // Pool ALLEIN noch nicht bezahlbar wäre, aber mit den eigenen ungetappten
+  // Mana-Fähigkeiten schon (s. render.ts#handZone/castCandidatesForHandCard,
+  // das genau deshalb überhaupt einen "Spielen"-Button anbietet) - VOR dem
+  // eigentlichen Cast automatisch genau die dafür nötigen Quellen tappen
+  // (dieselben `activateAbility`-Aktionen, die ein Spieler sonst manuell
+  // einzeln anklicken würde), als EIN durchgehender Vorgang. `notify()`/
+  // `triggerAutomation()` bewusst erst NACH dem gesamten Ablauf (Taps +
+  // Cast) - kein Zwischen-Rendern/-Automatisieren zwischen einzelnen Taps
+  // nötig, das wäre nur unnötiges Zwischen-Flackern für einen rein
+  // internen Vorbereitungsschritt.
+  const autoTapActions = action.kind === "castSpell" ? autoTapActionsForCast(action) : [];
+  for (const tapAction of autoTapActions) {
+    const tapResult = engine.applyAction(state, tapAction);
+    if (tapResult.error) {
+      // Sollte praktisch nie eintreten (selectAutoTapSources wählt nur
+      // Quellen aus `legalActions`, die JETZT wirklich aktivierbar sind) -
+      // defensiv trotzdem sauber abbrechen, bevor der eigentliche Cast
+      // versucht wird, statt mit einem halb getappten Pool weiterzumachen.
+      lastError = tapResult.error;
+      notify();
+      return;
+    }
+    state = tapResult.state;
+    processEvents(tapResult.events, { suppressCardDrawn: batchContainsMulligan(tapResult.events) });
+  }
+
   const result = engine.applyAction(state, action);
   if (result.error) {
     lastError = result.error;

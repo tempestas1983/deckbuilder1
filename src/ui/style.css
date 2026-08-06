@@ -2183,6 +2183,17 @@ body {
   padding: 6px;
 }
 
+/* Eingeklappte Friedhof-Stapel-Kachel (Auftrag "Friedhof-Kachel-Stapel", s.
+   components/graveyardStack.ts): reine Positionierungshülle um eine ganz
+   normale `cardTile()` (die selbst schon ihre Breite/Optik mitbringt) plus
+   Zahl-Badge - `.hand-card-hidden-stack-multi`/`.hand-card-hidden-stack-count`
+   oben sind bewusst dieselben Klassen wie beim verdeckten Handstapel, hier
+   nur auf ein anderes Wurzelelement angewendet. */
+.graveyard-stack {
+  position: relative;
+  cursor: pointer;
+}
+
 .card-tile.targetable {
   cursor: pointer;
 }
@@ -2955,6 +2966,22 @@ body {
   font-size: 13px;
   color: var(--muted);
   line-height: 1.4;
+}
+
+/* Volles Friedhof-Popover (Auftrag "Friedhof-Kachel-Stapel", s.
+   components/graveyardStack.ts#graveyardPopoverPanel): nutzt dasselbe
+   Backdrop/Panel/Header-Grundgerüst wie `.tutorial-help-*` oben
+   (keywordGlossaryPanel-Vorbild), ist aber breiter (volle `cardTile()`s in
+   einem umbrechenden Grid statt einer einspaltigen Textliste). */
+.graveyard-popover-panel {
+  width: min(720px, 92vw);
+}
+
+.graveyard-popover-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow-y: auto;
 }
 
 /* Musik-Panel ----------------------------------------------------------

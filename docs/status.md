@@ -1,11 +1,124 @@
 # Laufender Zwischenstand
 
-Datum: 2026-08-05
+Datum: 2026-08-06
 Zweck: Einziger Ort, an dem der Projektkontext ein `/clear` überlebt. Wird von
 `documenter` bei jedem finalen Sweep aktualisiert. Details/Begründungen stehen
 in `docs/rules-engine.md`, `docs/engine-status.md`, `docs/frontend-status.md`,
 `docs/ai-status.md`, `docs/cards/starter-set.md`, `docs/README.md` — dieses
 Dokument ist die Kurzfassung "wo stehen wir gerade".
+
+## Meilenstein: Auto-Tap-Komfort + Friedhof einklappen (Frontend v0.1.37, NOCH NICHT committet)
+
+Zwei voneinander unabhängige Frontend-Features derselben Session
+(2026-08-06, im Anschluss an den v0.1.36-Sweep), keine
+Engine-/Model-/Kartenpool-/KI-Änderung. Gegen den tatsächlichen Code
+verifiziert (`src/ui/store.ts` vollständiger Auto-Tap-Abschnitt inkl.
+`dispatch()`-Verdrahtung und Friedhof-Popover-Zustand, `src/ui/render.ts`
+`handZone`/`graveyardZone`, neue Datei `src/ui/components/graveyardStack.ts`
+vollständig gelesen, `src/ui/style.css` neue Klassen, beide neuen Tests
+`src/ui/__tests__/auto-tap-mana.test.ts`/`graveyard-stack.test.ts`
+vollständig gelesen), nicht nur den Fertigstellungsbericht übernommen.
+Details: `docs/frontend-status.md` Abschnitt „Auto-Tap-Komfort + Friedhof
+einklappen (v0.1.37)".
+
+- **1. Auto-Tap-Komfort.** Löst den seit `docs/rules-engine.md` 9.5
+  dokumentierten „kein Auto-Tap ... kommt später"-Punkt (in diesem Sweep dort
+  aktualisiert — s. u.) UND behebt einen real gemeldeten Bug: ein Spieler,
+  der Manaquellen manuell einzeln antippt, konnte für eine Karte mit Kosten
+  `{generic:1, void:1}` versehentlich BEIDE eigenen Void-Quellen tappen (1
+  Pip + 1 generisch aus der zweiten Void-Quelle statt aus einer anderen
+  Quelle) — bei zwei identischen Handkarten blieb dann keine Void-Quelle
+  mehr für die zweite Karte übrig, obwohl insgesamt genug Gesamt-Mana
+  vorhanden war. Neue `store.ts`-Funktionen: `hypotheticalStateWithExtraMana`
+  (Klon-Hilfsfunktion, per Refactoring aus dem bestehenden
+  `hasRealPriorityChoice` herausgezogen und jetzt von BEIDEN Stellen
+  gemeinsam genutzt statt einer zweiten unabhängigen Kopie — verifiziert:
+  `hasRealPriorityChoice`s beobachtbares Verhalten bleibt dabei unverändert),
+  `castCandidatesForHandCard` (liefert für eine Handkarte `castSpell`-
+  Kandidaten, die entweder jetzt schon bezahlbar sind oder es WÜRDEN, wenn
+  zusätzlich alle eigenen ungetappten Mana-Fähigkeiten aktiviert würden —
+  reine Anzeige-Entscheidung ohne Seiteneffekt, `render.ts#handZone` ruft das
+  jetzt statt einer rohen `candidates.filter(...)` auf), `AUTO_TAP_COLOR_ORDER`
+  (feste Farbreihenfolge, identisch zur internen `COLORS`-Reihenfolge in
+  `engine/mana.ts`), `manaAbilityColor`, `selectAutoTapSources` (der
+  eigentliche Auswahlalgorithmus: farbige Pips zuerst aus gleichfarbigen
+  Quellen, generische Kosten bevorzugt aus farblosen Quellen — mirrort
+  bewusst `engine/mana.ts#payCost`s „generische Kosten zuerst aus Farblos"-
+  Prinzip, rückwärts auf die Quellenauswahl angewandt, rein gierig, keine
+  kombinatorische Suche), `autoTapActionsForCast` (liefert die vor einem
+  Cast automatisch auszuführenden `activateAbility`-Aktionen, `[]` falls der
+  Pool allein reicht, die Karte X-Kosten hat, oder selbst alle Quellen nicht
+  reichen würden), verdrahtet in `dispatch()`: erst werden die Tap-Aktionen
+  angewendet, dann der eigentliche Cast, als EIN durchgehender Vorgang ohne
+  Zwischen-Rendern. Nur menschliche Spieler betroffen — Bot-Entscheidungslogik
+  (`src/ai/*`) unverändert, `dispatch()` wird laut Funktionskommentar nur für
+  menschliche Klicks verwendet. X-Kosten-Zauber bewusst ausgenommen (aktuell
+  kein Kartenpool-Fall).
+- **2. Friedhof einklappen.** Nutzerbericht: „Friedhof zeigt jede Karte
+  einzeln in voller Größe, verschwendet viel Platz für eine Zone, die selten
+  im Detail inspiziert wird." Neue Datei `src/ui/components/graveyardStack.ts`:
+  `graveyardStackTile` (eingeklappte Stapel-Kachel für einen nicht-leeren
+  Friedhof — zeigt das ECHTE Artwork der obersten/zuletzt hinzugekommenen
+  Karte statt eines Kartenrückens, da der Friedhof anders als die verdeckte
+  Hand öffentliche Information ist, plus Zahl-Badge ab 2 Karten, reuse der
+  Stapel-Optik-CSS-Klassen `.hand-card-hidden-stack-multi`/`-count` aus der
+  v0.1.35-Hand-Stapel-Kachel) und `graveyardPopoverPanel` (vollständige,
+  scrollbare Kartenliste, struktureller Zwilling von
+  `keywordGlossaryPanel.ts` — `.tutorial-help-backdrop`/`-panel`-Muster,
+  Backdrop-Klick schließt, Klick ins Panel stoppt die Propagation).
+  `render.ts#graveyardZone` umgebaut: leerer Friedhof bleibt unverändert der
+  bisherige Leer-Hinweis, ein nicht-leerer Friedhof rendert jetzt NUR NOCH
+  die Stapel-Kachel. Die bestehende „frisch verstorben"-Juice-Einblende
+  (v0.1.35) bleibt an der eingeklappten Kachel erhalten. Neue
+  Store-Exporte `openGraveyardPopoverPlayer` (modul-intern) +
+  `getOpenGraveyardPopover`/`toggleGraveyardPopover`/`closeGraveyardPopover`
+  (ein Klick toggelt das Popover für genau diesen Spieler), verdrahtet in
+  `renderGameBoard` analog zu `isKeywordGlossaryPanelOpen`.
+- **Neue Tests:** `src/ui/__tests__/auto-tap-mana.test.ts` (1 Fall, per
+  Code-Lektüre bestätigt: reproduziert exakt das gemeldete Szenario — 2 Void
+  + 2 Flame ungetappt, zwei Handkarten mit je `{generic:1, void:1}`; nach der
+  ersten Karte GENAU 1 getappte Void- + 1 getappte Flame-Quelle statt beider
+  Void-Quellen, nach der zweiten Karte beide Void- + beide Flame-Quellen,
+  beide Karten bleiben castbar) und `src/ui/__tests__/graveyard-stack.test.ts`
+  (2 Fälle: leerer Friedhof bleibt unverändert nur der Leer-Hinweis; ein
+  über den bestehenden Cleanup-Zwangsabwurf erzeugter Friedhof mit 2
+  unterschiedlichen Karten zeigt genau EINE Stapel-Kachel mit Zahl-Badge „2",
+  Klick öffnet ein Popover mit beiden Kartennamen + exakt 2 `.card-tile`-
+  Einträgen, Schließen funktioniert über Button UND Backdrop-Klick). Beide
+  Testdateien vom documenter vollständig gelesen und gegen die beschriebene
+  Funktionsweise abgeglichen — stimmen exakt überein.
+- **Test-/Build-Zahlen — laut Auftrag, vom documenter per `Read`/`Glob`/
+  `Grep` gegen den tatsächlichen Dateibaum UND den tatsächlichen Testcode
+  gegengeprüft (kein Shell-Werkzeug in dieser Sweep-Session für einen echten
+  Testlauf, wie bei allen Sweeps seit 2026-07-18):** `npx tsc --noEmit`
+  sauber, `npx vitest run` **53 Testdateien (52 grün + 1 bewusst
+  übersprungen), 232 Tests grün + 1 bewusst übersprungen (233 gesamt)**. Per
+  `Glob` bestätigt: exakt 53 Testdateien (19 Engine + 7 KI + 27 UI,
+  unverändert seit dem letzten Sweep bei Engine/KI-Dateizahl, die beiden
+  neuen Testdateien sind die 26. und 27. UI-Datei), per Grep auf 1 bzw. 2
+  `it(`-Fälle gegengezählt (passt zum Bericht). Rechnerische Gegenprobe
+  gegen den vorherigen dokumentierten Stand: 229 (v0.1.36-Stand, 51
+  Dateien) + 1 (`auto-tap-mana.test.ts`) + 2 (`graveyard-stack.test.ts`) =
+  232 — stimmt exakt mit der gemeldeten Zahl überein.
+- **`docs/rules-engine.md` Abschnitt 9.5 aktualisiert** (die einzige
+  Engine-Dokumentationsänderung dieses Sweeps, kein Engine-Code betroffen):
+  der Satz „Auto-Tap-Komfort ... kommt später" ist jetzt als erledigt
+  markiert, mit Verweis auf `docs/frontend-status.md`.
+- **documenter (dieser Mini-Sweep, 2026-08-06):** `docs/frontend-status.md`
+  (neue Kopfzeile, neue „v0.1.37 auf einen Blick"-Kurzfassung, vollständiger
+  neuer Detail-Abschnitt, Struktur-Tabelle, „Was funktioniert" Punkte 11+12,
+  „Nächste Schritte" Punkte 26-28), `docs/rules-engine.md` (Abschnitt 9.5),
+  `docs/README.md` (Kopfzeile, Frontend-Zeile der Statustabelle, „Nächste
+  Schritte"-Intro-Zahlen, neuer „Seit dem letzten Sweep"-Absatz, „Weitere
+  offene Punkte" Punkt 15 für den frontend-engineer), `docs/status.md`
+  (dieser Eintrag) aktualisiert. `docs/engine-status.md`, `docs/ai-status.md`,
+  `docs/cards/starter-set.md` waren NICHT Gegenstand dieses Mini-Sweeps
+  (keine Engine-Code-/Model-/Kartenpool-/KI-Änderung in dieser Session — die
+  rules-engine.md-Änderung ist rein dokumentarisch, kein Engine-Code-Diff).
+  Kein eigener `npm test`/`npx vitest run`-Lauf möglich (kein
+  Shell-Werkzeug) — alle Test-/Build-Zahlen stammen aus dem im Auftrag
+  beschriebenen echten Lauf, per `Glob`/`Grep`-Gegenprobe wie oben
+  beschrieben verifiziert, keine Abweichung gefunden.
 
 ## Meilenstein: Spielspeicher in der Partie — Single-Slot-Autosave + Fortsetzen (Frontend v0.1.36, NOCH NICHT committet)
 
